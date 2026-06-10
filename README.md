@@ -21,6 +21,13 @@ on data-structures and network messages, and interacting with MikroTik devices.
 
 </div>
 
+## Crates
+
+Name | Crate | Purpose
+---|---|---
+`mikrotik-client` | [`mikrotik-client`](https://github.com/luisschwab/rust-mikrotik/tree/master/mikrotik-client) | A client for MikroTik's API
+`mikrotik-types` | [`mikrotik-types`](https://github.com/luisschwab/rust-mikrotik/tree/master/mikrotik-types) | A collection of models for MikroTik's API
+
 ## Minimum Supported Rust Version
 
 This set of library should compile with any combination of features on Rust 1.85.0.

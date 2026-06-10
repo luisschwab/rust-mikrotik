@@ -6,3 +6,5 @@ Cargo.lock.backup
 
 TODO.md
 NOTES.md
+
+/mikrotik-types/assets/fixtures/*.json

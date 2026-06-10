@@ -1,0 +1,4 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0009", # time >= 0.3.47 requires Rust 1.88.0
+]

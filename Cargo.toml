@@ -12,9 +12,19 @@ rust-version = "1.85.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/luisschwab/rust-mikrotik"
 
+[workspace.dependencies]
+memchr = { version = "2.1.0", default-features = false }
+serde = { version = "1.0.219", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
+time = { version = "0.3.41", default-features = false, features = ["alloc", "serde"] }
+
 [workspace.metadata.rbmt.toolchains]
 stable = "1.96.0"
 nightly = "nightly-2026-06-08"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unused = "deny"
 
 # These are simply copied from `rust-bitcoin`
 [workspace.lints.clippy]

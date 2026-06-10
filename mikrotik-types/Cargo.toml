@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-types"
-description = "A model of types for interacting with MikroTik devices"
+description = "Versionless data models for MikroTik's API"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -11,6 +11,12 @@ repository.workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+memchr.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
 
 [lints]
 workspace = true

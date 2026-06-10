@@ -1,0 +1,77 @@
+name: Rust
+
+on:
+    push:
+      branches: [ master ]
+    pull_request:
+    workflow_dispatch:
+
+permissions: {}
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    check:
+        name: Check - ${{ matrix.name }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Check Formatting
+                      task: fmt --check
+                    - name: Run Linting
+                      task: lint
+                    - name: Build Documentation
+                      task: docsrs
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            - name: Setup cargo-rbmt
+              uses: ./.github/actions/setup-rbmt
+
+            - name: Run ${{ matrix.task }}
+              run: cargo rbmt ${{ matrix.task }}
+
+    test:
+        name: Test - ${{ matrix.name }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Stable Toolchain + Minimal Lockfile
+                      toolchain: stable
+                      lockfile: minimal
+                    - name: Stable Toolchain + Recent Lockfile
+                      toolchain: stable
+                      lockfile: recent
+                    - name: MSRV Toolchain + Minimal Lockfile
+                      toolchain: msrv
+                      lockfile: minimal
+
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            - name: Setup cargo-rbmt
+              uses: ./.github/actions/setup-rbmt
+
+            - name: Run Tests - ${{ matrix.name }}
+              run: cargo rbmt test --toolchain ${{ matrix.toolchain }} --lock-file ${{ matrix.lockfile }}

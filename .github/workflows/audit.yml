@@ -1,0 +1,84 @@
+name: Audit
+
+on:
+    push:
+        branches: [ master ]
+    pull_request:
+    schedule:
+        - cron: '0 12 * * *' # Daily, 12:00:00 UTC
+    workflow_dispatch:
+
+permissions: {}
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    audit:
+        name: Cargo Audit - ${{ matrix.name }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            issues: write
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: Fresh Lockfile
+                      lockfile: Cargo.lock
+                    - name: Recent Lockfile
+                      lockfile: Cargo-recent.lock
+                    - name: Minimal Lockfile
+                      lockfile: Cargo-minimal.lock
+
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            - name: Generate Fresh Lockfile
+              if: ${{ matrix.lockfile == 'Cargo.lock' }}
+              run: cargo generate-lockfile
+
+            - name: Select Lockfile
+              if: ${{ matrix.lockfile != 'Cargo.lock' }}
+              run: cp ${{ matrix.lockfile }} Cargo.lock
+
+            - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+    shellcheck:
+        name: ShellCheck
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Run ShellCheck
+              run: find . -name '*.sh' -print -exec shellcheck {} +
+
+    zizmor:
+        name: Zizmor
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                persist-credentials: false
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+            - name: Run Zizmor
+              run: uvx zizmor .

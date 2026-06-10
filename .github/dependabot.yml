@@ -1,0 +1,16 @@
+version: 2
+
+updates:
+    - package-ecosystem: "cargo"
+      directory: "/"
+      schedule:
+          interval: "weekly"
+      cooldown:
+          default-days: 45 # curb supply-chain attacks
+
+    - package-ecosystem: "github-actions"
+      directory: "/"
+      schedule:
+          interval: "weekly"
+      cooldown:
+          default-days: 45 # curb supply-chain attacks

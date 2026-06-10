@@ -1,0 +1,8 @@
+Cargo.lock
+Cargo.lock.backup
+
+/debug
+/target
+
+TODO.md
+NOTES.md

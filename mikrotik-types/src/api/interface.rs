@@ -1,6 +1,8 @@
 //! Interface and layer-2 API response rows.
 
 use alloc::string::String;
+use alloc::vec::Vec;
+use core::net::IpAddr;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -10,6 +12,7 @@ use crate::primitives::interface::BridgePortStatus;
 use crate::primitives::interface::InterfaceName;
 use crate::primitives::interface::InterfaceType;
 use crate::primitives::interface::Mtu;
+use crate::primitives::ip::IpPrefix;
 use crate::primitives::ip::MacAddress;
 use crate::primitives::system::RouterOsDateTime;
 use crate::primitives::system::RouterOsDuration;
@@ -340,16 +343,16 @@ pub struct BridgeVlan {
     pub bridge: Option<InterfaceName>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Tagged member interfaces.
-    pub tagged: alloc::vec::Vec<InterfaceName>,
+    pub tagged: Vec<InterfaceName>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Untagged member interfaces.
-    pub untagged: alloc::vec::Vec<InterfaceName>,
+    pub untagged: Vec<InterfaceName>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Currently active tagged member interfaces.
-    pub current_tagged: alloc::vec::Vec<InterfaceName>,
+    pub current_tagged: Vec<InterfaceName>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Currently active untagged member interfaces.
-    pub current_untagged: alloc::vec::Vec<InterfaceName>,
+    pub current_untagged: Vec<InterfaceName>,
     /// VLAN ID set configured on this row.
     pub vlan_ids: Option<String>,
     #[serde(deserialize_with = "crate::optional_bool")]
@@ -495,13 +498,13 @@ pub struct WireGuardPeer {
     pub interface: Option<InterfaceName>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// `WireGuard` peer allowed-address prefixes.
-    pub allowed_address: alloc::vec::Vec<crate::primitives::ip::IpPrefix>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
-    /// Address assigned or advertised for the client side.
-    pub client_address: Option<crate::primitives::ip::IpPrefix>,
+    pub allowed_address: Vec<IpPrefix>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
+    /// Addresses assigned or advertised for the client side.
+    pub client_address: Vec<IpPrefix>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Current endpoint address.
-    pub current_endpoint_address: Option<core::net::IpAddr>,
+    pub current_endpoint_address: Option<IpAddr>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Port number.
     pub current_endpoint_port: Option<u16>,
@@ -512,10 +515,10 @@ pub struct WireGuardPeer {
     pub endpoint_port: Option<u16>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Time elapsed since the last handshake.
-    pub last_handshake: Option<crate::primitives::system::RouterOsDuration>,
+    pub last_handshake: Option<RouterOsDuration>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Persistent keepalive interval.
-    pub persistent_keepalive: Option<crate::primitives::system::RouterOsDuration>,
+    pub persistent_keepalive: Option<RouterOsDuration>,
     /// Public key value.
     pub public_key: Option<String>,
     /// Preshared key value.
@@ -923,6 +926,10 @@ mod tests {
         row.insert(".id".into(), "*1".into());
         row.insert("interface".into(), "wg-hq".into());
         row.insert("allowed-address".into(), "10.20.50.1/32,::/0".into());
+        row.insert(
+            "client-address".into(),
+            "10.71.108.69/32,fc00:bbbb:bbbb:bb01::8:6c44/128".into(),
+        );
         row.insert("current-endpoint-port".into(), "42069".into());
         row.insert("last-handshake".into(), "8s".into());
         row.insert("rx".into(), "3391440792".into());
@@ -930,6 +937,7 @@ mod tests {
         let peer = crate::deserialize::<super::WireGuardPeer>(&row).expect("WireGuard peer should deserialize");
 
         assert_eq!(peer.allowed_address.len(), 2);
+        assert_eq!(peer.client_address.len(), 2);
         assert_eq!(peer.current_endpoint_port, Some(42069));
         assert_eq!(
             peer.last_handshake.expect("handshake should be present").to_string(),

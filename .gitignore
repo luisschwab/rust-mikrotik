@@ -7,4 +7,5 @@ Cargo.lock.backup
 TODO.md
 NOTES.md
 
+/mikrotik-client/tests/live_router_creds.toml
 /mikrotik-types/assets/fixtures/*.json

@@ -7,6 +7,7 @@
 
 use alloc::borrow::ToOwned as _;
 use alloc::string::String;
+use alloc::string::ToString as _;
 use core::convert::Infallible;
 use core::fmt;
 use core::str::FromStr;
@@ -16,6 +17,8 @@ use serde::Serialize;
 
 use crate::ParseError;
 use crate::parse_non_empty;
+use crate::primitives::interface::InterfaceName;
+use crate::primitives::ip::IpPrefix;
 
 /// `RouterOS` routing table name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -90,6 +93,73 @@ impl<'de> Deserialize<'de> for RouteGateway {
         String::deserialize(deserializer)?
             .parse()
             .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Destination value reported by `/routing/route/print`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteDestination {
+    /// Destination is an IP prefix.
+    Prefix(IpPrefix),
+    /// Destination is an interface selector.
+    Interface(InterfaceName),
+}
+
+impl FromStr for RouteDestination {
+    type Err = ParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        value
+            .parse::<IpPrefix>()
+            .map(Self::Prefix)
+            .or_else(|_| value.parse::<InterfaceName>().map(Self::Interface))
+    }
+}
+
+impl fmt::Display for RouteDestination {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Prefix(prefix) => fmt::Display::fmt(prefix, formatter),
+            Self::Interface(interface) => fmt::Display::fmt(interface, formatter),
+        }
+    }
+}
+
+impl Serialize for RouteDestination {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for RouteDestination {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RouteDestination;
+
+    #[test]
+    fn route_destination_accepts_prefixes_and_interfaces() {
+        assert!(matches!(
+            "0.0.0.0/0".parse::<RouteDestination>(),
+            Ok(RouteDestination::Prefix(_))
+        ));
+        assert!(matches!(
+            "ether1".parse::<RouteDestination>(),
+            Ok(RouteDestination::Interface(_))
+        ));
+        assert!("".parse::<RouteDestination>().is_err());
     }
 }
 

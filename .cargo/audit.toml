@@ -1,4 +1,12 @@
 [advisories]
 ignore = [
-    "RUSTSEC-2026-0009", # time >= 0.3.47 requires Rust 1.88.0
+    # Only reachable from Cargo-minimal.lock through `mikrotik-proto -> uuid`
+    # dev/wasm support. Runtime code does not use `bumpalo::collections::Vec`.
+    "RUSTSEC-2022-0078",
+    # Patched `time` versions currently require Rust 1.88; this workspace's
+    # MSRV is 1.85.
+    "RUSTSEC-2026-0009",
+    # Cargo-minimal.lock includes `ring` through `rustls-webpki` metadata, but
+    # the client installs rustls' AWS-LC provider instead.
+    "RUSTSEC-2025-0009",
 ]

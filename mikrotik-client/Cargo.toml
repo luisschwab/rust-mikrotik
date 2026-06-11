@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-client"
-description = "A REST client to MikroTik devices"
+description = "A binary RouterOS API client for MikroTik devices"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -11,6 +11,32 @@ repository.workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[package.metadata.rbmt.lint]
+allowed_duplicates = [
+  "getrandom",
+  "r-efi",
+  "windows-sys",
+  "wit-bindgen",
+]
+
+[dependencies]
+mikrotik-proto = { version = "0.2.0", features = ["std"] }
+mikrotik-types = { path = "../mikrotik-types" }
+rustls = { version = "0.23.40", default-features = false, features = ["aws_lc_rs", "std"] }
+serde.workspace = true
+tokio = { version = "1.52.3", features = ["io-util", "net", "sync"] }
+tokio-rustls = { version = "0.26.0", default-features = false, features = ["tls12"] }
+
+# Minimal-version floors for transitive dependencies that otherwise resolve to
+# vulnerable or incompatible versions.
+aws-lc-rs = { version = "1.17.0", default-features = false }
+bytes = { version = "1.11.1", default-features = false }
+rustls-webpki = { version = "0.103.13", default-features = false }
+uuid = { version = "1.23.3", default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

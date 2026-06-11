@@ -3,6 +3,7 @@
 //! This module models local `RouterOS` user, group, and session rows.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -68,7 +69,7 @@ pub struct UserGroup {
     pub name: Option<String>,
     #[serde(deserialize_with = "crate::comma_list")]
     /// Policy names applied to this user group.
-    pub policy: alloc::vec::Vec<String>,
+    pub policy: Vec<String>,
     /// User group skin name.
     pub skin: Option<String>,
 }

@@ -1,11 +1,14 @@
 //! System API response rows.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::num::NonZeroU8;
 
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::RouterOsId;
+use crate::primitives::interface::InterfaceName;
 use crate::primitives::system::RouterOsDate;
 use crate::primitives::system::RouterOsDateTime;
 use crate::primitives::system::RouterOsDuration;
@@ -135,7 +138,7 @@ pub struct Clock {
 pub struct HistoryEntry {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// Action configured for this row.
     pub action: Option<String>,
     /// User or process that made the recorded configuration change.
@@ -162,7 +165,7 @@ pub struct HistoryEntry {
 pub struct Package {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// Name of this package.
     pub name: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
@@ -196,7 +199,7 @@ pub struct PackageUpdate {
 pub struct ResourceCpu {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// CPU identifier or usage associated with the row.
     pub cpu: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
@@ -216,7 +219,7 @@ pub struct ResourceCpu {
 pub struct LoggingRule {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// Action configured for this row.
     pub action: Option<String>,
     /// Logging topics or topic filters.
@@ -238,7 +241,7 @@ pub struct LoggingRule {
 pub struct LoggingAction {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// Name of this logging action.
     pub name: Option<String>,
     /// Logging target backend.
@@ -379,14 +382,14 @@ pub struct RouterboardResetButton {
 pub struct LogEntry {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// Log message text.
     pub message: Option<String>,
     /// Time value associated with this entry.
     pub time: Option<String>,
     #[serde(deserialize_with = "crate::comma_list")]
     /// Logging topics or topic filters.
-    pub topics: alloc::vec::Vec<String>,
+    pub topics: Vec<String>,
 }
 
 /// Response row from `/system/device-mode/print`.
@@ -403,10 +406,10 @@ pub struct DeviceMode {
 pub struct Led {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Interface associated with this row.
-    pub interface: Option<crate::primitives::interface::InterfaceName>,
+    pub interface: Option<InterfaceName>,
     /// LEDs controlled by this row.
     pub leds: Option<String>,
     #[serde(rename = "type")]
@@ -476,7 +479,7 @@ pub struct ResourceUsbSettings {
 pub struct ResourceIrq {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     /// IRQ number or IRQ CPU usage counter.
     pub irq: Option<String>,
     /// CPU identifier or usage associated with the row.
@@ -502,17 +505,17 @@ pub struct ResourceIrq {
 pub struct ScriptJob {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
     /// Internal `RouterOS` row ID.
-    pub id: Option<crate::RouterOsId>,
+    pub id: Option<RouterOsId>,
     #[serde(rename = ".nextid", deserialize_with = "crate::optional_from_str")]
     /// Next internal `RouterOS` row ID, when reported.
-    pub next_id: Option<crate::RouterOsId>,
+    pub next_id: Option<RouterOsId>,
     /// User that owns the running script job.
     pub owner: Option<String>,
     /// Parent job or object identifier.
     pub parent: Option<String>,
     #[serde(deserialize_with = "crate::comma_list")]
     /// Policy names applied to this script job.
-    pub policy: alloc::vec::Vec<String>,
+    pub policy: Vec<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Start timestamp for this row.
     pub started: Option<RouterOsDateTime>,

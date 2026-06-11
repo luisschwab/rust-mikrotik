@@ -1,6 +1,7 @@
 //! Routing API response rows.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::net::IpAddr;
 
 use serde::Deserialize;
@@ -8,9 +9,9 @@ use serde::Serialize;
 
 use crate::RouterOsId;
 use crate::primitives::interface::InterfaceName;
-use crate::primitives::ip::IpPrefix;
 use crate::primitives::ip::ScopedIpAddress;
 use crate::primitives::routing::BgpSessionState;
+use crate::primitives::routing::RouteDestination;
 use crate::primitives::routing::RouteGateway;
 use crate::primitives::routing::RoutingTableName;
 use crate::primitives::system::RouterOsDuration;
@@ -141,7 +142,7 @@ pub struct RoutingRoute {
     pub contribution: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Destination address or destination address matcher.
-    pub dst_address: Option<IpPrefix>,
+    pub dst_address: Option<RouteDestination>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Configured gateway value.
     pub gateway: Option<RouteGateway>,
@@ -255,7 +256,7 @@ pub struct RoutingStatsProcess {
     pub max_busy: Option<RouterOsDuration>,
     #[serde(deserialize_with = "crate::comma_list")]
     /// Tasks currently associated with the routing process.
-    pub tasks: alloc::vec::Vec<String>,
+    pub tasks: Vec<String>,
 }
 
 /// Response row from `/routing/settings/print`.
@@ -268,7 +269,7 @@ pub struct RoutingSettings {
 }
 
 /// Response row from `/routing/stats/memory/print`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct RoutingStatsMemory {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
@@ -288,7 +289,7 @@ pub struct RoutingStatsMemory {
     pub page_cell_count: Option<u64>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Unused space left in memory pool pages.
-    pub page_slack: Option<u64>,
+    pub page_slack: Option<f64>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Number of pages allocated by the memory pool.
     pub pages: Option<u64>,
@@ -376,7 +377,7 @@ pub struct RoutingStatsStep {
     pub max_time: Option<RouterOsDuration>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Execution order for this routing step.
-    pub order: Option<u32>,
+    pub order: Option<i32>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Number of times this routing step has run.
     pub runs: Option<u64>,
@@ -387,7 +388,10 @@ pub struct RoutingStatsStep {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::RoutingRoute;
+    use super::RoutingStatsMemory;
     use crate::Row;
 
     #[test]
@@ -413,5 +417,56 @@ mod tests {
             route.nexthop_id.expect("nexthop id should be present").as_str(),
             "*20182720"
         );
+    }
+
+    #[test]
+    fn routing_route_deserializes_scoped_ipv6_prefixes() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*201040CC".into());
+        row.insert("afi".into(), "ip6".into());
+        row.insert("dst-address".into(), "fe80::%ether1/64".into());
+        row.insert("gateway".into(), "ether1".into());
+
+        let route = crate::deserialize::<RoutingRoute>(&row).expect("scoped IPv6 route should deserialize");
+
+        assert_eq!(
+            route.dst_address.as_ref().map(ToString::to_string).as_deref(),
+            Some("fe80::%ether1/64")
+        );
+    }
+
+    #[test]
+    fn routing_stats_memory_deserializes_fractional_page_slack() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*2".into());
+        row.insert("name".into(), "Dst+1".into());
+        row.insert("objects".into(), "1".into());
+        row.insert("page-cell-count".into(), "282".into());
+        row.insert("page-slack".into(), "253.75".into());
+
+        let memory = crate::deserialize::<RoutingStatsMemory>(&row).expect("routing stats memory should deserialize");
+
+        assert_eq!(memory.objects, Some(1));
+        assert_eq!(memory.page_slack, Some(253.75));
+    }
+
+    #[test]
+    fn routing_stats_step_deserializes_negative_order() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*11".into());
+        row.insert("context".into(), "PUBLISH".into());
+        row.insert("cur-time".into(), "0ms".into());
+        row.insert("max-time".into(), "0ms".into());
+        row.insert("name".into(), "route/static/dst/publish".into());
+        row.insert("order".into(), "-100".into());
+        row.insert("pid".into(), "main".into());
+        row.insert("running".into(), "false".into());
+        row.insert("runs".into(), "274".into());
+        row.insert("state".into(), "on".into());
+
+        let step = crate::deserialize::<super::RoutingStatsStep>(&row).expect("routing stats step should deserialize");
+
+        assert_eq!(step.order, Some(-100));
+        assert_eq!(step.runs, Some(274));
     }
 }

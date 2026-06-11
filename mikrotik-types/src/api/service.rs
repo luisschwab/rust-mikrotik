@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::RouterOsId;
 use crate::primitives::interface::InterfaceName;
 use crate::primitives::system::RouterOsByteSize;
+use crate::primitives::system::RouterOsDateTime;
 use crate::primitives::system::RouterOsVersion;
 
 /// Response row from `/caps-man/aaa/print`.
@@ -123,7 +124,7 @@ pub struct File {
     pub file_type: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Creation timestamp reported by `RouterOS`.
-    pub creation_time: Option<crate::primitives::system::RouterOsDateTime>,
+    pub creation_time: Option<RouterOsDateTime>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Package size.
     pub size: Option<RouterOsByteSize>,

@@ -1,0 +1,191 @@
+//! Error types returned by the client.
+
+use std::collections::BTreeMap;
+use std::error;
+use std::fmt;
+
+use mikrotik_types::Row;
+
+/// Errors returned by the `MikroTik` client.
+#[derive(Debug)]
+pub enum Error {
+    /// Error returned by the network transport.
+    Io(std::io::Error),
+    /// Error returned by the sans-IO connection state machine.
+    Connection(mikrotik_proto::error::ConnectionError),
+    /// Error returned by the `RouterOS` login handshake.
+    Login(mikrotik_proto::error::LoginError),
+    /// The transport closed before the current operation completed.
+    ConnectionClosed,
+    /// `RouterOS` returned a trap response while executing a command.
+    Trap(String),
+    /// `RouterOS` returned a fatal response while executing a command.
+    Fatal(String),
+    /// A raw `RouterOS` row could not be decoded into its endpoint type.
+    Decode(DecodeError),
+}
+
+/// Details about a raw row that failed typed deserialization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodeError {
+    command: String,
+    row_index: usize,
+    message: String,
+    row: Row,
+}
+
+impl DecodeError {
+    pub(crate) fn new(command: &str, row_index: usize, message: String, row: &Row) -> Self {
+        Self {
+            command: command.to_owned(),
+            row_index,
+            message,
+            row: redact_row(row),
+        }
+    }
+
+    /// Return the command whose row failed to decode.
+    #[must_use]
+    pub fn command(&self) -> &str {
+        &self.command
+    }
+
+    /// Return the zero-based index of the row that failed to decode.
+    #[must_use]
+    pub const fn row_index(&self) -> usize {
+        self.row_index
+    }
+
+    /// Return the decode error message from the typed row parser.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Return the redacted raw row that failed to decode.
+    #[must_use]
+    pub fn row(&self) -> &Row {
+        &self.row
+    }
+}
+
+impl fmt::Display for DecodeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "command {} row {} failed to decode: {}; row: {:?}",
+            self.command, self.row_index, self.message, self.row
+        )
+    }
+}
+
+impl error::Error for DecodeError {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => write!(formatter, "RouterOS transport error: {error}"),
+            Self::Connection(error) => write!(formatter, "RouterOS protocol connection error: {error}"),
+            Self::Login(error) => write!(formatter, "RouterOS login error: {error}"),
+            Self::ConnectionClosed => write!(formatter, "RouterOS connection closed"),
+            Self::Trap(message) => write!(formatter, "RouterOS trap: {message}"),
+            Self::Fatal(reason) => write!(formatter, "RouterOS fatal response: {reason}"),
+            Self::Decode(error) => write!(formatter, "RouterOS row decode error: {error}"),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Connection(error) => Some(error),
+            Self::Login(error) => Some(error),
+            Self::Decode(error) => Some(error),
+            Self::ConnectionClosed | Self::Trap(_) | Self::Fatal(_) => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<mikrotik_proto::error::ConnectionError> for Error {
+    fn from(error: mikrotik_proto::error::ConnectionError) -> Self {
+        Self::Connection(error)
+    }
+}
+
+impl From<mikrotik_proto::error::LoginError> for Error {
+    fn from(error: mikrotik_proto::error::LoginError) -> Self {
+        Self::Login(error)
+    }
+}
+
+/// Result type used by the `MikroTik` client.
+pub type Result<T> = core::result::Result<T, Error>;
+
+fn redact_row(row: &Row) -> Row {
+    row.iter()
+        .map(|(key, value)| {
+            let value = if is_sensitive_key(key) {
+                "<redacted>".to_owned()
+            } else {
+                value.clone()
+            };
+            (key.clone(), value)
+        })
+        .collect::<BTreeMap<_, _>>()
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let mut normalized = key.bytes().filter_map(|byte| {
+        if byte.is_ascii_alphanumeric() {
+            Some(byte.to_ascii_lowercase())
+        } else {
+            None
+        }
+    });
+
+    let key = normalized.by_ref().collect::<Vec<_>>();
+
+    contains_ascii(&key, b"password")
+        || contains_ascii(&key, b"secret")
+        || contains_ascii(&key, b"privatekey")
+        || contains_ascii(&key, b"presharedkey")
+        || contains_ascii(&key, b"authkey")
+}
+
+fn contains_ascii(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|candidate| candidate == needle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_error_display_includes_context_and_redacts_sensitive_fields() {
+        let row = Row::from([
+            ("name".to_owned(), "peer-a".to_owned()),
+            ("private-key".to_owned(), "secret-private-key".to_owned()),
+            ("preshared-key".to_owned(), "secret-preshared-key".to_owned()),
+            ("public-key".to_owned(), "not-redacted".to_owned()),
+        ]);
+
+        let error = DecodeError::new("/interface/wireguard/peers/print", 2, "invalid value".to_owned(), &row);
+        let display = error.to_string();
+
+        assert!(display.contains("/interface/wireguard/peers/print"));
+        assert!(display.contains("row 2"));
+        assert!(display.contains("invalid value"));
+        assert!(display.contains("peer-a"));
+        assert!(display.contains("<redacted>"));
+        assert!(display.contains("not-redacted"));
+        assert!(!display.contains("secret-private-key"));
+        assert!(!display.contains("secret-preshared-key"));
+    }
+}

@@ -28,13 +28,18 @@ pub enum Error {
 /// Details about a raw row that failed typed deserialization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodeError {
+    /// Command whose row failed typed decoding.
     command: String,
+    /// Zero-based row index within the command reply.
     row_index: usize,
+    /// Human-readable deserializer error.
     message: String,
+    /// Redacted copy of the raw row.
     row: Row,
 }
 
 impl DecodeError {
+    /// Build a decode error and redact sensitive values from the row context.
     pub(crate) fn new(command: &str, row_index: usize, message: String, row: &Row) -> Self {
         Self {
             command: command.to_owned(),
@@ -128,6 +133,7 @@ impl From<mikrotik_proto::error::LoginError> for Error {
 /// Result type used by the `MikroTik` client.
 pub type Result<T> = core::result::Result<T, Error>;
 
+/// Return a copy of a raw row with sensitive values replaced.
 fn redact_row(row: &Row) -> Row {
     row.iter()
         .map(|(key, value)| {
@@ -141,6 +147,7 @@ fn redact_row(row: &Row) -> Row {
         .collect::<BTreeMap<_, _>>()
 }
 
+/// Return whether a `RouterOS` row key likely carries sensitive material.
 fn is_sensitive_key(key: &str) -> bool {
     let mut normalized = key.bytes().filter_map(|byte| {
         if byte.is_ascii_alphanumeric() {
@@ -159,6 +166,7 @@ fn is_sensitive_key(key: &str) -> bool {
         || contains_ascii(&key, b"authkey")
 }
 
+/// Return whether `needle` appears in `haystack`.
 fn contains_ascii(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|candidate| candidate == needle)
 }

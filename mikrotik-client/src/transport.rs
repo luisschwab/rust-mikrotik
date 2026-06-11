@@ -29,16 +29,21 @@ use crate::config::Protocol;
 use crate::error::Error;
 use crate::error::Result;
 
+/// Trait alias for streams that can carry `RouterOS` API frames.
 pub(crate) trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}
 
 impl<T> AsyncStream for T where T: AsyncRead + AsyncWrite + Unpin + Send {}
 
+/// Authenticated transport plus sans-IO protocol state.
 pub(crate) struct Session {
+    /// TCP or TLS stream connected to `RouterOS`.
     pub(crate) stream: Box<dyn AsyncStream>,
+    /// Sans-IO connection state machine.
     pub(crate) connection: Connection,
 }
 
 impl Session {
+    /// Connect to a `RouterOS` API endpoint and complete login.
     pub(crate) async fn connect(config: &MikroTikClientConfig) -> Result<Self> {
         let stream = connect_stream(config).await?;
         let connection = login(stream, config).await?;
@@ -53,6 +58,7 @@ impl fmt::Debug for Session {
     }
 }
 
+/// Open the configured TCP or TLS stream.
 async fn connect_stream(config: &MikroTikClientConfig) -> Result<Box<dyn AsyncStream>> {
     let tcp_stream = TcpStream::connect(config.socket_address()).await?;
     tcp_stream.set_nodelay(true)?;
@@ -72,6 +78,7 @@ async fn connect_stream(config: &MikroTikClientConfig) -> Result<Box<dyn AsyncSt
     }
 }
 
+/// Drive the `RouterOS` login handshake over an open stream.
 async fn login(mut stream: Box<dyn AsyncStream>, config: &MikroTikClientConfig) -> Result<Session> {
     let mut handshaking = Handshaking::new(&config.credentials.username, config.credentials.password.as_deref())?;
 
@@ -96,6 +103,7 @@ async fn login(mut stream: Box<dyn AsyncStream>, config: &MikroTikClientConfig) 
     Ok(Session { stream, connection })
 }
 
+/// Write all pending login handshake transmissions.
 async fn flush_login_transmits(stream: &mut dyn AsyncStream, handshaking: &mut Handshaking) -> Result<()> {
     while let Some(transmit) = handshaking.poll_transmit() {
         stream.write_all(&transmit.data).await?;
@@ -103,6 +111,7 @@ async fn flush_login_transmits(stream: &mut dyn AsyncStream, handshaking: &mut H
     Ok(())
 }
 
+/// Certificate verifier that accepts any server certificate.
 #[derive(Debug)]
 struct NoVerifier(Arc<CryptoProvider>);
 
@@ -141,6 +150,7 @@ impl ServerCertVerifier for NoVerifier {
     }
 }
 
+/// Build a TLS client configuration matching `RouterOS` API-SSL's local-test needs.
 fn insecure_client_config() -> Arc<ClientConfig> {
     let provider = CryptoProvider::get_default()
         .cloned()

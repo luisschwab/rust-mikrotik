@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "mikrotik-client",
+  "mikrotik-simnet",
   "mikrotik-types"
 ]
 
@@ -92,6 +93,7 @@ match_wild_err_arm = "warn"
 match_wildcard_for_single_variants = "warn"
 maybe_infinite_iter = "warn"
 mismatching_type_param_order = "warn"
+missing_docs_in_private_items = "deny"
 missing_errors_doc = "warn"
 missing_fields_in_debug = "warn"
 missing_panics_doc = "warn"

@@ -11,6 +11,7 @@ pub mod commands;
 mod config;
 mod error;
 mod print;
+pub mod print_checks;
 mod transport;
 
 pub use client::MikroTikClient;

@@ -147,6 +147,7 @@ impl<'de> Deserialize<'de> for RouterOsId {
     }
 }
 
+/// Parse a string that must not be empty.
 pub(crate) fn parse_non_empty(value: &str) -> Result<String, ParseError> {
     if value.is_empty() {
         Err(ParseError::NonEmptyString)

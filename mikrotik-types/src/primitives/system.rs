@@ -247,6 +247,7 @@ impl<'de> Deserialize<'de> for RouterOsTime {
     }
 }
 
+/// Parse either current ISO-like or legacy `RouterOS` date-time text.
 fn parse_router_os_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
     if value.len() == 19 && value.as_bytes().get(4) == Some(&b'-') {
         parse_iso_like_datetime(value)
@@ -255,6 +256,7 @@ fn parse_router_os_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError
     }
 }
 
+/// Parse `YYYY-MM-DD HH:MM:SS` date-time text.
 fn parse_iso_like_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
     let year = parse_i32_slice(value, 0..4)?;
     let month = parse_month_number(parse_u8_slice(value, 5..7)?)?;
@@ -265,6 +267,7 @@ fn parse_iso_like_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError>
     Ok(PrimitiveDateTime::new(date, time))
 }
 
+/// Parse legacy `mon/DD/YYYY HH:MM:SS` date-time text.
 fn parse_legacy_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
     let (date, time) = value.split_once(' ').ok_or(ParseError::RouterOsDateTime)?;
     let mut date_parts = date.split('/');
@@ -280,10 +283,12 @@ fn parse_legacy_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
     Ok(PrimitiveDateTime::new(date, parse_time_hms(time)?))
 }
 
+/// Parse `HH:MM:SS` as a time using the date-time parse error.
 fn parse_time_hms(value: &str) -> Result<Time, ParseError> {
     parse_time_hms_as(value, ParseError::RouterOsDateTime)
 }
 
+/// Parse `HH:MM:SS` as a time using a caller-selected parse error.
 fn parse_time_hms_as(value: &str, error: ParseError) -> Result<Time, ParseError> {
     let mut parts = value.split(':');
     let hour = parse_u8_as(parts.next().ok_or(error)?, error)?;
@@ -297,6 +302,7 @@ fn parse_time_hms_as(value: &str, error: ParseError) -> Result<Time, ParseError>
     Time::from_hms(hour, minute, second).map_err(|_| error)
 }
 
+/// Parse a three-letter English month name used by legacy `RouterOS`.
 fn parse_month_name(value: &str) -> Result<Month, ParseError> {
     match value {
         "Jan" => Ok(Month::January),
@@ -315,38 +321,47 @@ fn parse_month_name(value: &str) -> Result<Month, ParseError> {
     }
 }
 
+/// Parse a one-based month number.
 fn parse_month_number(value: u8) -> Result<Month, ParseError> {
     Month::try_from(value).map_err(|_| ParseError::RouterOsDateTime)
 }
 
+/// Parse a byte range from a string as `i32` using the date-time parse error.
 fn parse_i32_slice(value: &str, range: core::ops::Range<usize>) -> Result<i32, ParseError> {
     parse_i32_slice_as(value, range, ParseError::RouterOsDateTime)
 }
 
+/// Parse a byte range from a string as `u8` using the date-time parse error.
 fn parse_u8_slice(value: &str, range: core::ops::Range<usize>) -> Result<u8, ParseError> {
     parse_u8_slice_as(value, range, ParseError::RouterOsDateTime)
 }
 
+/// Parse a byte range from a string as `i32` using a caller-selected parse error.
 fn parse_i32_slice_as(value: &str, range: core::ops::Range<usize>, error: ParseError) -> Result<i32, ParseError> {
     parse_i32_as(value.get(range).ok_or(error)?, error)
 }
 
+/// Parse a byte range from a string as `u8` using a caller-selected parse error.
 fn parse_u8_slice_as(value: &str, range: core::ops::Range<usize>, error: ParseError) -> Result<u8, ParseError> {
     parse_u8_as(value.get(range).ok_or(error)?, error)
 }
 
+/// Parse a string as `i32` using the date-time parse error.
 fn parse_i32(value: &str) -> Result<i32, ParseError> {
     parse_i32_as(value, ParseError::RouterOsDateTime)
 }
 
+/// Parse a string as `u8` using the date-time parse error.
 fn parse_u8(value: &str) -> Result<u8, ParseError> {
     parse_u8_as(value, ParseError::RouterOsDateTime)
 }
 
+/// Parse a string as `i32` using a caller-selected parse error.
 fn parse_i32_as(value: &str, error: ParseError) -> Result<i32, ParseError> {
     value.parse().map_err(|_| error)
 }
 
+/// Parse a string as `u8` using a caller-selected parse error.
 fn parse_u8_as(value: &str, error: ParseError) -> Result<u8, ParseError> {
     value.parse().map_err(|_| error)
 }
@@ -418,7 +433,9 @@ impl<'de> Deserialize<'de> for RouterOsDuration {
 /// `RouterOS` duration range such as `0s..1m`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RouterOsDurationRange {
+    /// Inclusive range start.
     start: RouterOsDuration,
+    /// Inclusive range end.
     end: RouterOsDuration,
 }
 
@@ -598,6 +615,7 @@ impl<'de> Deserialize<'de> for RouterOsTimeZoneOffset {
     }
 }
 
+/// Parse a `RouterOS` duration string into a standard duration.
 fn parse_router_os_duration(value: &str) -> Result<Duration, ParseError> {
     if value.is_empty() {
         return Err(ParseError::RouterOsDuration);
@@ -632,19 +650,29 @@ fn parse_router_os_duration(value: &str) -> Result<Duration, ParseError> {
     Ok(total)
 }
 
+/// Units accepted by `RouterOS` duration strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DurationUnit {
+    /// Week unit.
     Weeks,
+    /// Day unit.
     Days,
+    /// Hour unit.
     Hours,
+    /// Minute unit.
     Minutes,
+    /// Second unit.
     Seconds,
+    /// Millisecond unit.
     Milliseconds,
+    /// Microsecond unit.
     Microseconds,
+    /// Nanosecond unit.
     Nanoseconds,
 }
 
 impl DurationUnit {
+    /// Convert a numeric component in this unit into a duration.
     fn duration(self, value: u64) -> Result<Duration, ParseError> {
         match self {
             Self::Weeks => duration_from_secs(value, 7 * 24 * 60 * 60),
@@ -659,6 +687,7 @@ impl DurationUnit {
     }
 }
 
+/// Convert a seconds-based unit into a duration with overflow checking.
 fn duration_from_secs(value: u64, multiplier: u64) -> Result<Duration, ParseError> {
     value
         .checked_mul(multiplier)
@@ -666,6 +695,7 @@ fn duration_from_secs(value: u64, multiplier: u64) -> Result<Duration, ParseErro
         .ok_or(ParseError::RouterOsDuration)
 }
 
+/// Parse the next duration unit suffix and return the remaining string.
 fn parse_duration_unit(value: &str) -> Result<(DurationUnit, &str), ParseError> {
     if let Some(rest) = value.strip_prefix("min") {
         Ok((DurationUnit::Minutes, rest))
@@ -690,6 +720,7 @@ fn parse_duration_unit(value: &str) -> Result<(DurationUnit, &str), ParseError> 
     }
 }
 
+/// Format a standard duration using compact `RouterOS` duration units.
 fn write_router_os_duration(duration: Duration, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut seconds = duration.as_secs();
     let milliseconds = duration.subsec_millis();

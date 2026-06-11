@@ -21,7 +21,9 @@ use crate::transport::Session;
 /// Connected `RouterOS` binary API client.
 #[derive(Debug, Clone)]
 pub struct MikroTikClient {
+    /// Connection configuration used to create the session.
     config: MikroTikClientConfig,
+    /// Shared serialized access to the underlying protocol session.
     session: Arc<Mutex<Session>>,
 }
 
@@ -48,23 +50,30 @@ impl MikroTikClient {
 
     /// Execute a raw `RouterOS` command and collect all reply rows.
     ///
+    /// Attribute entries with `None` values are sent as flag attributes.
+    ///
     /// # Errors
     ///
     /// Returns an error if the command cannot be sent, if `RouterOS` returns a
     /// trap or fatal response, or if the connection closes before completion.
-    pub async fn call(&self, command: &str) -> Result<Vec<Row>> {
-        let command = CommandBuilder::new().command(command).build();
+    pub async fn call(&self, command: &str, attributes: &[(&str, Option<&str>)]) -> Result<Vec<Row>> {
+        let mut command_builder = CommandBuilder::new().command(command);
+        for (key, value) in attributes {
+            command_builder = command_builder.attribute(key, *value);
+        }
+
         let mut session = self.session.lock().await;
-        let rows = session.call(command).await?;
+        let rows = session.call(command_builder.build()).await?;
 
         Ok(rows)
     }
 
+    /// Execute a print command and deserialize every row into `T`.
     pub(crate) async fn print_typed<T>(&self, command: &str) -> Result<Vec<T>>
     where
         T: DeserializeOwned,
     {
-        let rows = self.call(command).await?;
+        let rows = self.call(command, &[]).await?;
         let mut typed_rows = Vec::with_capacity(rows.len());
 
         for (row_index, row) in rows.iter().enumerate() {
@@ -78,6 +87,7 @@ impl MikroTikClient {
 }
 
 impl Session {
+    /// Send one encoded command and collect reply rows for its tag.
     async fn call(&mut self, command: mikrotik_proto::Command) -> Result<Vec<Row>> {
         let tag = self.connection.send_command(command)?;
         let mut rows = Vec::new();
@@ -114,6 +124,7 @@ impl Session {
         }
     }
 
+    /// Write all pending protocol transmissions to the transport stream.
     async fn flush_transmits(&mut self) -> Result<()> {
         while let Some(transmit) = self.connection.poll_transmit() {
             self.stream.write_all(&transmit.data).await?;
@@ -122,6 +133,7 @@ impl Session {
     }
 }
 
+/// Convert protocol attributes into a `Row`, dropping absent values.
 fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String>>) -> Row {
     attributes
         .into_iter()
@@ -129,6 +141,7 @@ fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String
         .collect::<BTreeMap<_, _>>()
 }
 
+/// Install the process-wide rustls crypto provider once.
 fn install_rustls_provider() {
     static RUSTLS_PROVIDER: Once = Once::new();
     RUSTLS_PROVIDER.call_once(|| {

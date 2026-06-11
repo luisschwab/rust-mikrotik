@@ -3,6 +3,7 @@
 //! This module covers queue configuration and state rows from `/queue/*`.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -105,5 +106,5 @@ pub struct QueueType {
     pub default: Option<bool>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// IPv6 destination mask values exposed by `RouterOS` for PCQ.
-    pub pcq_dst_address6_mask_values: alloc::vec::Vec<IpPrefix>,
+    pub pcq_dst_address6_mask_values: Vec<IpPrefix>,
 }

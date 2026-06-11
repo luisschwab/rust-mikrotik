@@ -20,6 +20,7 @@ use crate::primitives::ip::SystemCapability;
 use crate::primitives::routing::RouteGateway;
 use crate::primitives::routing::RoutingTableName;
 use crate::primitives::system::RouterOsByteSize;
+use crate::primitives::system::RouterOsDateTime;
 use crate::primitives::system::RouterOsDuration;
 use crate::primitives::system::RouterOsVersion;
 
@@ -471,7 +472,7 @@ pub struct FirewallAddressListEntry {
     pub comment: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Creation timestamp reported by `RouterOS`.
-    pub creation_time: Option<crate::primitives::system::RouterOsDateTime>,
+    pub creation_time: Option<RouterOsDateTime>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row is disabled.
     pub disabled: Option<bool>,

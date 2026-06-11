@@ -3,6 +3,7 @@
 //! This module models `/snmp/*` configuration returned by `RouterOS`.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::net::IpAddr;
 
 use serde::Deserialize;
@@ -50,7 +51,7 @@ pub struct SnmpCommunity {
     pub security: Option<String>,
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Address prefixes allowed to use the SNMP community.
-    pub addresses: alloc::vec::Vec<IpPrefix>,
+    pub addresses: Vec<IpPrefix>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this is the default row.
     pub default: Option<bool>,

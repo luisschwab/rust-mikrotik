@@ -103,7 +103,11 @@ impl FromStr for IpPrefix {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (address, prefix) = value.split_once('/').ok_or(ParseError::IpPrefix)?;
         let prefix = prefix.parse::<u8>().map_err(|_| ParseError::IpPrefix)?;
-        let address = address.parse::<IpAddr>().map_err(|_| ParseError::IpPrefix)?;
+        let address = address
+            .split_once('%')
+            .map_or(address, |(address, _)| address)
+            .parse::<IpAddr>()
+            .map_err(|_| ParseError::IpPrefix)?;
 
         let max_prefix = match address {
             IpAddr::V4(_) => 32,
@@ -447,5 +451,27 @@ impl fmt::Display for DhcpLeaseStatus {
             Self::Busy => formatter.write_str("busy"),
             Self::Unknown(value) => formatter.write_str(value),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::ToString;
+
+    use super::IpPrefix;
+
+    #[test]
+    fn ip_prefix_accepts_scoped_ipv6_prefixes() {
+        let prefix = "fe80::%ether1/64"
+            .parse::<IpPrefix>()
+            .expect("scoped IPv6 prefix should parse");
+
+        assert_eq!(prefix.to_string(), "fe80::%ether1/64");
+    }
+
+    #[test]
+    fn ip_prefix_rejects_invalid_scoped_ipv6_prefixes() {
+        assert!("fe80::%ether1/129".parse::<IpPrefix>().is_err());
+        assert!("not-an-ip%ether1/64".parse::<IpPrefix>().is_err());
     }
 }

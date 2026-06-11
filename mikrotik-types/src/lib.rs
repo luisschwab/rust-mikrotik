@@ -1,4 +1,5 @@
 #![no_std]
+#![deny(missing_docs)]
 
 //! Versionless data models for `MikroTik`'s `RouterOS`.
 //!

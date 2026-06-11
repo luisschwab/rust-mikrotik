@@ -30,6 +30,7 @@ pub use ip::MacAddress;
 pub use ip::ScopedIpAddress;
 pub use ip::SystemCapability;
 pub use routing::BgpSessionState;
+pub use routing::RouteDestination;
 pub use routing::RouteGateway;
 pub use routing::RoutingTableName;
 pub use system::RouterOsByteSize;

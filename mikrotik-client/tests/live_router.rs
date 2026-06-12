@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+//! Optional live-router integration checks for print endpoint coverage.
 
 use std::collections::BTreeMap;
 use std::fs;

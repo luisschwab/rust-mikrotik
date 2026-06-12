@@ -1,8 +1,10 @@
 //! Connected client and raw command execution.
 
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::Once;
+use std::time::Duration;
 
 use mikrotik_proto::CommandBuilder;
 use mikrotik_proto::Event;
@@ -11,12 +13,21 @@ use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
+use tokio::time::sleep;
 
 use crate::config::MikroTikClientConfig;
 use crate::error::DecodeError;
 use crate::error::Error;
 use crate::error::Result;
 use crate::transport::Session;
+
+/// Default maximum time spent retrying transient connection failures.
+const CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(120);
+/// First delay used after a transient connection failure.
+const CONNECT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(250);
+/// Maximum delay used by exponential connection backoff.
+const CONNECT_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
 
 /// Connected `RouterOS` binary API client.
 #[derive(Debug, Clone)]
@@ -33,10 +44,30 @@ impl MikroTikClient {
     /// # Errors
     ///
     /// Returns an error if TCP/TLS connection setup or `RouterOS` authentication
-    /// fails.
+    /// fails. Transient transport errors are retried with exponential backoff
+    /// before the final error is returned.
     pub async fn connect(config: MikroTikClientConfig) -> Result<Self> {
         install_rustls_provider();
-        let session = Session::connect(&config).await?;
+        let deadline = Instant::now() + CONNECT_RETRY_TIMEOUT;
+        let mut delay = CONNECT_RETRY_INITIAL_DELAY;
+
+        let session = loop {
+            match Session::connect(&config).await {
+                Ok(session) => break session,
+                Err(error) if is_transient_connect_error(&error) && Instant::now() < deadline => {
+                    let sleep_for = delay.min(deadline.saturating_duration_since(Instant::now()));
+                    tracing::debug!(
+                        "RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                        config.socket_address(),
+                        sleep_for
+                    );
+                    sleep(sleep_for).await;
+                    delay = next_connect_delay(delay);
+                }
+                Err(error) => return Err(error),
+            }
+        };
+
         Ok(Self {
             config,
             session: Arc::new(Mutex::new(session)),
@@ -84,6 +115,28 @@ impl MikroTikClient {
 
         Ok(typed_rows)
     }
+}
+
+/// Return whether a connect error is likely caused by an API service that is not ready yet.
+fn is_transient_connect_error(error: &Error) -> bool {
+    match error {
+        Error::Io(error) => matches!(
+            error.kind(),
+            ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::NotConnected
+                | ErrorKind::TimedOut
+                | ErrorKind::WouldBlock
+        ),
+        Error::ConnectionClosed => true,
+        Error::Connection(_) | Error::Login(_) | Error::Trap(_) | Error::Fatal(_) | Error::Decode(_) => false,
+    }
+}
+
+/// Return the next exponential connect retry delay.
+fn next_connect_delay(delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(CONNECT_RETRY_MAX_DELAY)
 }
 
 impl Session {
@@ -164,5 +217,27 @@ mod tests {
 
         assert_eq!(row.get("dst-address").map(String::as_str), Some("0.0.0.0/0"));
         assert!(!row.contains_key("comment"));
+    }
+
+    #[test]
+    fn connect_backoff_doubles_until_cap() {
+        assert_eq!(
+            next_connect_delay(CONNECT_RETRY_INITIAL_DELAY),
+            Duration::from_millis(500)
+        );
+        assert_eq!(next_connect_delay(Duration::from_secs(4)), CONNECT_RETRY_MAX_DELAY);
+        assert_eq!(next_connect_delay(CONNECT_RETRY_MAX_DELAY), CONNECT_RETRY_MAX_DELAY);
+    }
+
+    #[test]
+    fn connect_backoff_retries_only_transient_errors() {
+        assert!(is_transient_connect_error(&Error::Io(std::io::Error::from(
+            ErrorKind::ConnectionRefused
+        ))));
+        assert!(is_transient_connect_error(&Error::ConnectionClosed));
+        assert!(!is_transient_connect_error(&Error::Io(std::io::Error::from(
+            ErrorKind::PermissionDenied
+        ))));
+        assert!(!is_transient_connect_error(&Error::Trap("bad command".to_owned())));
     }
 }

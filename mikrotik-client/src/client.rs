@@ -15,9 +15,11 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tokio::time::sleep;
+use tokio::time::timeout;
 use tracing::debug;
 
-use crate::config::MikroTikClientBuilder;
+use crate::builder::Builder;
+use crate::commands::PrintCommand;
 use crate::error::DecodeError;
 use crate::error::Error;
 use crate::error::Result;
@@ -25,6 +27,8 @@ use crate::transport::Session;
 
 /// Default maximum time spent retrying transient connection failures.
 const CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(120);
+/// Maximum time allowed for one TCP/login attempt before retry backoff.
+const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
 /// First delay used after a transient connection failure.
 const CONNECT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(250);
 /// Maximum delay used by exponential connection backoff.
@@ -32,14 +36,14 @@ const CONNECT_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
 
 /// Connected `RouterOS` binary API client.
 #[derive(Debug, Clone)]
-pub struct MikroTikClient {
+pub struct AsyncClient {
     /// Connection configuration used to create the session.
-    config: MikroTikClientBuilder,
+    config: Builder,
     /// Shared serialized access to the underlying protocol session.
     session: Arc<Mutex<Session>>,
 }
 
-impl MikroTikClient {
+impl AsyncClient {
     /// Connect to a `RouterOS` device and complete the login handshake.
     ///
     /// # Errors
@@ -47,32 +51,38 @@ impl MikroTikClient {
     /// Returns an error if TCP/TLS connection setup or `RouterOS` authentication
     /// fails. Transient transport errors are retried with exponential backoff
     /// before the final error is returned.
-    pub async fn connect(config: MikroTikClientBuilder) -> Result<Self> {
+    pub async fn connect(config: Builder) -> Result<Self> {
         install_rustls_provider();
         let deadline = Instant::now() + config.connect_retry_timeout(CONNECT_RETRY_TIMEOUT);
+        let attempt_timeout = config.connect_attempt_timeout(CONNECT_ATTEMPT_TIMEOUT);
+        let retry_max_delay = config.connect_retry_max_delay(CONNECT_RETRY_MAX_DELAY);
         let mut delay = CONNECT_RETRY_INITIAL_DELAY;
 
         let session = loop {
-            match Session::connect(&config).await {
+            let attempt_started = Instant::now();
+            match connect_attempt(&config, deadline, attempt_timeout).await {
                 Ok(session) => break session,
                 Err(error) if is_transient_connect_error(&error) && Instant::now() < deadline => {
+                    let attempt_elapsed = attempt_started.elapsed();
                     let sleep_for = delay.min(deadline.saturating_duration_since(Instant::now()));
                     if let Some(label) = &config.log_label {
                         debug!(
-                            "{}: RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                            "{}: RouterOS API at {} is not ready yet after {:?}: {error}; retrying in {:?}",
                             label,
                             config.socket_address(),
+                            attempt_elapsed,
                             sleep_for
                         );
                     } else {
                         debug!(
-                            "RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                            "RouterOS API at {} is not ready yet after {:?}: {error}; retrying in {:?}",
                             config.socket_address(),
+                            attempt_elapsed,
                             sleep_for
                         );
                     }
                     sleep(sleep_for).await;
-                    delay = next_connect_delay(delay);
+                    delay = next_connect_delay(delay, retry_max_delay);
                 }
                 Err(error) => return Err(error),
             }
@@ -85,7 +95,7 @@ impl MikroTikClient {
     }
 
     /// Return this client's connection configuration.
-    pub fn config(&self) -> &MikroTikClientBuilder {
+    pub fn config(&self) -> &Builder {
         &self.config
     }
 
@@ -109,6 +119,20 @@ impl MikroTikClient {
         Ok(rows)
     }
 
+    /// Execute a typed print command and deserialize every row into `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot be sent, if `RouterOS` returns a
+    /// trap or fatal response, if the connection closes before completion, or
+    /// if any row cannot be decoded into `T`.
+    pub async fn print<T>(&self, command: PrintCommand) -> Result<Vec<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.print_typed(command.as_path()).await
+    }
+
     /// Execute a print command and deserialize every row into `T`.
     pub(crate) async fn print_typed<T>(&self, command: &str) -> Result<Vec<T>>
     where
@@ -127,6 +151,18 @@ impl MikroTikClient {
     }
 }
 
+/// Run one connection attempt with a bounded TCP/login handshake duration.
+async fn connect_attempt(config: &Builder, deadline: Instant, attempt_timeout: Duration) -> Result<Session> {
+    let timeout_for = attempt_timeout.min(deadline.saturating_duration_since(Instant::now()));
+    match timeout(timeout_for, Session::connect(config)).await {
+        Ok(result) => result,
+        Err(_) => Err(Error::Io(std::io::Error::new(
+            ErrorKind::TimedOut,
+            format!("connect attempt exceeded {timeout_for:?}"),
+        ))),
+    }
+}
+
 /// Return whether a connect error is likely caused by an API service that is not ready yet.
 fn is_transient_connect_error(error: &Error) -> bool {
     match error {
@@ -140,13 +176,18 @@ fn is_transient_connect_error(error: &Error) -> bool {
                 | ErrorKind::WouldBlock
         ),
         Error::ConnectionClosed => true,
-        Error::Connection(_) | Error::Login(_) | Error::Trap(_) | Error::Fatal(_) | Error::Decode(_) => false,
+        Error::Connection(_)
+        | Error::Login(_)
+        | Error::UnsupportedProtocol(_)
+        | Error::Trap(_)
+        | Error::Fatal(_)
+        | Error::Decode(_) => false,
     }
 }
 
 /// Return the next exponential connect retry delay.
-fn next_connect_delay(delay: Duration) -> Duration {
-    delay.saturating_mul(2).min(CONNECT_RETRY_MAX_DELAY)
+fn next_connect_delay(delay: Duration, max_delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(max_delay)
 }
 
 impl Session {
@@ -232,17 +273,30 @@ mod tests {
     #[test]
     fn connect_backoff_doubles_until_cap() {
         assert_eq!(
-            next_connect_delay(CONNECT_RETRY_INITIAL_DELAY),
+            next_connect_delay(CONNECT_RETRY_INITIAL_DELAY, CONNECT_RETRY_MAX_DELAY),
             Duration::from_millis(500)
         );
-        assert_eq!(next_connect_delay(Duration::from_secs(4)), CONNECT_RETRY_MAX_DELAY);
-        assert_eq!(next_connect_delay(CONNECT_RETRY_MAX_DELAY), CONNECT_RETRY_MAX_DELAY);
+        assert_eq!(
+            next_connect_delay(Duration::from_secs(4), CONNECT_RETRY_MAX_DELAY),
+            CONNECT_RETRY_MAX_DELAY
+        );
+        assert_eq!(
+            next_connect_delay(CONNECT_RETRY_MAX_DELAY, CONNECT_RETRY_MAX_DELAY),
+            CONNECT_RETRY_MAX_DELAY
+        );
+        assert_eq!(
+            next_connect_delay(Duration::from_secs(4), Duration::from_secs(1)),
+            Duration::from_secs(1)
+        );
     }
 
     #[test]
     fn connect_backoff_retries_only_transient_errors() {
         assert!(is_transient_connect_error(&Error::Io(std::io::Error::from(
             ErrorKind::ConnectionRefused
+        ))));
+        assert!(is_transient_connect_error(&Error::Io(std::io::Error::from(
+            ErrorKind::TimedOut
         ))));
         assert!(is_transient_connect_error(&Error::ConnectionClosed));
         assert!(!is_transient_connect_error(&Error::Io(std::io::Error::from(

@@ -24,6 +24,8 @@ struct Cli {
 enum Command {
     /// run one topology manifest
     Run(RunCommand),
+    /// print a Mermaid diagram for one topology manifest
+    Mermaid(MermaidCommand),
     /// list cataloged `RouterOS` versions and inferred CHR images
     ListVersions(ListVersionsCommand),
 }
@@ -32,9 +34,18 @@ enum Command {
 #[derive(Debug, FromArgs)]
 #[argh(subcommand, name = "run")]
 struct RunCommand {
-    /// stop router processes and exit after checks pass
+    /// stop router processes after checks pass instead of waiting for Ctrl-C
     #[argh(switch)]
-    exit_after_checks: bool,
+    non_interactive: bool,
+    /// topology TOML manifest path
+    #[argh(positional)]
+    topology: String,
+}
+
+/// Print a Mermaid diagram for one topology manifest.
+#[derive(Debug, FromArgs)]
+#[argh(subcommand, name = "mermaid")]
+struct MermaidCommand {
     /// topology TOML manifest path
     #[argh(positional)]
     topology: String,
@@ -47,7 +58,13 @@ struct ListVersionsCommand {}
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    init_logging();
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_level(true)
+        .init();
+
     let cli = argh::from_env();
 
     match run(cli).await {
@@ -59,26 +76,20 @@ async fn main() -> ExitCode {
     }
 }
 
-/// Initialize human-readable CLI logging.
-fn init_logging() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .with_level(true)
-        .init();
-}
-
 /// Dispatch the requested subcommand.
 async fn run(cli: Cli) -> mikrotik_simnet::Result<()> {
     match cli.command {
         Command::Run(command) => {
-            let options = if command.exit_after_checks {
-                RunOptions::exit_after_checks()
+            let options = if command.non_interactive {
+                RunOptions::non_interactive()
             } else {
-                RunOptions::interactive()
+                RunOptions::default()
             };
             mikrotik_simnet::run_topology_with_options(command.topology, options).await
+        }
+        Command::Mermaid(command) => {
+            print!("{}", mikrotik_simnet::topology_mermaid(command.topology)?);
+            Ok(())
         }
         Command::ListVersions(_) => list_versions(),
     }
@@ -146,19 +157,30 @@ mod tests {
             panic!("run subcommand should parse");
         };
         assert_eq!(command.topology, "topology.toml");
-        assert!(!command.exit_after_checks);
+        assert!(!command.non_interactive);
     }
 
     #[test]
-    fn parses_run_exit_after_checks_switch() {
-        let cli = Cli::from_args(&["mikrotik-simnet"], &["run", "--exit-after-checks", "topology.toml"])
+    fn parses_run_non_interactive_switch() {
+        let cli = Cli::from_args(&["mikrotik-simnet"], &["run", "--non-interactive", "topology.toml"])
             .expect("run subcommand should parse");
 
         let Command::Run(command) = cli.command else {
             panic!("run subcommand should parse");
         };
         assert_eq!(command.topology, "topology.toml");
-        assert!(command.exit_after_checks);
+        assert!(command.non_interactive);
+    }
+
+    #[test]
+    fn parses_mermaid_subcommand() {
+        let cli = Cli::from_args(&["mikrotik-simnet"], &["mermaid", "topology.toml"])
+            .expect("mermaid subcommand should parse");
+
+        let Command::Mermaid(command) = cli.command else {
+            panic!("mermaid subcommand should parse");
+        };
+        assert_eq!(command.topology, "topology.toml");
     }
 
     #[test]

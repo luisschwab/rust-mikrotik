@@ -15,6 +15,8 @@ pub enum Error {
     Connection(mikrotik_proto::error::ConnectionError),
     /// Error returned by the `RouterOS` login handshake.
     Login(mikrotik_proto::error::LoginError),
+    /// The configured service protocol is not supported by this client.
+    UnsupportedProtocol(&'static str),
     /// The transport closed before the current operation completed.
     ConnectionClosed,
     /// `RouterOS` returned a trap response while executing a command.
@@ -92,6 +94,7 @@ impl fmt::Display for Error {
             Self::Io(error) => write!(formatter, "RouterOS transport error: {error}"),
             Self::Connection(error) => write!(formatter, "RouterOS protocol connection error: {error}"),
             Self::Login(error) => write!(formatter, "RouterOS login error: {error}"),
+            Self::UnsupportedProtocol(protocol) => write!(formatter, "unsupported RouterOS protocol: {protocol}"),
             Self::ConnectionClosed => write!(formatter, "RouterOS connection closed"),
             Self::Trap(message) => write!(formatter, "RouterOS trap: {message}"),
             Self::Fatal(reason) => write!(formatter, "RouterOS fatal response: {reason}"),
@@ -107,7 +110,7 @@ impl error::Error for Error {
             Self::Connection(error) => Some(error),
             Self::Login(error) => Some(error),
             Self::Decode(error) => Some(error),
-            Self::ConnectionClosed | Self::Trap(_) | Self::Fatal(_) => None,
+            Self::ConnectionClosed | Self::Trap(_) | Self::Fatal(_) | Self::UnsupportedProtocol(_) => None,
         }
     }
 }

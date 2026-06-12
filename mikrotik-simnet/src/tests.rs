@@ -101,6 +101,103 @@ version = "7.99.1"
 }
 
 #[test]
+fn topology_parser_applies_defaults() {
+    let topology = Topology::parse(
+        r#"
+name = "defaults"
+
+[[routers]]
+name = "r1"
+version = "7.23.1"
+
+[[checks]]
+type = "all-print-commands"
+router = "r1"
+
+[[checks]]
+type = "command-rows"
+router = "r1"
+command = "/system/resource/print"
+"#,
+    )
+    .expect("topology should parse with defaults");
+
+    assert!(!topology.allow_software_emulation);
+    assert_eq!(topology.routers[0].memory_mib, 256);
+    assert_eq!(topology.routers[0].cpus, 1);
+    assert!(matches!(
+        topology.checks[0],
+        Check::AllPrintCommands {
+            allow_unsupported: false,
+            ..
+        }
+    ));
+    assert!(matches!(topology.checks[1], Check::CommandRows { min_rows: 1, .. }));
+}
+
+#[test]
+fn topology_parser_supports_multiline_arrays_and_comments() {
+    let topology = Topology::parse(
+        r#"
+name = "comments"
+allow_software_emulation = true # host fallback
+
+[[routers]]
+name = "r1"
+version = "7.23.1"
+bootstrap = [
+  "/system/identity/set name=r1", # inline comment
+  "/ip/service/enable numbers=api",
+]
+"#,
+    )
+    .expect("topology should parse TOML arrays and comments");
+
+    assert!(topology.allow_software_emulation);
+    assert_eq!(topology.routers[0].bootstrap.len(), 2);
+    assert_eq!(topology.routers[0].bootstrap[0].command, "/system/identity/set");
+    assert_eq!(topology.routers[0].bootstrap[0].attributes[0].key, "name");
+    assert_eq!(
+        topology.routers[0].bootstrap[0].attributes[0].value.as_deref(),
+        Some("r1")
+    );
+}
+
+#[test]
+fn topology_parser_rejects_unknown_fields() {
+    let error = Topology::parse(
+        r#"
+name = "bad"
+unexpected = true
+
+[[routers]]
+name = "r1"
+version = "7.23.1"
+"#,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("invalid topology TOML"));
+    assert!(error.to_string().contains("unknown field"));
+}
+
+#[test]
+fn topology_parser_rejects_missing_required_fields() {
+    let error = Topology::parse(
+        r#"
+name = "missing-router-name"
+
+[[routers]]
+version = "7.23.1"
+"#,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("invalid topology TOML"));
+    assert!(error.to_string().contains("missing field"));
+}
+
+#[test]
 fn builds_chr_raw_image_urls_for_supported_architectures() {
     assert_eq!(
         chr_url("7.23.1", ChrArch::X86_64),
@@ -153,7 +250,7 @@ fn all_versions_stress_topology_covers_every_cataloged_version() {
             .iter()
             .filter(|check| matches!(
                 check,
-                Check::AllPrintMethods {
+                Check::AllPrintCommands {
                     allow_unsupported: true,
                     ..
                 }

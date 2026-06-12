@@ -54,7 +54,7 @@ The bundled scenarios are:
 - `three-router-bgp.toml`: three CHRs with two links and BGP route checks.
 - `stress-test.toml`: one CHR for every cataloged RouterOS version,
   chained together with BGP, VLAN, DHCP, firewall, NAT, WireGuard, GRE, VRF, PPP,
-  L2TP, IPsec objects, static routes, and all typed print endpoint checks.
+  L2TP, IPsec objects, static routes, and all print command checks.
 
 After bootstrap and checks pass, the scenario stays up for inspection. Press
 Ctrl-C to stop all router processes and remove the temporary runtime socket
@@ -63,7 +63,13 @@ directory.
 For CI or one-shot validation, stop the scenario as soon as checks pass:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- run --exit-after-checks stress-test.toml
+cargo rbmt run run -p mikrotik-simnet -- run --non-interactive stress-test.toml
+```
+
+Render a topology manifest as a Mermaid flowchart without starting QEMU:
+
+```text
+cargo rbmt run run -p mikrotik-simnet -- mermaid two-router.toml
 ```
 
 ## Topology Format
@@ -125,10 +131,10 @@ Supported checks:
 
 - `type = "command-rows"` runs a RouterOS API command and requires at least
   `min_rows` rows.
-- `type = "all-print-methods"` runs all typed print endpoint checks shared with
+- `type = "all-print-commands"` runs all print command checks shared with
   the live-router test.
 
-`all-print-methods` also accepts `allow_unsupported = true`. Use that when a
+`all-print-commands` also accepts `allow_unsupported = true`. Use that when a
 topology spans RouterOS versions where a missing package or platform-only
 endpoint should be counted as skipped, while row decode failures still fail the
 run.
@@ -179,7 +185,7 @@ mikrotik-simnet/.chr-cache
 Important subdirectories:
 
 - `images`: cached raw CHR images.
-- `runs`: per-run overlays, serial logs, QEMU logs, QEMU argument snapshots, and pid files.
+- `runs`: per-run overlays, logs, reports, QEMU argument snapshots, and pid files.
 
 Point-to-point QEMU stream sockets are created under `/tmp/mikrotik-simnet-<run>`
 to avoid Unix socket path length limits. They are removed when the run exits.
@@ -197,6 +203,9 @@ Inspect these files first:
 - `<router>.serial.log`: RouterOS serial console output.
 - `<router>.qemu.log`: QEMU stderr.
 - `<router>.qemu.args`: exact QEMU command line used by the harness.
+- `<router>.print-commands.csv`: per-router print command report.
+- `topology.csv`: per-run topology and runtime target report.
+- `topology.mmd`: Mermaid topology diagram.
 
 Common failures:
 
@@ -236,10 +245,10 @@ matrix explicitly lists each topology file to run. When a new topology should
 run in CI, add it to the workflow matrix.
 
 CI caches downloaded CHR base images from `mikrotik-simnet/.chr-cache/images`
-between runs, then uploads each topology run's `.qemu.args`, `.qemu.log`,
-`.serial.log`, `.print-checks.tsv`, and `topology.tsv` artifacts. Use those
-artifacts to identify the exact RouterOS version, topology, selected guest
-architecture, and boot/API state behind a scheduled failure.
+between runs, then uploads the selected run artifacts from
+`mikrotik-simnet/.chr-cache/runs`. Use those artifacts to identify the exact
+RouterOS version, topology, selected guest architecture, and boot/API state
+behind a scheduled failure.
 
 The workflow can be started manually when the QEMU topologies need to run
 outside the weekly schedule.

@@ -3,11 +3,10 @@ Cargo.lock.backup
 
 /debug
 /target
-/.simnet
-/mikrotik-simnet/.chr-cache
+
+mikrotik-simnet/.chr-cache
+mikrotik-types/assets/fixtures/*.json
+mikrotik-simnet/tests/live_router_creds.toml
 
 TODO.md
 NOTES.md
-
-/mikrotik-client/tests/live_router_creds.toml
-/mikrotik-types/assets/fixtures/*.json

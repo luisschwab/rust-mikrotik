@@ -25,25 +25,15 @@ pub struct Topology {
 /// Runtime options for executing a topology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RunOptions {
-    /// Exit immediately after all topology checks pass.
-    pub exit_after_checks: bool,
+    /// Run without waiting for Ctrl-C after topology checks pass.
+    pub non_interactive: bool,
 }
 
 impl RunOptions {
-    /// Return the default interactive behavior: keep the topology running until Ctrl-C.
-    #[must_use]
-    pub const fn interactive() -> Self {
-        Self {
-            exit_after_checks: false,
-        }
-    }
-
     /// Return CI behavior: stop router processes after checks pass.
     #[must_use]
-    pub const fn exit_after_checks() -> Self {
-        Self {
-            exit_after_checks: true,
-        }
+    pub const fn non_interactive() -> Self {
+        Self { non_interactive: true }
     }
 }
 
@@ -101,8 +91,8 @@ pub struct Endpoint {
 /// Post-bootstrap check declared by a manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Check {
-    /// Run every typed print endpoint method currently shared with the live-router test.
-    AllPrintMethods {
+    /// Run every compiled print command.
+    AllPrintCommands {
         /// Router name to check.
         router: String,
         /// Whether to skip endpoints unavailable on this `RouterOS` version.

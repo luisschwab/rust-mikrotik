@@ -24,8 +24,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
-use crate::config::MikroTikClientBuilder;
-use crate::config::Protocol;
+use crate::builder::Builder;
+use crate::builder::Protocol;
 use crate::error::Error;
 use crate::error::Result;
 
@@ -44,7 +44,7 @@ pub(crate) struct Session {
 
 impl Session {
     /// Connect to a `RouterOS` API endpoint and complete login.
-    pub(crate) async fn connect(config: &MikroTikClientBuilder) -> Result<Self> {
+    pub(crate) async fn connect(config: &Builder) -> Result<Self> {
         let stream = connect_stream(config).await?;
         let connection = login(stream, config).await?;
 
@@ -59,27 +59,35 @@ impl fmt::Debug for Session {
 }
 
 /// Open the configured TCP or TLS stream.
-async fn connect_stream(config: &MikroTikClientBuilder) -> Result<Box<dyn AsyncStream>> {
-    let tcp_stream = TcpStream::connect(config.socket_address()).await?;
-    tcp_stream.set_nodelay(true)?;
-
+async fn connect_stream(config: &Builder) -> Result<Box<dyn AsyncStream>> {
     match config.protocol {
         Protocol::Api => {
+            let tcp_stream = TcpStream::connect(config.socket_address()).await?;
+            tcp_stream.set_nodelay(true)?;
             let stream: Box<dyn AsyncStream> = Box::new(tcp_stream);
             Ok(stream)
         }
         Protocol::ApiSsl => {
+            let tcp_stream = TcpStream::connect(config.socket_address()).await?;
+            tcp_stream.set_nodelay(true)?;
             let connector = TlsConnector::from(insecure_client_config());
             let server_name = ServerName::try_from("mikrotik").expect("\"mikrotik\" is a valid DNS name");
             let stream = connector.connect(server_name, tcp_stream).await?;
             let stream: Box<dyn AsyncStream> = Box::new(stream);
             Ok(stream)
         }
+        Protocol::Ssh => Err(Error::UnsupportedProtocol("ssh")),
+        Protocol::Telnet => Err(Error::UnsupportedProtocol("telnet")),
+        Protocol::Ftp => Err(Error::UnsupportedProtocol("ftp")),
+        Protocol::Http => Err(Error::UnsupportedProtocol("http")),
+        Protocol::Https => Err(Error::UnsupportedProtocol("https")),
+        Protocol::WinBox => Err(Error::UnsupportedProtocol("winbox")),
+        Protocol::MacTelnet => Err(Error::UnsupportedProtocol("mac-telnet")),
     }
 }
 
 /// Drive the `RouterOS` login handshake over an open stream.
-async fn login(mut stream: Box<dyn AsyncStream>, config: &MikroTikClientBuilder) -> Result<Session> {
+async fn login(mut stream: Box<dyn AsyncStream>, config: &Builder) -> Result<Session> {
     let mut handshaking = Handshaking::new(&config.credentials.username, config.credentials.password.as_deref())?;
 
     flush_login_transmits(&mut *stream, &mut handshaking).await?;

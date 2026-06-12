@@ -10,13 +10,10 @@ use std::process::Stdio;
 use std::thread;
 use std::time::Duration;
 
-use mikrotik_client::MikroTikClient;
-use mikrotik_client::MikroTikClientBuilder;
-use mikrotik_client::Protocol;
-use mikrotik_client::print_checks::ALL_PRINT_CHECK_COMMANDS;
-use mikrotik_client::print_checks::ALL_PRINT_CHECK_METHODS;
-use mikrotik_client::print_checks::PrintCheckOptions;
-use mikrotik_client::print_checks::PrintCheckReport;
+use mikrotik_client::builder::Builder;
+use mikrotik_client::builder::Protocol;
+use mikrotik_client::client::AsyncClient;
+use mikrotik_client::commands::PrintCommand;
 use mikrotik_client::types::target::Credentials;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -41,35 +38,56 @@ use crate::catalog::routeros_version;
 use crate::catalog::validate_routeros_versions;
 use crate::error::Error;
 use crate::error::Result;
+use crate::mermaid::render_topology_mermaid;
 use crate::qemu::RuntimeTarget;
 use crate::qemu::append_accelerator_args;
 use crate::qemu::append_disk_args;
 use crate::qemu::create_overlay;
 use crate::qemu::ensure_tool;
 use crate::qemu::qemu_system_binary;
+use crate::simulation_report::PrintCommandCheckOptions;
+use crate::simulation_report::PrintCommandReport;
+use crate::simulation_report::run_print_command_check;
 use crate::topology::Check;
 use crate::topology::Router;
 use crate::topology::RunOptions;
 use crate::topology::Topology;
 
-/// Emit one informational event for a specific router.
-macro_rules! router_info {
-    ($router:expr, $($argument:tt)*) => {
-        info!("{}: {}", $router, format_args!($($argument)*));
+/// Per-router print command report filename suffix.
+const PRINT_COMMAND_REPORT_SUFFIX: &str = ".print-commands.csv";
+/// Per-router serial console log filename suffix.
+const SERIAL_LOG_SUFFIX: &str = ".serial.log";
+/// Per-router QEMU command-line artifact filename suffix.
+const QEMU_ARGS_SUFFIX: &str = ".qemu.args";
+/// Per-router QEMU stderr log filename suffix.
+const QEMU_LOG_SUFFIX: &str = ".qemu.log";
+/// Per-router QEMU process id filename suffix.
+const PID_FILE_SUFFIX: &str = ".pid";
+/// Topology summary report filename.
+const TOPOLOGY_REPORT_FILENAME: &str = "topology.csv";
+/// Topology Mermaid diagram filename.
+const TOPOLOGY_MERMAID_FILENAME: &str = "topology.mmd";
+/// Maximum number of QEMU routers allowed to boot toward API readiness at once.
+const ROUTER_START_WINDOW_SIZE: usize = 5;
+
+/// Emit one informational event for a specific label.
+macro_rules! info_with_label {
+    ($label:expr, $($argument:tt)*) => {
+        info!("{}: {}", $label, format_args!($($argument)*));
     };
 }
 
-/// Emit one debug event for a specific router.
-macro_rules! router_debug {
-    ($router:expr, $($argument:tt)*) => {
-        debug!("{}: {}", $router, format_args!($($argument)*));
+/// Emit one debug event for a specific label.
+macro_rules! debug_with_label {
+    ($label:expr, $($argument:tt)*) => {
+        debug!("{}: {}", $label, format_args!($($argument)*));
     };
 }
 
-/// Emit one error event for a specific router.
-macro_rules! router_error {
-    ($router:expr, $($argument:tt)*) => {
-        error!("{}: {}", $router, format_args!($($argument)*));
+/// Emit one error event for a specific label.
+macro_rules! error_with_label {
+    ($label:expr, $($argument:tt)*) => {
+        error!("{}: {}", $label, format_args!($($argument)*));
     };
 }
 
@@ -122,7 +140,7 @@ impl SimulatedNetwork {
             let qemu_system = qemu_system_binary(&sh, target.guest_arch)?;
             let base_image = self.ensure_chr_image(&sh, version.version, target.guest_arch)?;
             let overlay = run_dir.join(format!("{}.qcow2", router.name));
-            router_debug!(router.name, "creating overlay at {}", overlay.display());
+            debug_with_label!(router.name, "creating overlay at {}", overlay.display());
             create_overlay(&sh, &base_image, &overlay)?;
             routers.push(PreparedRouter {
                 index,
@@ -134,31 +152,20 @@ impl SimulatedNetwork {
             });
         }
         self.write_topology_report(&run_dir, &routers)?;
+        self.write_topology_mermaid(&run_dir)?;
 
         let mut running = RunningTopology::default();
-
-        for router in &routers {
-            let start_context = StartContext {
-                qemu_system: &router.qemu_system,
-                target: router.target,
-                run_dir: &run_dir,
-                socket_dir: &socket_dir,
-                links: &self.topology.links,
-                sh: &sh,
-            };
-            let child = Self::start_router(router, &start_context)?;
-            running.children.push((router.router.name.clone(), child));
-        }
-
-        let clients = self.wait_for_clients(&routers).await?;
+        let clients = self
+            .start_routers_and_wait_for_clients(&routers, &run_dir, &socket_dir, &sh, &mut running)
+            .await?;
         if !self.topology.links.is_empty() {
             self.wait_for_link_interfaces(&clients).await?;
         }
         self.bootstrap(&clients).await?;
         self.run_checks(&clients, &run_dir).await?;
-        if options.exit_after_checks {
+        if options.non_interactive {
             info!(
-                "topology `{}` checks passed; stopping scenario because --exit-after-checks was set",
+                "topology `{}` checks passed; stopping scenario because --non-interactive was set",
                 self.topology.name
             );
             running.shutdown();
@@ -249,6 +256,10 @@ impl SimulatedNetwork {
     /// Spawn one QEMU process for a router using the prepared overlay image.
     fn start_router(router: &PreparedRouter, context: &StartContext<'_>) -> Result<Child> {
         let router_name = &router.router.name;
+        let serial_log_path = router_artifact_path(context.run_dir, router_name, SERIAL_LOG_SUFFIX);
+        let qemu_args_path = router_artifact_path(context.run_dir, router_name, QEMU_ARGS_SUFFIX);
+        let qemu_log_path = router_artifact_path(context.run_dir, router_name, QEMU_LOG_SUFFIX);
+        let pid_file_path = router_artifact_path(context.run_dir, router_name, PID_FILE_SUFFIX);
         let mut args = vec![
             "-name".to_owned(),
             router_name.clone(),
@@ -259,14 +270,11 @@ impl SimulatedNetwork {
             "-display".to_owned(),
             "none".to_owned(),
             "-serial".to_owned(),
-            format!(
-                "file:{}",
-                context.run_dir.join(format!("{router_name}.serial.log")).display()
-            ),
+            format!("file:{}", serial_log_path.display()),
             "-monitor".to_owned(),
             "none".to_owned(),
             "-pidfile".to_owned(),
-            context.run_dir.join(format!("{router_name}.pid")).display().to_string(),
+            pid_file_path.display().to_string(),
         ];
 
         append_accelerator_args(&mut args, context.target);
@@ -296,63 +304,102 @@ impl SimulatedNetwork {
             }
         }
 
-        fs::write(
-            context.run_dir.join(format!("{router_name}.qemu.args")),
-            format!("{} {}\n", context.qemu_system, args.join(" ")),
-        )?;
+        fs::write(qemu_args_path, format!("{} {}\n", context.qemu_system, args.join(" ")))?;
 
-        router_info!(
+        info_with_label!(
             router_name,
             "starting with {} on API localhost:{}",
             context.qemu_system,
             router.api_port
         );
-        router_debug!(
-            router_name,
-            "serial log {}",
-            context.run_dir.join(format!("{router_name}.serial.log")).display()
-        );
-        router_debug!(
-            router_name,
-            "QEMU log {}",
-            context.run_dir.join(format!("{router_name}.qemu.log")).display()
-        );
+        debug_with_label!(router_name, "serial log {}", serial_log_path.display());
+        debug_with_label!(router_name, "QEMU log {}", qemu_log_path.display());
 
         let mut command = context.sh.cmd(context.qemu_system).args(&args).to_command();
-        command.stdout(Stdio::null()).stderr(Stdio::from(fs::File::create(
-            context.run_dir.join(format!("{router_name}.qemu.log")),
-        )?));
+        command
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(fs::File::create(qemu_log_path)?));
 
         command
             .spawn()
             .map_err(|error| Error::Tool(format!("start {} with {}: {error}", router_name, context.qemu_system)))
     }
 
-    /// Wait until every router accepts API login and return connected clients.
-    async fn wait_for_clients(&self, routers: &[PreparedRouter]) -> Result<BTreeMap<String, MikroTikClient>> {
+    /// Start routers with a bounded rolling window and wait for each one to accept API login.
+    async fn start_routers_and_wait_for_clients(
+        &self,
+        routers: &[PreparedRouter],
+        run_dir: &Path,
+        socket_dir: &Path,
+        sh: &Shell,
+        running: &mut RunningTopology,
+    ) -> Result<BTreeMap<String, AsyncClient>> {
         let mut clients = BTreeMap::new();
         let mut waiters = JoinSet::new();
+        let mut next_router_index = 0;
 
-        for router in routers {
-            let router_name = router.router.name.clone();
-            let api_port = router.api_port;
-            waiters.spawn(async move {
-                let client = wait_for_client(&router_name, api_port).await?;
-                Ok::<_, Error>((router_name, client))
-            });
+        info!(
+            "starting routers with rolling API readiness window of {} router(s)",
+            ROUTER_START_WINDOW_SIZE.min(routers.len())
+        );
+        while next_router_index < routers.len() && waiters.len() < ROUTER_START_WINDOW_SIZE {
+            let router = &routers[next_router_index];
+            next_router_index += 1;
+            let start_context = StartContext {
+                qemu_system: &router.qemu_system,
+                target: router.target,
+                run_dir,
+                socket_dir,
+                links: &self.topology.links,
+                sh,
+            };
+            Self::start_router_and_wait_for_client(&mut waiters, router, &start_context, running)?;
         }
 
         while let Some(result) = waiters.join_next().await {
             let (router_name, client) =
                 result.map_err(|error| Error::Tool(format!("wait for router API task: {error}")))??;
             clients.insert(router_name, client);
+            if next_router_index < routers.len() {
+                let router = &routers[next_router_index];
+                next_router_index += 1;
+                let start_context = StartContext {
+                    qemu_system: &router.qemu_system,
+                    target: router.target,
+                    run_dir,
+                    socket_dir,
+                    links: &self.topology.links,
+                    sh,
+                };
+                Self::start_router_and_wait_for_client(&mut waiters, router, &start_context, running)?;
+            }
         }
 
         Ok(clients)
     }
 
+    /// Start one pending router and spawn its API readiness waiter.
+    fn start_router_and_wait_for_client(
+        waiters: &mut JoinSet<Result<(String, AsyncClient)>>,
+        router: &PreparedRouter,
+        start_context: &StartContext<'_>,
+        running: &mut RunningTopology,
+    ) -> Result<()> {
+        let router_name = router.router.name.clone();
+        let api_port = router.api_port;
+        let child = Self::start_router(router, start_context)?;
+        running.children.push((router_name.clone(), child));
+
+        waiters.spawn(async move {
+            let client = wait_for_client(&router_name, api_port).await?;
+            Ok((router_name, client))
+        });
+
+        Ok(())
+    }
+
     /// Wait until every link endpoint named by the topology exists in `RouterOS`.
-    async fn wait_for_link_interfaces(&self, clients: &BTreeMap<String, MikroTikClient>) -> Result<()> {
+    async fn wait_for_link_interfaces(&self, clients: &BTreeMap<String, AsyncClient>) -> Result<()> {
         let mut expected = BTreeMap::<String, Vec<String>>::new();
         for link in &self.topology.links {
             expected
@@ -397,14 +444,14 @@ impl SimulatedNetwork {
     }
 
     /// Apply manifest bootstrap commands to every router.
-    async fn bootstrap(&self, clients: &BTreeMap<String, MikroTikClient>) -> Result<()> {
+    async fn bootstrap(&self, clients: &BTreeMap<String, AsyncClient>) -> Result<()> {
         for router in &self.topology.routers {
             let client = clients
                 .get(&router.name)
                 .ok_or_else(|| Error::Manifest(format!("missing connected client for `{}`", router.name)))?;
-            router_info!(router.name, "applying {} bootstrap command(s)", router.bootstrap.len());
+            info_with_label!(router.name, "applying {} bootstrap command(s)", router.bootstrap.len());
             for command in &router.bootstrap {
-                router_info!(router.name, "bootstrap {}", command.command);
+                info_with_label!(router.name, "bootstrap {}", command.command);
                 let attributes = command
                     .attributes
                     .iter()
@@ -422,18 +469,18 @@ impl SimulatedNetwork {
     }
 
     /// Run manifest checks against connected routers.
-    async fn run_checks(&self, clients: &BTreeMap<String, MikroTikClient>, run_dir: &Path) -> Result<()> {
+    async fn run_checks(&self, clients: &BTreeMap<String, AsyncClient>, run_dir: &Path) -> Result<()> {
         info!("running {} check(s)", self.topology.checks.len());
         let mut check_index = 0;
         while check_index < self.topology.checks.len() {
             match &self.topology.checks[check_index] {
-                Check::AllPrintMethods {
+                Check::AllPrintCommands {
                     router,
                     allow_unsupported,
                 } => {
                     let mut checks = vec![(router.clone(), *allow_unsupported)];
                     check_index += 1;
-                    while let Some(Check::AllPrintMethods {
+                    while let Some(Check::AllPrintCommands {
                         router,
                         allow_unsupported,
                     }) = self.topology.checks.get(check_index)
@@ -441,14 +488,14 @@ impl SimulatedNetwork {
                         checks.push((router.clone(), *allow_unsupported));
                         check_index += 1;
                     }
-                    self.run_all_print_method_checks(clients, run_dir, &checks).await?;
+                    self.run_all_print_command_checks(clients, run_dir, &checks).await?;
                 }
                 Check::CommandRows {
                     router,
                     command,
                     min_rows,
                 } => {
-                    router_info!(router, "check command-rows: {command}");
+                    info_with_label!(router, "check command-rows: {command}");
                     let client = clients
                         .get(router)
                         .ok_or_else(|| Error::Manifest(format!("missing connected client for `{router}`")))?;
@@ -459,7 +506,7 @@ impl SimulatedNetwork {
                             rows.len()
                         )));
                     }
-                    router_info!(router, "check command-rows passed: {} row(s)", rows.len());
+                    info_with_label!(router, "check command-rows passed: {} row(s)", rows.len());
                     check_index += 1;
                 }
             }
@@ -467,29 +514,23 @@ impl SimulatedNetwork {
         Ok(())
     }
 
-    /// Run typed print checks endpoint-first across routers.
-    async fn run_all_print_method_checks(
+    /// Run print commands command-first across routers.
+    async fn run_all_print_command_checks(
         &self,
-        clients: &BTreeMap<String, MikroTikClient>,
+        clients: &BTreeMap<String, AsyncClient>,
         run_dir: &Path,
         checks: &[(String, bool)],
     ) -> Result<()> {
-        info!(
-            "running all-print-methods endpoint batches across {} router(s)",
-            checks.len()
-        );
+        info!("running all-print-commands batches across {} router(s)", checks.len());
         let mut reports = BTreeMap::new();
         for (router, _) in checks {
-            router_info!(router, "check all-print-methods");
-            reports.insert(router.clone(), PrintCheckReport::default());
+            info_with_label!(router, "check all-print-commands");
+            reports.insert(router.clone(), PrintCommandReport::default());
         }
 
-        for command in ALL_PRINT_CHECK_COMMANDS {
-            let method = command.name();
-            info!(
-                "check all-print-methods endpoint {method} on {} router(s)",
-                checks.len()
-            );
+        for command in PrintCommand::all() {
+            let command_name = command.to_string();
+            info!("check all-print-commands {command_name} on {} router(s)", checks.len());
             let mut tasks = JoinSet::new();
 
             for (router, allow_unsupported) in checks {
@@ -497,24 +538,23 @@ impl SimulatedNetwork {
                     .get(router)
                     .ok_or_else(|| Error::Manifest(format!("missing connected client for `{router}`")))?
                     .clone();
-                let mut options = PrintCheckOptions::new().with_router_name(router.clone());
+                let mut options = PrintCommandCheckOptions::new().with_router_name(router.clone());
                 if *allow_unsupported {
-                    options = options.with_unsupported_endpoints_allowed();
+                    options = options.with_unsupported_commands_allowed();
                 }
                 let router = router.clone();
-                let command = *command;
                 tasks.spawn(async move {
-                    let report = Box::pin(command.run(&client, &options)).await;
+                    let report = Box::pin(run_print_command_check(&client, &options, command)).await;
                     (router, report)
                 });
             }
 
             while let Some(result) = tasks.join_next().await {
                 let (router, report) =
-                    result.map_err(|error| Error::Check(format!("all-print-methods task failed: {error}")))?;
+                    result.map_err(|error| Error::Check(format!("all-print-commands task failed: {error}")))?;
                 reports
                     .get_mut(&router)
-                    .expect("print-check report exists for every spawned router")
+                    .expect("print command report exists for every spawned router")
                     .append(report);
             }
         }
@@ -523,21 +563,21 @@ impl SimulatedNetwork {
         for (router, _) in checks {
             let report = reports
                 .get(router)
-                .expect("print-check report exists for every configured router");
-            self.write_print_check_report(run_dir, router, report)?;
+                .expect("print command report exists for every configured router");
+            self.write_print_command_report(run_dir, router, report)?;
             let version = self.router_version(router)?;
-            let router_failures = print_check_report_failures(router, version, report);
+            let router_failures = report.failure_rows(router, version);
             if router_failures.is_empty() {
-                router_info!(router, "check all-print-methods passed: {}", report.summary());
+                info_with_label!(router, "check all-print-commands passed: {}", report.summary());
             } else {
-                router_error!(router, "check all-print-methods failed: {}", report.summary());
+                error_with_label!(router, "check all-print-commands failed: {}", report.summary());
                 failure_lines.extend(router_failures);
             }
         }
 
         if !failure_lines.is_empty() {
             return Err(Error::Check(format!(
-                "all-print-methods failures:\nrouter\tversion\tcommand\terror\n{}",
+                "all-print-commands failures:\nrouter,version,command,error\n{}",
                 failure_lines.join("\n")
             )));
         }
@@ -555,110 +595,60 @@ impl SimulatedNetwork {
             .ok_or_else(|| Error::Manifest(format!("missing router manifest for `{router_name}`")))
     }
 
-    /// Write a per-router endpoint sweep report into the run artifact directory.
-    fn write_print_check_report(&self, run_dir: &Path, router_name: &str, report: &PrintCheckReport) -> Result<()> {
+    /// Write a per-router print command sweep report into the run artifact directory.
+    fn write_print_command_report(&self, run_dir: &Path, router_name: &str, report: &PrintCommandReport) -> Result<()> {
         let router = self
             .topology
             .routers
             .iter()
             .find(|router| router.name == router_name)
             .ok_or_else(|| Error::Manifest(format!("missing router manifest for `{router_name}`")))?;
-        let mut lines = vec![
-            "router\tversion\tran_methods\tok_count\tskipped_count\tfailed_count\tkind\tmethod\trow_count\terror"
-                .to_owned(),
-            print_check_report_row(
-                router_name,
-                &router.version,
-                report,
-                "summary",
-                "",
-                "",
-                &report.summary(),
-            ),
-        ];
 
-        for method in report.attempted_methods() {
-            lines.push(print_check_report_row(
-                router_name,
-                &router.version,
-                report,
-                "attempted",
-                method,
-                "",
-                "",
-            ));
-        }
-        for success in report.successes() {
-            lines.push(print_check_report_row(
-                router_name,
-                &router.version,
-                report,
-                "ok",
-                success.method(),
-                &success.row_count().to_string(),
-                "",
-            ));
-        }
-        for skipped in report.skipped() {
-            lines.push(print_check_report_row(
-                router_name,
-                &router.version,
-                report,
-                "skipped",
-                skipped.method(),
-                "",
-                skipped.error(),
-            ));
-        }
-        for failure in report.failures() {
-            lines.push(print_check_report_row(
-                router_name,
-                &router.version,
-                report,
-                "failed",
-                failure.method(),
-                "",
-                failure.error(),
-            ));
-        }
-
-        let path = run_dir.join(format!("{router_name}.print-checks.tsv"));
-        fs::write(&path, format!("{}\n", lines.join("\n")))?;
-        router_debug!(router_name, "wrote print check report {}", path.display());
+        let path = run_dir.join(format!("{router_name}{PRINT_COMMAND_REPORT_SUFFIX}"));
+        fs::write(&path, report.to_csv(router_name, &router.version))?;
+        debug_with_label!(router_name, "wrote print command report {}", path.display());
         Ok(())
     }
 
     /// Write the planned topology/runtime target manifest before QEMU starts.
     fn write_topology_report(&self, run_dir: &Path, routers: &[PreparedRouter]) -> Result<()> {
         let mut lines = vec![
-            "topology\trouters\tlinks\tchecks\tindex\trouter\tversion\thost_arch\tguest_arch\taccelerator\tqemu_system\tapi_port\tbootstrap_commands\trouter_checks".to_owned(),
+            "topology,routers,links,checks,index,router,version,host_arch,guest_arch,accelerator,qemu_system,api_port,bootstrap_commands,router_checks".to_owned(),
         ];
 
         for router in routers {
             lines.push(
                 [
-                    tsv_field(&self.topology.name),
+                    csv_field(&self.topology.name),
                     self.topology.routers.len().to_string(),
                     self.topology.links.len().to_string(),
                     self.topology.checks.len().to_string(),
                     router.index.to_string(),
-                    tsv_field(&router.router.name),
-                    tsv_field(&router.router.version),
+                    csv_field(&router.router.name),
+                    csv_field(&router.router.version),
                     format!("{:?}", router.target.host_arch()),
                     format!("{:?}", router.target.guest_arch),
-                    tsv_field(router.target.accelerator_name()),
-                    tsv_field(&router.qemu_system),
+                    csv_field(router.target.accelerator_name()),
+                    csv_field(&router.qemu_system),
                     router.api_port.to_string(),
                     router.router.bootstrap.len().to_string(),
                     self.check_count_for_router(&router.router.name).to_string(),
                 ]
-                .join("\t"),
+                .join(","),
             );
         }
 
-        let path = run_dir.join("topology.tsv");
+        let path = run_dir.join(TOPOLOGY_REPORT_FILENAME);
         fs::write(&path, format!("{}\n", lines.join("\n")))?;
         debug!("wrote topology report {}", path.display());
+        Ok(())
+    }
+
+    /// Write a Mermaid diagram for this topology into the run artifact directory.
+    fn write_topology_mermaid(&self, run_dir: &Path) -> Result<()> {
+        let path = run_dir.join(TOPOLOGY_MERMAID_FILENAME);
+        fs::write(&path, render_topology_mermaid(&self.topology))?;
+        debug!("wrote topology Mermaid diagram {}", path.display());
         Ok(())
     }
 
@@ -668,7 +658,7 @@ impl SimulatedNetwork {
             .checks
             .iter()
             .filter(|check| match check {
-                Check::AllPrintMethods { router, .. } | Check::CommandRows { router, .. } => router == router_name,
+                Check::AllPrintCommands { router, .. } | Check::CommandRows { router, .. } => router == router_name,
             })
             .count()
     }
@@ -683,101 +673,18 @@ async fn wait_for_shutdown_signal() -> Result<()> {
     Ok(())
 }
 
-/// Build one TSV row for a print-check report.
-fn print_check_report_row(
-    router_name: &str,
-    version: &str,
-    report: &PrintCheckReport,
-    kind: &str,
-    method: &str,
-    row_count: &str,
-    error: &str,
-) -> String {
-    [
-        tsv_field(router_name),
-        tsv_field(version),
-        report.ran_methods().to_string(),
-        report.successes().len().to_string(),
-        report.skipped().len().to_string(),
-        report.failures().len().to_string(),
-        tsv_field(kind),
-        tsv_field(method),
-        tsv_field(row_count),
-        tsv_field(error),
-    ]
-    .join("\t")
+/// Escape a value for the CSV report format.
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
 }
 
-/// Return all terminal failures for one router print-check report.
-fn print_check_report_failures(router: &str, version: &str, report: &PrintCheckReport) -> Vec<String> {
-    let mut failures = Vec::new();
-    let attempted_methods = report.attempted_methods();
-    if report.ran_methods() == 0 {
-        failures.push(print_check_failure_row(
-            router,
-            version,
-            "all-print-methods",
-            "matched no methods",
-        ));
-    }
-    if !attempted_methods_match_expected(&attempted_methods, ALL_PRINT_CHECK_METHODS) {
-        failures.push(print_check_failure_row(
-            router,
-            version,
-            "all-print-methods",
-            &format!(
-                "attempted {} method(s), expected compiled endpoint set of {} method(s)",
-                attempted_methods.len(),
-                ALL_PRINT_CHECK_METHODS.len()
-            ),
-        ));
-    }
-    if !report.has_complete_outcome_inventory() {
-        failures.push(print_check_failure_row(
-            router,
-            version,
-            "all-print-methods",
-            &format!("outcome inventory is incomplete: {}", report.summary()),
-        ));
-    }
-
-    for failure in report.failures() {
-        failures.push(print_check_failure_row(
-            router,
-            version,
-            failure.method(),
-            failure.error(),
-        ));
-    }
-
-    failures
-}
-
-/// Build one TSV row for the final print-check failure summary.
-fn print_check_failure_row(router: &str, version: &str, command: &str, error: &str) -> String {
-    [
-        tsv_field(router),
-        tsv_field(version),
-        tsv_field(command),
-        tsv_field(error),
-    ]
-    .join("\t")
-}
-
-/// Return whether the attempted methods exactly match the compiled endpoint inventory.
-fn attempted_methods_match_expected(attempted: &[&str], expected: &[&str]) -> bool {
-    attempted == expected
-}
-
-/// Escape a value for the simple TSV report format.
-fn tsv_field(value: &str) -> String {
-    value
-        .chars()
-        .map(|character| match character {
-            '\t' | '\n' | '\r' => ' ',
-            other => other,
-        })
-        .collect()
+/// Return the path for one per-router run artifact.
+fn router_artifact_path(run_dir: &Path, router_name: &str, suffix: &str) -> PathBuf {
+    run_dir.join(format!("{router_name}{suffix}"))
 }
 
 #[cfg(test)]
@@ -785,15 +692,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tsv_field_flattens_separators() {
-        assert_eq!(tsv_field("line\tone\nline\rtwo"), "line one line two");
-    }
-
-    #[test]
-    fn attempted_methods_must_match_expected_inventory() {
-        assert!(attempted_methods_match_expected(&["a", "b"], &["a", "b"]));
-        assert!(!attempted_methods_match_expected(&["a"], &["a", "b"]));
-        assert!(!attempted_methods_match_expected(&["b", "a"], &["a", "b"]));
+    fn csv_field_quotes_separators_and_quotes() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("one,two"), "\"one,two\"");
+        assert_eq!(csv_field("line\n\"two\""), "\"line\n\"\"two\"\"\"");
     }
 }
 
@@ -858,12 +760,12 @@ impl RunningTopology {
         }
         for (name, child) in &mut self.children {
             if let Err(error) = child.kill() {
-                router_error!(name, "failed to stop: {error}");
+                error_with_label!(name, "failed to stop: {error}");
             }
         }
         for (name, child) in &mut self.children {
             if let Err(error) = child.wait() {
-                router_error!(name, "failed to reap: {error}");
+                error_with_label!(name, "failed to reap: {error}");
             }
         }
     }
@@ -873,7 +775,7 @@ impl Drop for RunningTopology {
     fn drop(&mut self) {
         for (name, child) in &mut self.children {
             if let Err(error) = child.kill() {
-                router_error!(name, "failed to stop: {error}");
+                error_with_label!(name, "failed to stop: {error}");
             }
         }
     }
@@ -992,7 +894,7 @@ fn allocate_api_ports(topology: &Topology) -> Result<ApiPortAllocations> {
             .local_addr()
             .map_err(|error| Error::Tool(format!("read reserved API port for {}: {error}", router.name)))?
             .port();
-        router_info!(
+        info_with_label!(
             router.name,
             "API localhost:{port} username={} password={}",
             DEFAULT_USERNAME,
@@ -1016,8 +918,8 @@ fn display_password(password: &str) -> &str {
 }
 
 /// Build a localhost API client configuration for a forwarded router port.
-fn client_config(router_name: &str, api_port: u16) -> MikroTikClientBuilder {
-    MikroTikClientBuilder::new(
+fn client_config(router_name: &str, api_port: u16) -> Builder {
+    Builder::new(
         "127.0.0.1",
         Protocol::Api,
         Credentials {
@@ -1028,18 +930,28 @@ fn client_config(router_name: &str, api_port: u16) -> MikroTikClientBuilder {
     .with_port(api_port)
     .with_log_label(router_name)
     .with_connect_retry_timeout(DEFAULT_BOOT_TIMEOUT)
+    .with_connect_attempt_timeout(Duration::from_secs(1))
+    .with_connect_retry_max_delay(Duration::from_secs(1))
 }
 
 /// Wait until one router accepts API login and return a connected client.
-async fn wait_for_client(router_name: &str, api_port: u16) -> Result<MikroTikClient> {
+async fn wait_for_client(router_name: &str, api_port: u16) -> Result<AsyncClient> {
     let config = client_config(router_name, api_port);
 
-    let client = MikroTikClient::connect(config).await.map_err(|error| {
+    let start = Instant::now();
+    info_with_label!(
+        router_name,
+        "waiting for API readyness at localhost:{api_port}, this may take a while..."
+    );
+
+    let client = AsyncClient::connect(config).await.map_err(|error| {
         Error::Tool(format!(
             "router {router_name} did not accept API login on localhost:{api_port}: {error}"
         ))
     })?;
-    router_info!(router_name, "API ready on localhost:{api_port}");
+
+    let elapsed = start.elapsed().as_secs();
+    info_with_label!(router_name, "API ready on localhost:{api_port} after {elapsed} seconds");
     Ok(client)
 }
 

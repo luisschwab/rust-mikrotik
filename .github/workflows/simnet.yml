@@ -11,7 +11,6 @@ env:
     CARGO_TERM_COLOR: always
     RUST_BACKTRACE: 1
     RBMT_LOG_LEVEL: verbose
-    RUST_LOG: debug
 
 jobs:
     topology:
@@ -41,8 +40,8 @@ jobs:
 
             - name: Install CHR Runtime Tools
               run: |
-                  sudo apt-get update
-                  sudo apt-get install --yes curl qemu-efi-aarch64 qemu-system-arm qemu-system-x86 qemu-utils unzip
+                  sudo apt update
+                  sudo apt install -y curl qemu-system-x86 qemu-utils unzip
 
             - name: Setup Rust Cache
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -59,7 +58,7 @@ jobs:
               uses: ./.github/actions/setup-rbmt
 
             - name: "Run scenario: ${{ matrix.name }} (${{ matrix.topology }})"
-              run: cargo rbmt run run -p mikrotik-simnet -- run --exit-after-checks ${{ matrix.topology }}
+              run: cargo rbmt run run -p mikrotik-simnet -- run --non-interactive ${{ matrix.topology }}
 
             - name: Upload MikroTik SimNet Logs
               if: always()
@@ -69,7 +68,9 @@ jobs:
                   path: |
                       mikrotik-simnet/.chr-cache/runs/**/*.qemu.args
                       mikrotik-simnet/.chr-cache/runs/**/*.qemu.log
-                      mikrotik-simnet/.chr-cache/runs/**/*.print-checks.tsv
+                      mikrotik-simnet/.chr-cache/runs/**/*.print-commands.csv
                       mikrotik-simnet/.chr-cache/runs/**/*.serial.log
+                      mikrotik-simnet/.chr-cache/runs/**/topology.csv
+                      mikrotik-simnet/.chr-cache/runs/**/topology.mmd
                   if-no-files-found: ignore
                   retention-days: 14

@@ -19,7 +19,7 @@ pub enum Error {
     /// A required host tool was unavailable or failed.
     Tool(String),
     /// `RouterOS` client operation failed.
-    Client(mikrotik_client::Error),
+    Client(mikrotik_client::error::Error),
     /// A check failed after routers booted.
     Check(String),
 }
@@ -61,8 +61,8 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<mikrotik_client::Error> for Error {
-    fn from(error: mikrotik_client::Error) -> Self {
+impl From<mikrotik_client::error::Error> for Error {
+    fn from(error: mikrotik_client::error::Error) -> Self {
         Self::Client(error)
     }
 }

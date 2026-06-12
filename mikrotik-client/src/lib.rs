@@ -1,26 +1,64 @@
 #![deny(missing_docs)]
 
-//! Binary `RouterOS` API client for `MikroTik` devices.
+//! # `MikroTik` Client
+//!
+//! `RouterOS` API client for interfacing with `MikroTik` devices.
+//!
+//! ## Protocol Support
+//!
+//! This client has support for the following protocols:
+//! - [x] API
+//! - [x] API SSL
+//! - [ ] SSH
+//! - [ ] Telnet
+//! - [ ] MAC Telnet
+//! - [ ] FTP
+//! - [ ] HTTP
+//! - [ ] HTTPS
+//! - [ ] `WinBox`
 //!
 //! This crate uses the sans-IO `mikrotik-proto` protocol implementation with a
-//! Tokio transport, then exposes raw command execution and typed print methods
+//! Tokio transport, then exposes raw command execution and typed print commands
 //! that deserialize into `mikrotik-types` endpoint rows.
+//!
+//! ## Usage
+//!
+//! ```rust,no_run
+//! use mikrotik_client::builder::Builder;
+//! use mikrotik_client::builder::Protocol;
+//! use mikrotik_client::client::AsyncClient;
+//! use mikrotik_client::commands;
+//! use mikrotik_client::types::target::Credentials;
+//!
+//! # async fn example() -> mikrotik_client::error::Result<()> {
+//! let client = AsyncClient::connect(Builder::new(
+//!     "10.21.21.1",
+//!     Protocol::Api,
+//!     Credentials {
+//!         username: "admin".to_owned(),
+//!         password: Some("password".to_owned()),
+//!     },
+//! ))
+//! .await?;
+//!
+//! let identity = client.call("/system/identity/print", &[]).await?;
+//! println!("identity rows: {identity:?}");
+//!
+//! let interfaces = client
+//!     .print::<mikrotik_client::types::api::interface::Interface>(
+//!         commands::PrintCommand::Interface(commands::Interface::Interface),
+//!     )
+//!     .await?;
+//! println!("interfaces: {}", interfaces.len());
+//! # Ok(())
+//! # }
+//! ```
 
-mod client;
+pub mod builder;
+pub mod client;
 pub mod commands;
-mod config;
-mod error;
-mod print;
-pub mod print_checks;
+pub mod error;
+pub mod print;
 mod transport;
 
-pub use client::MikroTikClient;
-pub use config::API_PORT;
-pub use config::API_SSL_PORT;
-pub use config::MikroTikClientBuilder;
-pub use config::Protocol;
-pub use error::DecodeError;
-pub use error::Error;
-pub use error::Result;
 pub use mikrotik_types as types;
-pub use print::PrintMethods;

@@ -425,76 +425,76 @@ command = "/ppp/profile/print"
 min_rows = 1
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R01"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R02"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R03"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R04"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R05"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R06"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R07"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R08"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R09"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R10"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R11"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R12"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R13"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R14"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R15"
 allow_unsupported = true

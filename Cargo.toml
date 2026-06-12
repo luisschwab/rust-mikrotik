@@ -16,7 +16,7 @@ repository = "https://github.com/luisschwab/rust-mikrotik"
 [workspace.dependencies]
 serde = { version = "1.0.219", default-features = false, features = ["alloc", "derive"] }
 tokio = { version = "1.52.3" }
-tracing = "0.1.44"
+tracing = { version = "0.1.44" }
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 
 [workspace.metadata.rbmt.toolchains]

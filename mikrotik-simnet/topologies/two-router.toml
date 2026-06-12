@@ -32,11 +32,11 @@ a = "R01:ether2"
 b = "R02:ether2"
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R01"
 allow_unsupported = true
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R02"
 allow_unsupported = true

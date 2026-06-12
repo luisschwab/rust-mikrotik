@@ -16,12 +16,16 @@ use std::time::Duration;
 mod catalog;
 /// Error and result types for simnet operations.
 mod error;
+/// Mermaid topology diagram rendering.
+mod mermaid;
 /// Deterministic topology manifest parser.
 mod parser;
 /// QEMU host probing and argument construction.
 mod qemu;
 /// Topology execution lifecycle.
 mod runner;
+/// Simulation report helpers.
+mod simulation_report;
 /// Public topology manifest types.
 mod topology;
 /// RouterOS catalog listing for CHR simulation.
@@ -73,7 +77,7 @@ const DEFAULT_PASSWORD: &str = "";
 /// Returns an error if the manifest is invalid, required host tools are
 /// unavailable, image preparation fails, routers cannot boot, or checks fail.
 pub async fn run_topology(path: impl AsRef<Path>) -> Result<()> {
-    run_topology_with_options(path, RunOptions::interactive()).await
+    run_topology_with_options(path, RunOptions::default()).await
 }
 
 /// Run a topology manifest from disk with explicit runtime options.
@@ -89,6 +93,18 @@ pub async fn run_topology_with_options(path: impl AsRef<Path>, options: RunOptio
     runner::SimulatedNetwork::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")), topology)
         .run(options)
         .await
+}
+
+/// Render a topology manifest from disk as a Mermaid diagram.
+///
+/// # Errors
+///
+/// Returns an error if the manifest path cannot be read or parsed.
+pub fn topology_mermaid(path: impl AsRef<Path>) -> Result<String> {
+    let path = path.as_ref();
+    let topology_path = resolve_topology_path(path);
+    let topology = Topology::read(&topology_path)?;
+    Ok(mermaid::render_topology_mermaid(&topology))
 }
 
 /// Resolve a topology path, accepting bundled topology file names.

@@ -12,6 +12,6 @@ bootstrap = [
 ]
 
 [[checks]]
-type = "all-print-methods"
+type = "all-print-commands"
 router = "R01"
 allow_unsupported = true

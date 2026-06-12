@@ -557,6 +557,7 @@ mod tests {
     use super::Resource;
     use crate::Row;
     use crate::primitives::system::RouterOsByteSize;
+    use crate::primitives::system::RouterOsDate;
     use crate::primitives::system::RouterOsDateTime;
     use crate::primitives::system::RouterOsDurationRange;
     use crate::primitives::system::RouterOsTimeZoneOffset;
@@ -577,6 +578,19 @@ mod tests {
             .expect("legacy RouterOS datetime should parse");
 
         assert_eq!(datetime.to_string(), "2022-10-17 10:55:40");
+    }
+
+    #[test]
+    fn date_and_datetime_parse_lowercase_legacy_router_os_format() {
+        let date = "jun/12/2026"
+            .parse::<RouterOsDate>()
+            .expect("lowercase legacy RouterOS date should parse");
+        let datetime = "jun/12/2026 16:33:24"
+            .parse::<RouterOsDateTime>()
+            .expect("lowercase legacy RouterOS datetime should parse");
+
+        assert_eq!(date.to_string(), "2026-06-12");
+        assert_eq!(datetime.to_string(), "2026-06-12 16:33:24");
     }
 
     #[test]

@@ -34,7 +34,8 @@ pub struct BgpSession {
     #[serde(deserialize_with = "crate::optional_from_str")]
     pub state: Option<BgpSessionState>,
     /// Whether the session is established.
-    pub established: bool,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub established: Option<bool>,
 }
 
 /// Response row from `/routing/bgp/template/print`.
@@ -390,6 +391,7 @@ pub struct RoutingStatsStep {
 mod tests {
     use alloc::string::ToString;
 
+    use super::BgpSession;
     use super::RoutingRoute;
     use super::RoutingStatsMemory;
     use crate::Row;
@@ -433,6 +435,21 @@ mod tests {
             route.dst_address.as_ref().map(ToString::to_string).as_deref(),
             Some("fe80::%ether1/64")
         );
+    }
+
+    #[test]
+    fn bgp_session_deserializes_string_established_flag() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*2800001".into());
+        row.insert("name".into(), "right-0-1".into());
+        row.insert("established".into(), "true".into());
+        row.insert("remote.address".into(), "10.200.0.2".into());
+        row.insert("remote.as".into(), "65001".into());
+
+        let session = crate::deserialize::<BgpSession>(&row).expect("BGP session row should deserialize");
+
+        assert_eq!(session.established, Some(true));
+        assert_eq!(session.remote_as, Some(65001));
     }
 
     #[test]

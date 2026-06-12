@@ -150,15 +150,7 @@ impl FromStr for RouterOsDate {
     type Err = ParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let year = parse_i32_slice_as(value, 0..4, ParseError::RouterOsDate)?;
-        let month = parse_month_number(parse_u8_slice_as(value, 5..7, ParseError::RouterOsDate)?)?;
-        let day = parse_u8_slice_as(value, 8..10, ParseError::RouterOsDate)?;
-
-        if value.len() != 10 || value.as_bytes().get(4) != Some(&b'-') || value.as_bytes().get(7) != Some(&b'-') {
-            return Err(ParseError::RouterOsDate);
-        }
-
-        Date::from_calendar_date(year, month, day)
+        parse_router_os_date(value)
             .map(Self)
             .map_err(|_| ParseError::RouterOsDate)
     }
@@ -256,31 +248,57 @@ fn parse_router_os_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError
     }
 }
 
+/// Parse either current ISO-like or legacy `RouterOS` date text.
+fn parse_router_os_date(value: &str) -> Result<Date, ParseError> {
+    if value.len() == 10 && value.as_bytes().get(4) == Some(&b'-') {
+        parse_iso_like_date_as(value, ParseError::RouterOsDate)
+    } else {
+        parse_legacy_date_as(value, ParseError::RouterOsDate)
+    }
+}
+
 /// Parse `YYYY-MM-DD HH:MM:SS` date-time text.
 fn parse_iso_like_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
-    let year = parse_i32_slice(value, 0..4)?;
-    let month = parse_month_number(parse_u8_slice(value, 5..7)?)?;
-    let day = parse_u8_slice(value, 8..10)?;
     let time = parse_time_hms(value.get(11..19).ok_or(ParseError::RouterOsDateTime)?)?;
-    let date = Date::from_calendar_date(year, month, day).map_err(|_| ParseError::RouterOsDateTime)?;
+    let date = parse_iso_like_date_as(&value[..10], ParseError::RouterOsDateTime)?;
 
     Ok(PrimitiveDateTime::new(date, time))
+}
+
+/// Parse `YYYY-MM-DD` date text using a caller-selected parse error.
+fn parse_iso_like_date_as(value: &str, error: ParseError) -> Result<Date, ParseError> {
+    let year = parse_i32_slice_as(value, 0..4, error)?;
+    let month = parse_month_number_as(parse_u8_slice_as(value, 5..7, error)?, error)?;
+    let day = parse_u8_slice_as(value, 8..10, error)?;
+
+    if value.len() != 10 || value.as_bytes().get(4) != Some(&b'-') || value.as_bytes().get(7) != Some(&b'-') {
+        return Err(error);
+    }
+
+    Date::from_calendar_date(year, month, day).map_err(|_| error)
 }
 
 /// Parse legacy `mon/DD/YYYY HH:MM:SS` date-time text.
 fn parse_legacy_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
     let (date, time) = value.split_once(' ').ok_or(ParseError::RouterOsDateTime)?;
-    let mut date_parts = date.split('/');
-    let month = parse_month_name(date_parts.next().ok_or(ParseError::RouterOsDateTime)?)?;
-    let day = parse_u8(date_parts.next().ok_or(ParseError::RouterOsDateTime)?)?;
-    let year = parse_i32(date_parts.next().ok_or(ParseError::RouterOsDateTime)?)?;
+    Ok(PrimitiveDateTime::new(
+        parse_legacy_date_as(date, ParseError::RouterOsDateTime)?,
+        parse_time_hms(time)?,
+    ))
+}
+
+/// Parse legacy `mon/DD/YYYY` date text using a caller-selected parse error.
+fn parse_legacy_date_as(value: &str, error: ParseError) -> Result<Date, ParseError> {
+    let mut date_parts = value.split('/');
+    let month = parse_month_name_as(date_parts.next().ok_or(error)?, error)?;
+    let day = parse_u8_as(date_parts.next().ok_or(error)?, error)?;
+    let year = parse_i32_as(date_parts.next().ok_or(error)?, error)?;
 
     if date_parts.next().is_some() {
-        return Err(ParseError::RouterOsDateTime);
+        return Err(error);
     }
 
-    let date = Date::from_calendar_date(year, month, day).map_err(|_| ParseError::RouterOsDateTime)?;
-    Ok(PrimitiveDateTime::new(date, parse_time_hms(time)?))
+    Date::from_calendar_date(year, month, day).map_err(|_| error)
 }
 
 /// Parse `HH:MM:SS` as a time using the date-time parse error.
@@ -302,38 +320,40 @@ fn parse_time_hms_as(value: &str, error: ParseError) -> Result<Time, ParseError>
     Time::from_hms(hour, minute, second).map_err(|_| error)
 }
 
-/// Parse a three-letter English month name used by legacy `RouterOS`.
-fn parse_month_name(value: &str) -> Result<Month, ParseError> {
-    match value {
-        "Jan" => Ok(Month::January),
-        "Feb" => Ok(Month::February),
-        "Mar" => Ok(Month::March),
-        "Apr" => Ok(Month::April),
-        "May" => Ok(Month::May),
-        "Jun" => Ok(Month::June),
-        "Jul" => Ok(Month::July),
-        "Aug" => Ok(Month::August),
-        "Sep" => Ok(Month::September),
-        "Oct" => Ok(Month::October),
-        "Nov" => Ok(Month::November),
-        "Dec" => Ok(Month::December),
-        _ => Err(ParseError::RouterOsDateTime),
+/// Parse a three-letter English month name using a caller-selected parse error.
+fn parse_month_name_as(value: &str, error: ParseError) -> Result<Month, ParseError> {
+    if value.eq_ignore_ascii_case("jan") {
+        Ok(Month::January)
+    } else if value.eq_ignore_ascii_case("feb") {
+        Ok(Month::February)
+    } else if value.eq_ignore_ascii_case("mar") {
+        Ok(Month::March)
+    } else if value.eq_ignore_ascii_case("apr") {
+        Ok(Month::April)
+    } else if value.eq_ignore_ascii_case("may") {
+        Ok(Month::May)
+    } else if value.eq_ignore_ascii_case("jun") {
+        Ok(Month::June)
+    } else if value.eq_ignore_ascii_case("jul") {
+        Ok(Month::July)
+    } else if value.eq_ignore_ascii_case("aug") {
+        Ok(Month::August)
+    } else if value.eq_ignore_ascii_case("sep") {
+        Ok(Month::September)
+    } else if value.eq_ignore_ascii_case("oct") {
+        Ok(Month::October)
+    } else if value.eq_ignore_ascii_case("nov") {
+        Ok(Month::November)
+    } else if value.eq_ignore_ascii_case("dec") {
+        Ok(Month::December)
+    } else {
+        Err(error)
     }
 }
 
-/// Parse a one-based month number.
-fn parse_month_number(value: u8) -> Result<Month, ParseError> {
-    Month::try_from(value).map_err(|_| ParseError::RouterOsDateTime)
-}
-
-/// Parse a byte range from a string as `i32` using the date-time parse error.
-fn parse_i32_slice(value: &str, range: core::ops::Range<usize>) -> Result<i32, ParseError> {
-    parse_i32_slice_as(value, range, ParseError::RouterOsDateTime)
-}
-
-/// Parse a byte range from a string as `u8` using the date-time parse error.
-fn parse_u8_slice(value: &str, range: core::ops::Range<usize>) -> Result<u8, ParseError> {
-    parse_u8_slice_as(value, range, ParseError::RouterOsDateTime)
+/// Parse a one-based month number using a caller-selected parse error.
+fn parse_month_number_as(value: u8, error: ParseError) -> Result<Month, ParseError> {
+    Month::try_from(value).map_err(|_| error)
 }
 
 /// Parse a byte range from a string as `i32` using a caller-selected parse error.
@@ -344,16 +364,6 @@ fn parse_i32_slice_as(value: &str, range: core::ops::Range<usize>, error: ParseE
 /// Parse a byte range from a string as `u8` using a caller-selected parse error.
 fn parse_u8_slice_as(value: &str, range: core::ops::Range<usize>, error: ParseError) -> Result<u8, ParseError> {
     parse_u8_as(value.get(range).ok_or(error)?, error)
-}
-
-/// Parse a string as `i32` using the date-time parse error.
-fn parse_i32(value: &str) -> Result<i32, ParseError> {
-    parse_i32_as(value, ParseError::RouterOsDateTime)
-}
-
-/// Parse a string as `u8` using the date-time parse error.
-fn parse_u8(value: &str) -> Result<u8, ParseError> {
-    parse_u8_as(value, ParseError::RouterOsDateTime)
 }
 
 /// Parse a string as `i32` using a caller-selected parse error.

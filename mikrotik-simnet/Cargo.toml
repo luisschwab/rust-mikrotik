@@ -1,0 +1,31 @@
+[package]
+name = "mikrotik-simnet"
+description = "MikroTik network simulation harness, powered by QEMU"
+version = "0.0.0"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.rbmt.lint]
+allowed_duplicates = [
+  "argh_shared",
+  "getrandom",
+  "r-efi",
+  "windows-sys",
+  "wit-bindgen",
+]
+
+[dependencies]
+mikrotik-client = { path = "../mikrotik-client" }
+argh = "0.1.13"
+lazy_static = "1.5.0" # floor for sharded-slab minimal-version resolution
+sharded-slab = "0.1.7" # floor for tracing-subscriber minimal-version resolution
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+xshell = "0.3.0-pre.2"
+
+[lints]
+workspace = true

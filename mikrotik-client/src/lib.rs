@@ -17,7 +17,7 @@ mod transport;
 pub use client::MikroTikClient;
 pub use config::API_PORT;
 pub use config::API_SSL_PORT;
-pub use config::MikroTikClientConfig;
+pub use config::MikroTikClientBuilder;
 pub use config::Protocol;
 pub use error::DecodeError;
 pub use error::Error;

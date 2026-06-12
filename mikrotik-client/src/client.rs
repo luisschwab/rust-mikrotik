@@ -15,8 +15,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tokio::time::sleep;
+use tracing::debug;
 
-use crate::config::MikroTikClientConfig;
+use crate::config::MikroTikClientBuilder;
 use crate::error::DecodeError;
 use crate::error::Error;
 use crate::error::Result;
@@ -33,7 +34,7 @@ const CONNECT_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
 #[derive(Debug, Clone)]
 pub struct MikroTikClient {
     /// Connection configuration used to create the session.
-    config: MikroTikClientConfig,
+    config: MikroTikClientBuilder,
     /// Shared serialized access to the underlying protocol session.
     session: Arc<Mutex<Session>>,
 }
@@ -46,9 +47,9 @@ impl MikroTikClient {
     /// Returns an error if TCP/TLS connection setup or `RouterOS` authentication
     /// fails. Transient transport errors are retried with exponential backoff
     /// before the final error is returned.
-    pub async fn connect(config: MikroTikClientConfig) -> Result<Self> {
+    pub async fn connect(config: MikroTikClientBuilder) -> Result<Self> {
         install_rustls_provider();
-        let deadline = Instant::now() + CONNECT_RETRY_TIMEOUT;
+        let deadline = Instant::now() + config.connect_retry_timeout(CONNECT_RETRY_TIMEOUT);
         let mut delay = CONNECT_RETRY_INITIAL_DELAY;
 
         let session = loop {
@@ -56,11 +57,20 @@ impl MikroTikClient {
                 Ok(session) => break session,
                 Err(error) if is_transient_connect_error(&error) && Instant::now() < deadline => {
                     let sleep_for = delay.min(deadline.saturating_duration_since(Instant::now()));
-                    tracing::debug!(
-                        "RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
-                        config.socket_address(),
-                        sleep_for
-                    );
+                    if let Some(label) = &config.log_label {
+                        debug!(
+                            "{}: RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                            label,
+                            config.socket_address(),
+                            sleep_for
+                        );
+                    } else {
+                        debug!(
+                            "RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                            config.socket_address(),
+                            sleep_for
+                        );
+                    }
                     sleep(sleep_for).await;
                     delay = next_connect_delay(delay);
                 }
@@ -75,7 +85,7 @@ impl MikroTikClient {
     }
 
     /// Return this client's connection configuration.
-    pub fn config(&self) -> &MikroTikClientConfig {
+    pub fn config(&self) -> &MikroTikClientBuilder {
         &self.config
     }
 

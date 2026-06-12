@@ -24,7 +24,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
-use crate::config::MikroTikClientConfig;
+use crate::config::MikroTikClientBuilder;
 use crate::config::Protocol;
 use crate::error::Error;
 use crate::error::Result;
@@ -44,7 +44,7 @@ pub(crate) struct Session {
 
 impl Session {
     /// Connect to a `RouterOS` API endpoint and complete login.
-    pub(crate) async fn connect(config: &MikroTikClientConfig) -> Result<Self> {
+    pub(crate) async fn connect(config: &MikroTikClientBuilder) -> Result<Self> {
         let stream = connect_stream(config).await?;
         let connection = login(stream, config).await?;
 
@@ -59,7 +59,7 @@ impl fmt::Debug for Session {
 }
 
 /// Open the configured TCP or TLS stream.
-async fn connect_stream(config: &MikroTikClientConfig) -> Result<Box<dyn AsyncStream>> {
+async fn connect_stream(config: &MikroTikClientBuilder) -> Result<Box<dyn AsyncStream>> {
     let tcp_stream = TcpStream::connect(config.socket_address()).await?;
     tcp_stream.set_nodelay(true)?;
 
@@ -79,7 +79,7 @@ async fn connect_stream(config: &MikroTikClientConfig) -> Result<Box<dyn AsyncSt
 }
 
 /// Drive the `RouterOS` login handshake over an open stream.
-async fn login(mut stream: Box<dyn AsyncStream>, config: &MikroTikClientConfig) -> Result<Session> {
+async fn login(mut stream: Box<dyn AsyncStream>, config: &MikroTikClientBuilder) -> Result<Session> {
     let mut handshaking = Handshaking::new(&config.credentials.username, config.credentials.password.as_deref())?;
 
     flush_login_transmits(&mut *stream, &mut handshaking).await?;

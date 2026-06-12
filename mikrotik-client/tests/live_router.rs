@@ -6,7 +6,7 @@ use std::io;
 use std::path::Path;
 
 use mikrotik_client::MikroTikClient;
-use mikrotik_client::MikroTikClientConfig;
+use mikrotik_client::MikroTikClientBuilder;
 use mikrotik_client::Protocol;
 use mikrotik_client::print_checks::PRINT_CHECK_FILTER_ENV;
 use mikrotik_client::print_checks::PrintCheckFilter;
@@ -47,7 +47,7 @@ fn live_enabled() -> bool {
     std::env::var(LIVE_ENABLE_ENV).is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
 }
 
-fn live_config() -> io::Result<Option<MikroTikClientConfig>> {
+fn live_config() -> io::Result<Option<MikroTikClientBuilder>> {
     let creds = read_creds_file(Path::new(env!("CARGO_MANIFEST_DIR")).join(LIVE_CREDS_PATH))?;
 
     if LIVE_CREDS_KEYS.iter().any(|key| !creds.contains_key(*key)) {
@@ -65,7 +65,7 @@ fn live_config() -> io::Result<Option<MikroTikClientConfig>> {
     let protocol = parse_protocol(creds.get("protocol").expect("presence checked"));
 
     Ok(Some(
-        MikroTikClientConfig::new(
+        MikroTikClientBuilder::new(
             address,
             protocol,
             Credentials {

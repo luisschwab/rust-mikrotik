@@ -1,6 +1,11 @@
 //! Shared checks for typed `RouterOS` print endpoints.
 
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
+use std::time::Duration;
+
+use tokio::time::sleep;
 
 use crate::MikroTikClient;
 use crate::PrintMethods;
@@ -8,139 +13,40 @@ use crate::error::Error;
 
 /// Environment variable used by tests to filter print methods by substring.
 pub const PRINT_CHECK_FILTER_ENV: &str = "MIKROTIK_LIVE_FILTER";
+/// Number of retries for transient `RouterOS` print command traps.
+const PRINT_CHECK_TRANSIENT_RETRIES: usize = 1;
+/// Delay before retrying a transient `RouterOS` print command trap.
+const PRINT_CHECK_RETRY_DELAY: Duration = Duration::from_secs(5);
 
-/// Typed print endpoint methods attempted by [`run_all_print_checks`] without a filter.
-pub const ALL_PRINT_CHECK_METHODS: &[&str] = &[
-    "interface_bridge_print",
-    "interface_bridge_host_print",
-    "interface_bridge_port_print",
-    "interface_bridge_settings_print",
-    "interface_bridge_vlan_print",
-    "interface_detect_internet_print",
-    "interface_ethernet_interface_print",
-    "interface_ethernet_switch_print",
-    "interface_ethernet_switch_port_print",
-    "interface_ethernet_switch_port_isolation_print",
-    "interface_interface_print",
-    "interface_interface_list_print",
-    "interface_interface_list_member_print",
-    "interface_lte_apn_print",
-    "interface_vlan_interface_print",
-    "interface_wire_guard_interface_print",
-    "interface_wire_guard_peer_print",
-    "interface_wireless_security_profile_print",
-    "ip_address_print",
-    "ip_arp_entry_print",
-    "ip_dhcp_client_print",
-    "ip_dhcp_lease_print",
-    "ip_dhcp_server_print",
-    "ip_dhcp_server_network_print",
-    "ip_dns_print",
-    "ip_dns_cache_entry_print",
-    "ip_firewall_address_list_entry_print",
-    "ip_firewall_connection_print",
-    "ip_firewall_connection_tracking_print",
-    "ip_firewall_rule_filter_print",
-    "ip_firewall_rule_mangle_print",
-    "ip_firewall_rule_nat_print",
-    "ip_firewall_rule_raw_print",
-    "ip_firewall_service_port_print",
-    "ip_hotspot_profile_print",
-    "ip_hotspot_user_print",
-    "ip_ip_cloud_print",
-    "ip_ip_pool_print",
-    "ip_ip_pool_used_print",
-    "ip_ip_proxy_print",
-    "ip_ip_service_print",
-    "ip_ip_settings_print",
-    "ip_ipsec_policy_print",
-    "ip_ipsec_profile_print",
-    "ip_ipsec_proposal_print",
-    "ip_ipsec_statistics_print",
-    "ip_ipv6_address_print",
-    "ip_ipv6_neighbor_print",
-    "ip_ipv6_neighbor_discovery_print",
-    "ip_ipv6_route_print",
-    "ip_ipv6_settings_print",
-    "ip_nat_pmp_print",
-    "ip_neighbor_print",
-    "ip_neighbor_discovery_settings_print",
-    "ip_route_print",
-    "ip_smb_print",
-    "ip_smb_share_print",
-    "ip_socks_print",
-    "ip_ssh_print",
-    "ip_traffic_flow_print",
-    "ip_upnp_print",
-    "ip_vrf_print",
-    "queue_queue_interface_print",
-    "queue_queue_type_print",
-    "routing_bgp_session_print",
-    "routing_bgp_template_print",
-    "routing_igmp_proxy_print",
-    "routing_routing_id_print",
-    "routing_routing_nexthop_print",
-    "routing_routing_route_print",
-    "routing_routing_settings_print",
-    "routing_routing_stats_memory_print",
-    "routing_routing_stats_origin_print",
-    "routing_routing_stats_process_print",
-    "routing_routing_stats_step_print",
-    "routing_routing_table_print",
-    "service_caps_man_aaa_print",
-    "service_caps_man_manager_print",
-    "service_caps_man_manager_interface_print",
-    "service_certificate_settings_print",
-    "service_console_settings_print",
-    "service_disk_settings_print",
-    "service_file_print",
-    "service_mpls_settings_print",
-    "service_partition_print",
-    "service_ppp_aaa_print",
-    "service_ppp_profile_print",
-    "service_radius_incoming_print",
-    "snmp_snmp_print",
-    "snmp_snmp_community_print",
-    "system_clock_print",
-    "system_device_mode_print",
-    "system_history_entry_print",
-    "system_identity_print",
-    "system_led_print",
-    "system_license_print",
-    "system_log_entry_print",
-    "system_logging_action_print",
-    "system_logging_rule_print",
-    "system_note_print",
-    "system_ntp_client_print",
-    "system_ntp_server_print",
-    "system_package_print",
-    "system_package_update_print",
-    "system_resource_print",
-    "system_resource_cpu_print",
-    "system_resource_irq_print",
-    "system_resource_usb_settings_print",
-    "system_routerboard_print",
-    "system_routerboard_reset_button_print",
-    "system_routerboard_settings_print",
-    "system_script_job_print",
-    "system_upgrade_mirror_print",
-    "system_watchdog_print",
-    "tool_bandwidth_server_print",
-    "tool_email_print",
-    "tool_graphing_print",
-    "tool_mac_server_ping_print",
-    "tool_romon_print",
-    "tool_romon_port_print",
-    "tool_sms_print",
-    "tool_sniffer_print",
-    "tool_traffic_generator_print",
-    "tool_traffic_generator_latency_distribution_print",
-    "user_active_user_print",
-    "user_user_print",
-    "user_user_aaa_print",
-    "user_user_group_print",
-    "user_user_settings_print",
-];
+/// Boxed future returned by one typed print endpoint command.
+type PrintCheckFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+/// Function pointer used to run one typed print endpoint command.
+type PrintCheckRunner =
+    for<'a> fn(&'a MikroTikClient, &'a PrintCheckOptions, &'a mut PrintCheckReport) -> PrintCheckFuture<'a>;
+
+/// One typed print endpoint command.
+#[derive(Clone, Copy)]
+pub struct PrintCheckCommand {
+    /// Generated client method name.
+    name: &'static str,
+    /// Command runner.
+    run: PrintCheckRunner,
+}
+
+impl PrintCheckCommand {
+    /// Return the generated client method name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+
+    /// Run this command against a connected client.
+    pub async fn run(self, client: &MikroTikClient, options: &PrintCheckOptions) -> PrintCheckReport {
+        let mut report = PrintCheckReport::default();
+        (self.run)(client, options, &mut report).await;
+        report
+    }
+}
 
 /// Emit one typed print-check event, prefixed by router name when available.
 macro_rules! print_check_info {
@@ -153,39 +59,225 @@ macro_rules! print_check_info {
     }};
 }
 
-/// Run a list of generated typed print methods and record failures.
-macro_rules! run_print_methods {
-    ($client:expr, $options:expr, $report:expr, [$($method:ident,)*]) => {
-        $(
-            let method = stringify!($method);
+/// Emit one typed print-check trace event, prefixed by router name when available.
+macro_rules! print_check_trace {
+    ($options:expr, $($argument:tt)*) => {{
+        if let Some(router) = $options.router_name.as_deref() {
+            tracing::trace!("{router}: {}", format_args!($($argument)*));
+        } else {
+            tracing::trace!("{}", format_args!($($argument)*));
+        }
+    }};
+}
 
-            if $options.filter.matches(method) {
-                $report.ran_methods += 1;
-                $report.attempted_methods.push(method.to_owned());
-                print_check_info!($options, "running {method}");
+/// Run one generated typed print method and record its outcome.
+macro_rules! run_print_method {
+    ($client:expr, $options:expr, $report:expr, $method:ident) => {{
+        let method = stringify!($method);
 
+        if $options.filter.matches(method) {
+            $report.ran_methods += 1;
+            $report.attempted_methods.push(method.to_owned());
+            print_check_info!($options, "running {method}");
+
+            let mut retries = 0;
+            loop {
                 match $client.$method().await {
                     Ok(rows) => {
                         print_check_info!($options, "ok {method}: {} row(s)", rows.len());
-                        $report.successes.push(PrintCheckSuccess::new($options.router_name.clone(), method, rows.len()));
+                        $report.successes.push(PrintCheckSuccess::new(
+                            $options.router_name.clone(),
+                            method,
+                            rows.len(),
+                        ));
+                        break;
                     }
-                    Err(error) if $options.allow_unsupported_endpoints && is_unsupported_endpoint_error(method, &error) => {
+                    Err(error) if is_transient_print_check_error(&error) && retries < PRINT_CHECK_TRANSIENT_RETRIES => {
+                        retries += 1;
+                        print_check_info!($options, "retrying {method} after transient RouterOS error: {error}");
+                        sleep(PRINT_CHECK_RETRY_DELAY).await;
+                    }
+                    Err(error)
+                        if $options.allow_unsupported_endpoints && is_unsupported_endpoint_error(method, &error) =>
+                    {
                         let skipped = PrintCheckSkipped::new($options.router_name.clone(), method, &error);
                         print_check_info!($options, "skipped {method}: {skipped}");
                         $report.skipped.push(skipped);
+                        break;
                     }
                     Err(error) => {
                         let failure = PrintCheckFailure::new($options.router_name.clone(), method, &error);
                         print_check_info!($options, "failed {method}: {failure}");
                         $report.failures.push(failure);
+                        break;
                     }
                 }
-            } else {
-                print_check_info!($options, "skipping {method}: filtered out");
             }
+        } else {
+            print_check_trace!($options, "skipping {method}: filtered out");
+        }
+    }};
+}
+
+/// Run a list of generated typed print methods and record failures.
+macro_rules! run_print_methods {
+    ($client:expr, $options:expr, $report:expr, [$($method:ident,)*]) => {
+        $(
+            run_print_method!($client, $options, $report, $method);
         )*
     };
 }
+
+/// Define the typed print endpoint command inventory.
+macro_rules! print_check_inventory {
+    ($($method:ident,)*) => {
+        /// Typed print endpoint method names attempted by [`run_all_print_checks`] without a filter.
+        pub const ALL_PRINT_CHECK_METHODS: &[&str] = &[$(stringify!($method),)*];
+
+        /// Typed print endpoint commands attempted by [`run_all_print_checks`] without a filter.
+        pub const ALL_PRINT_CHECK_COMMANDS: &[PrintCheckCommand] = &[
+            $(
+                PrintCheckCommand {
+                    name: stringify!($method),
+                    run: |client, options, report| Box::pin(async move {
+                        run_print_method!(client, options, report, $method);
+                    }),
+                },
+            )*
+        ];
+    };
+}
+
+print_check_inventory!(
+    interface_bridge_print,
+    interface_bridge_host_print,
+    interface_bridge_port_print,
+    interface_bridge_settings_print,
+    interface_bridge_vlan_print,
+    interface_detect_internet_print,
+    interface_ethernet_interface_print,
+    interface_ethernet_switch_print,
+    interface_ethernet_switch_port_print,
+    interface_ethernet_switch_port_isolation_print,
+    interface_interface_print,
+    interface_interface_list_print,
+    interface_interface_list_member_print,
+    interface_lte_apn_print,
+    interface_vlan_interface_print,
+    interface_wire_guard_interface_print,
+    interface_wire_guard_peer_print,
+    interface_wireless_security_profile_print,
+    ip_address_print,
+    ip_arp_entry_print,
+    ip_dhcp_client_print,
+    ip_dhcp_lease_print,
+    ip_dhcp_server_print,
+    ip_dhcp_server_network_print,
+    ip_dns_print,
+    ip_dns_cache_entry_print,
+    ip_firewall_address_list_entry_print,
+    ip_firewall_connection_print,
+    ip_firewall_connection_tracking_print,
+    ip_firewall_rule_filter_print,
+    ip_firewall_rule_mangle_print,
+    ip_firewall_rule_nat_print,
+    ip_firewall_rule_raw_print,
+    ip_firewall_service_port_print,
+    ip_hotspot_profile_print,
+    ip_hotspot_user_print,
+    ip_ip_cloud_print,
+    ip_ip_pool_print,
+    ip_ip_pool_used_print,
+    ip_ip_proxy_print,
+    ip_ip_service_print,
+    ip_ip_settings_print,
+    ip_ipsec_policy_print,
+    ip_ipsec_profile_print,
+    ip_ipsec_proposal_print,
+    ip_ipsec_statistics_print,
+    ip_ipv6_address_print,
+    ip_ipv6_neighbor_print,
+    ip_ipv6_neighbor_discovery_print,
+    ip_ipv6_route_print,
+    ip_ipv6_settings_print,
+    ip_nat_pmp_print,
+    ip_neighbor_print,
+    ip_neighbor_discovery_settings_print,
+    ip_route_print,
+    ip_smb_print,
+    ip_smb_share_print,
+    ip_socks_print,
+    ip_ssh_print,
+    ip_traffic_flow_print,
+    ip_upnp_print,
+    ip_vrf_print,
+    queue_queue_interface_print,
+    queue_queue_type_print,
+    routing_bgp_session_print,
+    routing_bgp_template_print,
+    routing_igmp_proxy_print,
+    routing_routing_id_print,
+    routing_routing_nexthop_print,
+    routing_routing_route_print,
+    routing_routing_settings_print,
+    routing_routing_stats_memory_print,
+    routing_routing_stats_origin_print,
+    routing_routing_stats_process_print,
+    routing_routing_stats_step_print,
+    routing_routing_table_print,
+    service_caps_man_aaa_print,
+    service_caps_man_manager_print,
+    service_caps_man_manager_interface_print,
+    service_certificate_settings_print,
+    service_console_settings_print,
+    service_disk_settings_print,
+    service_file_print,
+    service_mpls_settings_print,
+    service_partition_print,
+    service_ppp_aaa_print,
+    service_ppp_profile_print,
+    service_radius_incoming_print,
+    snmp_snmp_print,
+    snmp_snmp_community_print,
+    system_clock_print,
+    system_device_mode_print,
+    system_history_entry_print,
+    system_identity_print,
+    system_led_print,
+    system_license_print,
+    system_log_entry_print,
+    system_logging_action_print,
+    system_logging_rule_print,
+    system_note_print,
+    system_ntp_client_print,
+    system_ntp_server_print,
+    system_package_print,
+    system_package_update_print,
+    system_resource_print,
+    system_resource_cpu_print,
+    system_resource_irq_print,
+    system_resource_usb_settings_print,
+    system_routerboard_print,
+    system_routerboard_reset_button_print,
+    system_routerboard_settings_print,
+    system_script_job_print,
+    system_upgrade_mirror_print,
+    tool_bandwidth_server_print,
+    tool_email_print,
+    tool_graphing_print,
+    tool_mac_server_ping_print,
+    tool_romon_print,
+    tool_romon_port_print,
+    tool_sms_print,
+    tool_sniffer_print,
+    tool_traffic_generator_print,
+    tool_traffic_generator_latency_distribution_print,
+    user_active_user_print,
+    user_user_print,
+    user_user_aaa_print,
+    user_user_group_print,
+    user_user_settings_print,
+);
 
 /// Filter for selecting print methods by name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -307,6 +399,15 @@ impl PrintCheckReport {
     #[must_use]
     pub fn failures(&self) -> &[PrintCheckFailure] {
         &self.failures
+    }
+
+    /// Append another print-check report to this report.
+    pub fn append(&mut self, mut other: Self) {
+        self.ran_methods += other.ran_methods;
+        self.attempted_methods.append(&mut other.attempted_methods);
+        self.successes.append(&mut other.successes);
+        self.skipped.append(&mut other.skipped);
+        self.failures.append(&mut other.failures);
     }
 
     /// Return whether all executed methods passed.
@@ -548,6 +649,19 @@ impl fmt::Display for PrintCheckFailure {
     }
 }
 
+/// Return whether an error is likely a transient `RouterOS` execution timeout.
+fn is_transient_print_check_error(error: &Error) -> bool {
+    match error {
+        Error::Trap(message) => message.to_ascii_lowercase().contains("action timed out"),
+        Error::Io(_)
+        | Error::Connection(_)
+        | Error::Login(_)
+        | Error::ConnectionClosed
+        | Error::Fatal(_)
+        | Error::Decode(_) => false,
+    }
+}
+
 /// Return whether an error means the endpoint is unavailable in this `RouterOS`.
 fn is_unsupported_endpoint_error(method: &str, error: &Error) -> bool {
     match error {
@@ -754,7 +868,6 @@ async fn run_system_methods(client: &MikroTikClient, options: &PrintCheckOptions
             system_routerboard_settings_print,
             system_script_job_print,
             system_upgrade_mirror_print,
-            system_watchdog_print,
         ]
     );
 }
@@ -895,5 +1008,12 @@ mod tests {
         };
 
         assert!(!report.has_complete_outcome_inventory());
+    }
+
+    #[test]
+    fn action_timeout_is_transient_print_check_error() {
+        let error = Error::Trap("action timed out - try again, if error continues contact MikroTik support".to_owned());
+
+        assert!(is_transient_print_check_error(&error));
     }
 }

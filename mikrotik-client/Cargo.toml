@@ -25,8 +25,9 @@ mikrotik-proto = { version = "0.2.0", features = ["std"] }
 mikrotik-types = { path = "../mikrotik-types" }
 rustls = { version = "0.23.40", default-features = false, features = ["aws_lc_rs", "std"] }
 serde.workspace = true
-tokio = { version = "1.52.3", features = ["io-util", "net", "sync"] }
+tokio = { workspace = true, features = ["io-util", "net", "sync", "time"] }
 tokio-rustls = { version = "0.26.0", default-features = false, features = ["tls12"] }
+tracing.workspace = true
 
 # Minimal-version floors for transitive dependencies that otherwise resolve to
 # vulnerable or incompatible versions.
@@ -36,7 +37,7 @@ rustls-webpki = { version = "0.103.13", default-features = false }
 uuid = { version = "1.23.3", default-features = false }
 
 [dev-dependencies]
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

@@ -17,6 +17,9 @@ on data-structures and network messages, and interacting with MikroTik devices.
 <a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml">
     <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg">
 </a>
+<a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simnet.yml">
+    <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simnet.yml/badge.svg">
+</a>
 </p>
 
 </div>

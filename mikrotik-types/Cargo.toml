@@ -13,7 +13,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-memchr = { version = "2.4.1", default-features = false }
+memchr = { version = "2.6.0", default-features = false }
 serde.workspace = true
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
 time = { version = "0.3.41", default-features = false, features = ["alloc", "serde"] }

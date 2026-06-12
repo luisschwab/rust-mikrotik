@@ -8,6 +8,7 @@ use crate::client::MikroTikClient;
 use crate::commands;
 use crate::error::Result;
 
+/// Generate the typed print trait and its client implementation.
 macro_rules! print_methods {
     ($(($method:ident, $command:ident, $ty:ty),)*) => {
         /// Typed `RouterOS` print commands.

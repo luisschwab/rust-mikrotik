@@ -3,6 +3,8 @@ Cargo.lock.backup
 
 /debug
 /target
+/.simnet
+/mikrotik-simnet/.chr-cache
 
 TODO.md
 NOTES.md

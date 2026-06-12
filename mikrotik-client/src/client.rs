@@ -1,8 +1,10 @@
 //! Connected client and raw command execution.
 
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::Once;
+use std::time::Duration;
 
 use mikrotik_proto::CommandBuilder;
 use mikrotik_proto::Event;
@@ -11,17 +13,29 @@ use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
+use tokio::time::sleep;
+use tracing::debug;
 
-use crate::config::MikroTikClientConfig;
+use crate::config::MikroTikClientBuilder;
 use crate::error::DecodeError;
 use crate::error::Error;
 use crate::error::Result;
 use crate::transport::Session;
 
+/// Default maximum time spent retrying transient connection failures.
+const CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(120);
+/// First delay used after a transient connection failure.
+const CONNECT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(250);
+/// Maximum delay used by exponential connection backoff.
+const CONNECT_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
+
 /// Connected `RouterOS` binary API client.
 #[derive(Debug, Clone)]
 pub struct MikroTikClient {
-    config: MikroTikClientConfig,
+    /// Connection configuration used to create the session.
+    config: MikroTikClientBuilder,
+    /// Shared serialized access to the underlying protocol session.
     session: Arc<Mutex<Session>>,
 }
 
@@ -31,10 +45,39 @@ impl MikroTikClient {
     /// # Errors
     ///
     /// Returns an error if TCP/TLS connection setup or `RouterOS` authentication
-    /// fails.
-    pub async fn connect(config: MikroTikClientConfig) -> Result<Self> {
+    /// fails. Transient transport errors are retried with exponential backoff
+    /// before the final error is returned.
+    pub async fn connect(config: MikroTikClientBuilder) -> Result<Self> {
         install_rustls_provider();
-        let session = Session::connect(&config).await?;
+        let deadline = Instant::now() + config.connect_retry_timeout(CONNECT_RETRY_TIMEOUT);
+        let mut delay = CONNECT_RETRY_INITIAL_DELAY;
+
+        let session = loop {
+            match Session::connect(&config).await {
+                Ok(session) => break session,
+                Err(error) if is_transient_connect_error(&error) && Instant::now() < deadline => {
+                    let sleep_for = delay.min(deadline.saturating_duration_since(Instant::now()));
+                    if let Some(label) = &config.log_label {
+                        debug!(
+                            "{}: RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                            label,
+                            config.socket_address(),
+                            sleep_for
+                        );
+                    } else {
+                        debug!(
+                            "RouterOS API at {} is not ready yet: {error}; retrying in {:?}",
+                            config.socket_address(),
+                            sleep_for
+                        );
+                    }
+                    sleep(sleep_for).await;
+                    delay = next_connect_delay(delay);
+                }
+                Err(error) => return Err(error),
+            }
+        };
+
         Ok(Self {
             config,
             session: Arc::new(Mutex::new(session)),
@@ -42,29 +85,36 @@ impl MikroTikClient {
     }
 
     /// Return this client's connection configuration.
-    pub fn config(&self) -> &MikroTikClientConfig {
+    pub fn config(&self) -> &MikroTikClientBuilder {
         &self.config
     }
 
     /// Execute a raw `RouterOS` command and collect all reply rows.
     ///
+    /// Attribute entries with `None` values are sent as flag attributes.
+    ///
     /// # Errors
     ///
     /// Returns an error if the command cannot be sent, if `RouterOS` returns a
     /// trap or fatal response, or if the connection closes before completion.
-    pub async fn call(&self, command: &str) -> Result<Vec<Row>> {
-        let command = CommandBuilder::new().command(command).build();
+    pub async fn call(&self, command: &str, attributes: &[(&str, Option<&str>)]) -> Result<Vec<Row>> {
+        let mut command_builder = CommandBuilder::new().command(command);
+        for (key, value) in attributes {
+            command_builder = command_builder.attribute(key, *value);
+        }
+
         let mut session = self.session.lock().await;
-        let rows = session.call(command).await?;
+        let rows = session.call(command_builder.build()).await?;
 
         Ok(rows)
     }
 
+    /// Execute a print command and deserialize every row into `T`.
     pub(crate) async fn print_typed<T>(&self, command: &str) -> Result<Vec<T>>
     where
         T: DeserializeOwned,
     {
-        let rows = self.call(command).await?;
+        let rows = self.call(command, &[]).await?;
         let mut typed_rows = Vec::with_capacity(rows.len());
 
         for (row_index, row) in rows.iter().enumerate() {
@@ -77,7 +127,30 @@ impl MikroTikClient {
     }
 }
 
+/// Return whether a connect error is likely caused by an API service that is not ready yet.
+fn is_transient_connect_error(error: &Error) -> bool {
+    match error {
+        Error::Io(error) => matches!(
+            error.kind(),
+            ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::NotConnected
+                | ErrorKind::TimedOut
+                | ErrorKind::WouldBlock
+        ),
+        Error::ConnectionClosed => true,
+        Error::Connection(_) | Error::Login(_) | Error::Trap(_) | Error::Fatal(_) | Error::Decode(_) => false,
+    }
+}
+
+/// Return the next exponential connect retry delay.
+fn next_connect_delay(delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(CONNECT_RETRY_MAX_DELAY)
+}
+
 impl Session {
+    /// Send one encoded command and collect reply rows for its tag.
     async fn call(&mut self, command: mikrotik_proto::Command) -> Result<Vec<Row>> {
         let tag = self.connection.send_command(command)?;
         let mut rows = Vec::new();
@@ -114,6 +187,7 @@ impl Session {
         }
     }
 
+    /// Write all pending protocol transmissions to the transport stream.
     async fn flush_transmits(&mut self) -> Result<()> {
         while let Some(transmit) = self.connection.poll_transmit() {
             self.stream.write_all(&transmit.data).await?;
@@ -122,6 +196,7 @@ impl Session {
     }
 }
 
+/// Convert protocol attributes into a `Row`, dropping absent values.
 fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String>>) -> Row {
     attributes
         .into_iter()
@@ -129,6 +204,7 @@ fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String
         .collect::<BTreeMap<_, _>>()
 }
 
+/// Install the process-wide rustls crypto provider once.
 fn install_rustls_provider() {
     static RUSTLS_PROVIDER: Once = Once::new();
     RUSTLS_PROVIDER.call_once(|| {
@@ -151,5 +227,27 @@ mod tests {
 
         assert_eq!(row.get("dst-address").map(String::as_str), Some("0.0.0.0/0"));
         assert!(!row.contains_key("comment"));
+    }
+
+    #[test]
+    fn connect_backoff_doubles_until_cap() {
+        assert_eq!(
+            next_connect_delay(CONNECT_RETRY_INITIAL_DELAY),
+            Duration::from_millis(500)
+        );
+        assert_eq!(next_connect_delay(Duration::from_secs(4)), CONNECT_RETRY_MAX_DELAY);
+        assert_eq!(next_connect_delay(CONNECT_RETRY_MAX_DELAY), CONNECT_RETRY_MAX_DELAY);
+    }
+
+    #[test]
+    fn connect_backoff_retries_only_transient_errors() {
+        assert!(is_transient_connect_error(&Error::Io(std::io::Error::from(
+            ErrorKind::ConnectionRefused
+        ))));
+        assert!(is_transient_connect_error(&Error::ConnectionClosed));
+        assert!(!is_transient_connect_error(&Error::Io(std::io::Error::from(
+            ErrorKind::PermissionDenied
+        ))));
+        assert!(!is_transient_connect_error(&Error::Trap("bad command".to_owned())));
     }
 }

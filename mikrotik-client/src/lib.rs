@@ -11,12 +11,13 @@ pub mod commands;
 mod config;
 mod error;
 mod print;
+pub mod print_checks;
 mod transport;
 
 pub use client::MikroTikClient;
 pub use config::API_PORT;
 pub use config::API_SSL_PORT;
-pub use config::MikroTikClientConfig;
+pub use config::MikroTikClientBuilder;
 pub use config::Protocol;
 pub use error::DecodeError;
 pub use error::Error;

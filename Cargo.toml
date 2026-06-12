@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "mikrotik-client",
+  "mikrotik-simnet",
   "mikrotik-types"
 ]
 
@@ -14,6 +15,9 @@ repository = "https://github.com/luisschwab/rust-mikrotik"
 
 [workspace.dependencies]
 serde = { version = "1.0.219", default-features = false, features = ["alloc", "derive"] }
+tokio = { version = "1.52.3" }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 
 [workspace.metadata.rbmt.toolchains]
 stable = "1.96.0"
@@ -92,6 +96,7 @@ match_wild_err_arm = "warn"
 match_wildcard_for_single_variants = "warn"
 maybe_infinite_iter = "warn"
 mismatching_type_param_order = "warn"
+missing_docs_in_private_items = "deny"
 missing_errors_doc = "warn"
 missing_fields_in_debug = "warn"
 missing_panics_doc = "warn"

@@ -164,6 +164,7 @@ impl ScopedIpAddress {
         self.0.split_once('%').map(|(_, scope)| scope)
     }
 
+    /// Split the validated value into parsed IP address and optional scope.
     fn parts(&self) -> (IpAddr, Option<&str>) {
         let (address, scope) = self
             .0
@@ -238,6 +239,7 @@ impl IpEndpointAddress {
         self.parts().1
     }
 
+    /// Split the validated value into parsed IP address and optional port.
     fn parts(&self) -> (IpAddr, Option<u16>) {
         parse_ip_endpoint_address(&self.0).expect("IpEndpointAddress stores only validated values")
     }
@@ -270,6 +272,7 @@ impl<'de> Deserialize<'de> for IpEndpointAddress {
     }
 }
 
+/// Parse an IP endpoint value into address and optional port components.
 fn parse_ip_endpoint_address(value: &str) -> Result<(IpAddr, Option<u16>), ParseError> {
     if let Ok(address) = value.parse::<IpAddr>() {
         return Ok((address, None));

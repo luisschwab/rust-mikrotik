@@ -1,0 +1,17 @@
+name = "single-router"
+allow_software_emulation = true
+
+[[routers]]
+name = "R01"
+version = "7.23.1"
+memory_mib = 256
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R01",
+  "/ip/service/enable numbers=api",
+]
+
+[[checks]]
+type = "all-print-methods"
+router = "R01"
+allow_unsupported = true

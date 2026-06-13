@@ -4,8 +4,14 @@
 RouterOS topologies against the `rust-mikrotik` client and type crates.
 
 It reads a small deterministic TOML topology file, downloads or reuses MikroTik
-CHR images, starts one QEMU VM per router, applies bootstrap commands over the
-RouterOS API, runs checks, then leaves the scenario running until Ctrl-C.
+CHR images, starts one QEMU VM per router, waits for RouterOS API readiness,
+applies bootstrap commands over the API, runs checks, and writes per-run
+artifacts.
+
+Router startup uses a rolling readiness window: at most five routers are booting
+toward API readiness at once, and the next pending router starts as soon as one
+slot becomes ready. This keeps CI from spawning every VM at once without waiting
+for an entire fixed batch to finish.
 
 ## Prerequisites
 
@@ -185,17 +191,19 @@ mikrotik-simnet/.chr-cache
 Important subdirectories:
 
 - `images`: cached raw CHR images.
-- `runs`: per-run overlays, logs, reports, QEMU argument snapshots, and pid files.
+- `runs`: per-run overlays, logs, reports, Mermaid diagrams, QEMU argument
+  snapshots, and pid files.
 
 Point-to-point QEMU stream sockets are created under `/tmp/mikrotik-simnet-<run>`
 to avoid Unix socket path length limits. They are removed when the run exits.
 
 ## Debugging
 
-Run with debug logging to print run directories and file paths:
+The CLI defaults to INFO logs. Run with debug logging to print run directories
+and file paths:
 
 ```text
-RBMT_LOG_LEVEL=debug cargo rbmt run run -p mikrotik-simnet -- run single-router.toml
+RUST_LOG=debug cargo rbmt run run -p mikrotik-simnet -- run single-router.toml
 ```
 
 Inspect these files first:
@@ -245,10 +253,10 @@ matrix explicitly lists each topology file to run. When a new topology should
 run in CI, add it to the workflow matrix.
 
 CI caches downloaded CHR base images from `mikrotik-simnet/.chr-cache/images`
-between runs, then uploads the selected run artifacts from
-`mikrotik-simnet/.chr-cache/runs`. Use those artifacts to identify the exact
-RouterOS version, topology, selected guest architecture, and boot/API state
-behind a scheduled failure.
+between runs, runs scenarios at INFO log level, then uploads the selected run
+artifacts from `mikrotik-simnet/.chr-cache/runs`. Use those artifacts to
+identify the exact RouterOS version, topology, selected guest architecture, and
+boot/API state behind a failure.
 
-The workflow can be started manually when the QEMU topologies need to run
-outside the weekly schedule.
+The workflow can also be started manually when the QEMU topologies need to run
+outside push or pull request checks.

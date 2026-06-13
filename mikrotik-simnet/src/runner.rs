@@ -941,7 +941,7 @@ async fn wait_for_client(router_name: &str, api_port: u16) -> Result<AsyncClient
     let start = Instant::now();
     info_with_label!(
         router_name,
-        "waiting for API readyness at localhost:{api_port}, this may take a while..."
+        "waiting for API readiness at localhost:{api_port}, this may take a while..."
     );
 
     let client = AsyncClient::connect(config).await.map_err(|error| {

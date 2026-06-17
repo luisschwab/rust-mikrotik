@@ -52,12 +52,12 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - name: Stable Toolchain + Minimal Lockfile
-                      toolchain: stable
-                      lockfile: minimal
                     - name: Stable Toolchain + Recent Lockfile
                       toolchain: stable
                       lockfile: recent
+                    - name: Stable Toolchain + Minimal Lockfile
+                      toolchain: stable
+                      lockfile: minimal
                     - name: MSRV Toolchain + Minimal Lockfile
                       toolchain: msrv
                       lockfile: minimal
@@ -75,4 +75,4 @@ jobs:
               uses: ./.github/actions/setup-rbmt
 
             - name: Run Tests - ${{ matrix.name }}
-              run: cargo rbmt test --toolchain ${{ matrix.toolchain }} --lock-file ${{ matrix.lockfile }}
+              run: cargo rbmt test --toolchain ${{ matrix.toolchain }} --lockfile ${{ matrix.lockfile }}

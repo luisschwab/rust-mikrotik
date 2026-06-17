@@ -23,8 +23,6 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - name: Fresh Lockfile
-                      lockfile: Cargo.lock
                     - name: Recent Lockfile
                       lockfile: Cargo-recent.lock
                     - name: Minimal Lockfile
@@ -39,12 +37,10 @@ jobs:
             - name: Setup Rust Cache
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-            - name: Generate Fresh Lockfile
-              if: ${{ matrix.lockfile == 'Cargo.lock' }}
-              run: cargo generate-lockfile
+            - name: Setup cargo-rbmt
+              uses: ./.github/actions/setup-rbmt
 
             - name: Select Lockfile
-              if: ${{ matrix.lockfile != 'Cargo.lock' }}
               run: cp ${{ matrix.lockfile }} Cargo.lock
 
             - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0

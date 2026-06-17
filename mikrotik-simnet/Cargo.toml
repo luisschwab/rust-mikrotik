@@ -24,7 +24,7 @@ lazy_static = { version = "1.5.0" } # floor for sharded-slab minimal-version res
 serde.workspace = true
 sharded-slab = { version = "0.1.7" } # floor for tracing-subscriber minimal-version resolution
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
-toml = { version = "0.8.23" }
+toml = { version = "1.1.2" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 xshell = { version = "0.3.0-pre.2" }

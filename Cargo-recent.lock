@@ -321,6 +321,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -339,8 +340,10 @@ name = "mikrotik-simnet"
 version = "0.0.0"
 dependencies = [
  "argh",
+ "indexmap",
  "lazy_static",
  "mikrotik-client",
+ "nu-ansi-term",
  "serde",
  "sharded-slab",
  "tokio",

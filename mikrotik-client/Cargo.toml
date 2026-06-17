@@ -14,9 +14,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.rbmt.lint]
 allowed_duplicates = [
-  "getrandom",
-  "r-efi",
-  "windows-sys",
   "wit-bindgen",
 ]
 
@@ -35,6 +32,9 @@ aws-lc-rs = { version = "1.17.0", default-features = false }
 bytes = { version = "1.11.1", default-features = false }
 rustls-webpki = { version = "0.103.13", default-features = false }
 uuid = { version = "1.23.3", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.0", default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

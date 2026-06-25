@@ -15,6 +15,7 @@ use mikrotik_client::builder::Protocol;
 use mikrotik_client::client::AsyncClient;
 use mikrotik_client::commands::PrintCommand;
 use mikrotik_client::types::target::Credentials;
+use mikrotik_types::target::DeviceTarget;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio::time::sleep;
@@ -107,6 +108,26 @@ impl SimulatedNetwork {
 
     /// Prepare images, start routers, bootstrap them, run checks, and wait for shutdown.
     pub(crate) async fn run(&self, options: RunOptions) -> Result<()> {
+        let mut spawned = self.spawn(options).await?;
+        if options.non_interactive {
+            info!(
+                "topology `{}` checks passed; stopping scenario because --non-interactive was set",
+                self.topology.name
+            );
+            spawned.shutdown();
+            return Ok(());
+        }
+        info!(
+            "topology `{}` checks passed; scenario is running until Ctrl-C",
+            self.topology.name
+        );
+        wait_for_shutdown_signal().await?;
+        spawned.shutdown();
+        Ok(())
+    }
+
+    /// Prepare images, start routers, bootstrap them, run checks, and return a live topology handle.
+    pub(crate) async fn spawn(&self, options: RunOptions) -> Result<SpawnedTopology> {
         info!(
             "starting topology `{}` with {} router(s), {} link(s), {} check(s)",
             self.topology.name,
@@ -126,7 +147,7 @@ impl SimulatedNetwork {
         let host_arch = ChrArch::host()?;
         let run_dir = self.run_dir(&sh)?;
         let socket_dir = Self::socket_dir(&sh, &run_dir)?;
-        let _socket_dir_guard = RuntimeSocketDir(socket_dir.clone());
+        let socket_dir_guard = RuntimeSocketDir(socket_dir.clone());
         debug!("run directory {}", run_dir.display());
         debug!("runtime socket directory {}", socket_dir.display());
         info!("host architecture {host_arch:?}");
@@ -154,30 +175,26 @@ impl SimulatedNetwork {
         self.write_topology_report(&run_dir, &routers)?;
         self.write_topology_mermaid(&run_dir)?;
 
-        let mut running = RunningTopology::default();
+        let mut nodes = Vec::new();
         let clients = self
-            .start_routers_and_wait_for_clients(&routers, &run_dir, &socket_dir, &sh, &mut running)
+            .start_routers_and_wait_for_clients(&routers, &run_dir, &socket_dir, &sh, &mut nodes)
             .await?;
         if !self.topology.links.is_empty() {
             self.wait_for_link_interfaces(&clients).await?;
         }
         self.bootstrap(&clients).await?;
-        self.run_checks(&clients, &run_dir).await?;
-        if options.non_interactive {
-            info!(
-                "topology `{}` checks passed; stopping scenario because --non-interactive was set",
-                self.topology.name
-            );
-            running.shutdown();
-            return Ok(());
+        if options.run_checks {
+            self.run_checks(&clients, &run_dir).await?;
+        } else {
+            info!("skipping topology checks because run_checks=false");
         }
-        info!(
-            "topology `{}` checks passed; scenario is running until Ctrl-C",
-            self.topology.name
-        );
-        wait_for_shutdown_signal().await?;
-        running.shutdown();
-        Ok(())
+
+        Ok(SpawnedTopology {
+            name: self.topology.name.clone(),
+            run_dir,
+            nodes,
+            _socket_dir_guard: socket_dir_guard,
+        })
     }
 
     /// Create persistent image and per-run state directories.
@@ -332,7 +349,7 @@ impl SimulatedNetwork {
         run_dir: &Path,
         socket_dir: &Path,
         sh: &Shell,
-        running: &mut RunningTopology,
+        nodes: &mut Vec<SpawnedNode>,
     ) -> Result<BTreeMap<String, AsyncClient>> {
         let mut clients = BTreeMap::new();
         let mut waiters = JoinSet::new();
@@ -353,7 +370,7 @@ impl SimulatedNetwork {
                 links: &self.topology.links,
                 sh,
             };
-            Self::start_router_and_wait_for_client(&mut waiters, router, &start_context, running)?;
+            Self::start_router_and_wait_for_client(&mut waiters, router, &start_context, nodes)?;
         }
 
         while let Some(result) = waiters.join_next().await {
@@ -371,7 +388,7 @@ impl SimulatedNetwork {
                     links: &self.topology.links,
                     sh,
                 };
-                Self::start_router_and_wait_for_client(&mut waiters, router, &start_context, running)?;
+                Self::start_router_and_wait_for_client(&mut waiters, router, &start_context, nodes)?;
             }
         }
 
@@ -383,12 +400,24 @@ impl SimulatedNetwork {
         waiters: &mut JoinSet<Result<(String, AsyncClient)>>,
         router: &PreparedRouter,
         start_context: &StartContext<'_>,
-        running: &mut RunningTopology,
+        nodes: &mut Vec<SpawnedNode>,
     ) -> Result<()> {
         let router_name = router.router.name.clone();
         let api_port = router.api_port;
         let child = Self::start_router(router, start_context)?;
-        running.children.push((router_name.clone(), child));
+        let target = DeviceTarget::new(
+            format!("127.0.0.1:{api_port}"),
+            DEFAULT_USERNAME,
+            Some(DEFAULT_PASSWORD.to_owned()),
+        )
+        .map_err(|error| Error::Tool(format!("build target for router {router_name}: {error}")))?;
+
+        nodes.push(SpawnedNode {
+            name: router_name.clone(),
+            api_port,
+            target,
+            child: Some(child),
+        });
 
         waiters.spawn(async move {
             let client = wait_for_client(&router_name, api_port).await?;
@@ -687,18 +716,6 @@ fn router_artifact_path(run_dir: &Path, router_name: &str, suffix: &str) -> Path
     run_dir.join(format!("{router_name}{suffix}"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn csv_field_quotes_separators_and_quotes() {
-        assert_eq!(csv_field("plain"), "plain");
-        assert_eq!(csv_field("one,two"), "\"one,two\"");
-        assert_eq!(csv_field("line\n\"two\""), "\"line\n\"\"two\"\"\"");
-    }
-}
-
 /// Router runtime inputs prepared before QEMU is spawned.
 struct PreparedRouter {
     /// Router index in manifest order.
@@ -745,39 +762,103 @@ impl Drop for RuntimeSocketDir {
     }
 }
 
-/// Child QEMU processes for a running topology.
-#[derive(Default)]
-struct RunningTopology {
-    /// Processes paired with router names for diagnostics.
-    children: Vec<(String, Child)>,
+/// Live simulated topology returned by code-driven spawns.
+pub struct SpawnedTopology {
+    /// Topology name from the manifest.
+    name: String,
+    /// Per-run artifact directory.
+    run_dir: PathBuf,
+    /// Running simulated nodes.
+    nodes: Vec<SpawnedNode>,
+    /// Runtime socket directory removed after nodes are dropped.
+    _socket_dir_guard: RuntimeSocketDir,
 }
 
-impl RunningTopology {
-    /// Terminate and reap all child QEMU processes.
-    fn shutdown(&mut self) {
-        if !self.children.is_empty() {
-            info!("stopping {} router process(es)", self.children.len());
+impl SpawnedTopology {
+    /// Return the topology name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Return the per-run artifact directory.
+    #[must_use]
+    pub fn run_dir(&self) -> &Path {
+        &self.run_dir
+    }
+
+    /// Return the spawned nodes in manifest order.
+    #[must_use]
+    pub fn nodes(&self) -> &[SpawnedNode] {
+        &self.nodes
+    }
+
+    /// Find a spawned node by router name.
+    #[must_use]
+    pub fn node(&self, name: &str) -> Option<&SpawnedNode> {
+        self.nodes.iter().find(|node| node.name == name)
+    }
+
+    /// Stop and reap every spawned node immediately.
+    pub fn shutdown(&mut self) {
+        if !self.nodes.is_empty() {
+            info!("stopping {} router process(es)", self.nodes.len());
         }
-        for (name, child) in &mut self.children {
-            if let Err(error) = child.kill() {
-                error_with_label!(name, "failed to stop: {error}");
-            }
-        }
-        for (name, child) in &mut self.children {
-            if let Err(error) = child.wait() {
-                error_with_label!(name, "failed to reap: {error}");
-            }
+        for node in &mut self.nodes {
+            node.shutdown();
         }
     }
 }
 
-impl Drop for RunningTopology {
-    fn drop(&mut self) {
-        for (name, child) in &mut self.children {
-            if let Err(error) = child.kill() {
-                error_with_label!(name, "failed to stop: {error}");
-            }
+/// One live simulated router.
+pub struct SpawnedNode {
+    /// Router name from the topology manifest.
+    name: String,
+    /// Host TCP port forwarded to the `RouterOS` API service.
+    api_port: u16,
+    /// Client target for this node.
+    target: DeviceTarget,
+    /// Owned QEMU child process.
+    child: Option<Child>,
+}
+
+impl SpawnedNode {
+    /// Return the router name.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Return the host TCP port forwarded to the `RouterOS` API service.
+    #[must_use]
+    pub const fn api_port(&self) -> u16 {
+        self.api_port
+    }
+
+    /// Return a client target for this simulated node.
+    #[must_use]
+    pub fn target(&self) -> &DeviceTarget {
+        &self.target
+    }
+
+    /// Stop and reap this node immediately.
+    pub fn shutdown(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+
+        if let Err(error) = child.kill() {
+            error_with_label!(self.name, "failed to stop: {error}");
         }
+        if let Err(error) = child.wait() {
+            error_with_label!(self.name, "failed to reap: {error}");
+        }
+    }
+}
+
+impl Drop for SpawnedNode {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -966,7 +1047,7 @@ pub(crate) fn mac(router_index: usize, nic_index: usize) -> String {
     )
 }
 
-/// QEMU bus id reserved for one topology link endpoint.
+/// QEMU bus ID reserved for one topology link endpoint.
 fn link_bus_id(link_index: usize) -> String {
     format!("link{link_index}bus")
 }
@@ -985,4 +1066,16 @@ pub(crate) fn link_interface_index(router_name: &str, link: &crate::topology::Li
         .strip_prefix("ether")
         .and_then(|value| value.parse::<usize>().ok())
         .ok_or_else(|| Error::Manifest(format!("interface `{}` must be named etherN", endpoint.interface)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_field_quotes_separators_and_quotes() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("one,two"), "\"one,two\"");
+        assert_eq!(csv_field("line\n\"two\""), "\"line\n\"\"two\"\"\"");
+    }
 }

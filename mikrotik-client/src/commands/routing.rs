@@ -5,6 +5,12 @@ use core::fmt;
 /// `RouterOS` print command `/routing/bgp/session/print`.
 const ROUTING_BGP_SESSION_PRINT: &str = "/routing/bgp/session/print";
 
+/// `RouterOS` print command `/routing/bgp/connection/print`.
+const ROUTING_BGP_CONNECTION_PRINT: &str = "/routing/bgp/connection/print";
+
+/// `RouterOS` v6 print command `/routing/bgp/peer/print`.
+const ROUTING_BGP_PEER_PRINT: &str = "/routing/bgp/peer/print";
+
 /// `RouterOS` print command `/routing/bgp/template/print`.
 const ROUTING_BGP_TEMPLATE_PRINT: &str = "/routing/bgp/template/print";
 
@@ -42,6 +48,10 @@ const ROUTING_ROUTING_TABLE_PRINT: &str = "/routing/table/print";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Routing {
     /// `RouterOS` print command.
+    BgpConnection,
+    /// `RouterOS` print command.
+    BgpPeer,
+    /// `RouterOS` print command.
     BgpSession,
     /// `RouterOS` print command.
     BgpTemplate,
@@ -70,6 +80,8 @@ pub enum Routing {
 impl Routing {
     /// All command variants in generated order.
     pub const ALL: &[Self] = &[
+        Self::BgpConnection,
+        Self::BgpPeer,
         Self::BgpSession,
         Self::BgpTemplate,
         Self::IgmpProxy,
@@ -87,6 +99,8 @@ impl Routing {
     /// Return the `RouterOS` API command path.
     pub const fn as_path(self) -> &'static str {
         match self {
+            Self::BgpConnection => ROUTING_BGP_CONNECTION_PRINT,
+            Self::BgpPeer => ROUTING_BGP_PEER_PRINT,
             Self::BgpSession => ROUTING_BGP_SESSION_PRINT,
             Self::BgpTemplate => ROUTING_BGP_TEMPLATE_PRINT,
             Self::IgmpProxy => ROUTING_IGMP_PROXY_PRINT,

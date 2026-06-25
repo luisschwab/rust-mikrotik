@@ -18,7 +18,7 @@ use crate::primitives::system::RouterOsTimeZoneOffset;
 use crate::primitives::system::RouterOsVersion;
 
 /// Response row from `/system/identity/print`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Identity {
     /// `RouterOS` system identity.
@@ -26,7 +26,7 @@ pub struct Identity {
 }
 
 /// Response row from `/system/resource/print`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Resource {
     /// Router uptime as `RouterOS` reports it, for example `4d17h7m22s`.
@@ -66,7 +66,7 @@ pub struct Resource {
     pub total_hdd_space: Option<u64>,
     /// Percentage of bad storage blocks, when reported.
     #[serde(deserialize_with = "crate::optional_from_str")]
-    pub bad_blocks: Option<u8>,
+    pub bad_blocks: Option<f32>,
     /// `RouterOS` architecture name.
     pub architecture_name: Option<String>,
     /// Board name.
@@ -598,7 +598,7 @@ mod tests {
         let mut row = Row::new();
         row.insert("build-time".into(), "Oct/17/2022 10:55:40".into());
         row.insert("uptime".into(), "9w1d1h39m9s".into());
-        row.insert("bad-blocks".into(), "0".into());
+        row.insert("bad-blocks".into(), "0.1".into());
 
         let resource = crate::deserialize::<Resource>(&row).expect("resource row should deserialize");
 
@@ -610,7 +610,7 @@ mod tests {
             resource.uptime.expect("uptime should be present").as_duration(),
             Duration::from_secs(9 * 7 * 24 * 60 * 60 + 24 * 60 * 60 + 60 * 60 + 39 * 60 + 9)
         );
-        assert_eq!(resource.bad_blocks, Some(0));
+        assert_eq!(resource.bad_blocks, Some(0.1));
     }
 
     #[test]

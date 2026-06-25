@@ -1,3 +1,10 @@
+[workspace.package]
+authors = ["Luis Schwab <dev@luisschwab.net>"]
+edition = "2024"
+rust-version = "1.85.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/luisschwab/rust-mikrotik"
+
 [workspace]
 resolver = "3"
 members = [
@@ -6,22 +13,18 @@ members = [
   "mikrotik-types"
 ]
 
-[workspace.package]
-authors = ["Luis Schwab <dev@luisschwab.net>"]
-edition = "2024"
-rust-version = "1.85.0"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/luisschwab/rust-mikrotik"
-
 [workspace.dependencies]
+argh = { version = "0.1.13" }
 serde = { version = "1.0.219", default-features = false, features = ["alloc", "derive"] }
 tokio = { version = "1.52.3" }
 tracing = { version = "0.1.44" }
+tracing-appender = { version = "0.2.3" }
 tracing-subscriber = { version = "0.3.22", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 
-[workspace.metadata.rbmt.toolchains]
-stable = "1.96.0"
-nightly = "nightly-2026-06-08"
+[workspace.metadata.rbmt]
+toolchains = { stable = "1.96.0", nightly = "nightly-2026-06-23" }
+tools = { cargo-audit = "=0.22.2", zizmor = "=1.26.1" }
+test = { sample_strategy = "all" }
 
 [workspace.lints.rust]
 missing_docs = "deny"
@@ -59,7 +62,6 @@ filter_map_next = "warn"
 flat_map_option = "warn"
 float_cmp = "allow" # Bitcoin floats are typically limited to 8 decimal places and we want them exact.
 fn_params_excessive_bools = "warn"
-from_iter_instead_of_collect = "warn"
 if_not_else = "warn"
 ignored_unit_patterns = "warn"
 implicit_clone = "warn"

@@ -265,6 +265,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "mikrotik-client",
+ "mikrotik-types",
  "nu-ansi-term",
  "serde",
  "sharded-slab",

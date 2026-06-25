@@ -1,20 +1,132 @@
 //! Routing API response rows.
 
 use alloc::string::String;
+use alloc::string::ToString as _;
 use alloc::vec::Vec;
+use core::fmt;
 use core::net::IpAddr;
+use core::str::FromStr;
 
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::RouterOsId;
+use crate::primitives::ParseError;
 use crate::primitives::interface::InterfaceName;
+use crate::primitives::ip::IpPrefix;
 use crate::primitives::ip::ScopedIpAddress;
 use crate::primitives::routing::BgpSessionState;
 use crate::primitives::routing::RouteDestination;
 use crate::primitives::routing::RouteGateway;
 use crate::primitives::routing::RoutingTableName;
 use crate::primitives::system::RouterOsDuration;
+
+/// BGP remote address as reported by `RouterOS`.
+///
+/// `RouterOS` may report BGP connection remote addresses either as a bare IP or
+/// as a host prefix such as `192.0.2.1/32`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct BgpRemoteAddress(String);
+
+impl BgpRemoteAddress {
+    /// Return the stored `RouterOS` value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Return the IP address portion.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored value is not a valid IP address or IP prefix. Values
+    /// are validated when constructing or deserializing `BgpRemoteAddress`.
+    #[must_use]
+    pub fn address(&self) -> IpAddr {
+        self.0
+            .split_once('/')
+            .map_or(self.0.as_str(), |(address, _)| address)
+            .parse()
+            .expect("BgpRemoteAddress stores only validated IP addresses")
+    }
+}
+
+impl FromStr for BgpRemoteAddress {
+    type Err = ParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.parse::<IpAddr>().is_ok() || value.parse::<IpPrefix>().is_ok() {
+            Ok(Self(value.to_string()))
+        } else {
+            Err(ParseError::IpEndpointAddress)
+        }
+    }
+}
+
+impl fmt::Display for BgpRemoteAddress {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for BgpRemoteAddress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Response row from `/routing/bgp/connection/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct BgpConnection {
+    /// Internal `RouterOS` row ID.
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    pub id: Option<RouterOsId>,
+    /// Connection name.
+    pub name: Option<String>,
+    /// Remote peer address.
+    #[serde(alias = "remote.address")]
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub remote_address: Option<BgpRemoteAddress>,
+    /// Remote autonomous system number.
+    #[serde(alias = "remote.as")]
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub remote_as: Option<u32>,
+    /// Whether this connection is disabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub disabled: Option<bool>,
+}
+
+/// Response row from `RouterOS` v6 `/routing/bgp/peer/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct BgpPeer {
+    /// Internal `RouterOS` row ID.
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    pub id: Option<RouterOsId>,
+    /// Peer name.
+    pub name: Option<String>,
+    /// Remote peer address.
+    #[serde(alias = "remote.address")]
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub remote_address: Option<IpAddr>,
+    /// Remote autonomous system number.
+    #[serde(alias = "remote.as")]
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub remote_as: Option<u32>,
+    /// Whether this peer is disabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub disabled: Option<bool>,
+    /// Whether this peer session is established.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub established: Option<bool>,
+}
 
 /// Response row from `/routing/bgp/session/print`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -391,6 +503,8 @@ pub struct RoutingStatsStep {
 mod tests {
     use alloc::string::ToString;
 
+    use super::BgpConnection;
+    use super::BgpPeer;
     use super::BgpSession;
     use super::RoutingRoute;
     use super::RoutingStatsMemory;
@@ -450,6 +564,48 @@ mod tests {
 
         assert_eq!(session.established, Some(true));
         assert_eq!(session.remote_as, Some(65001));
+    }
+
+    #[test]
+    fn bgp_connection_deserializes_remote_peer_fields() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*2".into());
+        row.insert("name".into(), "upstream-a".into());
+        row.insert("disabled".into(), "false".into());
+        row.insert("remote.address".into(), "198.51.100.9/32".into());
+        row.insert("remote.as".into(), "64501".into());
+
+        let connection = crate::deserialize::<BgpConnection>(&row).expect("BGP connection row should deserialize");
+
+        assert_eq!(connection.name.as_deref(), Some("upstream-a"));
+        assert_eq!(connection.disabled, Some(false));
+        assert_eq!(
+            connection.remote_address.map(|address| address.to_string()).as_deref(),
+            Some("198.51.100.9/32")
+        );
+        assert_eq!(connection.remote_as, Some(64501));
+    }
+
+    #[test]
+    fn bgp_peer_deserializes_v6_remote_peer_fields() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*7".into());
+        row.insert("name".into(), "Rt_BORDERv1".into());
+        row.insert("disabled".into(), "false".into());
+        row.insert("established".into(), "true".into());
+        row.insert("remote-address".into(), "10.100.0.157".into());
+        row.insert("remote-as".into(), "65001".into());
+
+        let peer = crate::deserialize::<BgpPeer>(&row).expect("RouterOS v6 BGP peer row should deserialize");
+
+        assert_eq!(peer.name.as_deref(), Some("Rt_BORDERv1"));
+        assert_eq!(peer.disabled, Some(false));
+        assert_eq!(peer.established, Some(true));
+        assert_eq!(
+            peer.remote_address.map(|address| address.to_string()).as_deref(),
+            Some("10.100.0.157")
+        );
+        assert_eq!(peer.remote_as, Some(65001));
     }
 
     #[test]

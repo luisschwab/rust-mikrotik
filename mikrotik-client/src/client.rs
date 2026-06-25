@@ -57,6 +57,7 @@ impl AsyncClient {
         let attempt_timeout = config.connect_attempt_timeout(CONNECT_ATTEMPT_TIMEOUT);
         let retry_max_delay = config.connect_retry_max_delay(CONNECT_RETRY_MAX_DELAY);
         let mut delay = CONNECT_RETRY_INITIAL_DELAY;
+        let mut last_transient_error = None;
 
         let session = loop {
             let attempt_started = Instant::now();
@@ -81,8 +82,12 @@ impl AsyncClient {
                             sleep_for
                         );
                     }
+                    last_transient_error = Some(error);
                     sleep(sleep_for).await;
                     delay = next_connect_delay(delay, retry_max_delay);
+                }
+                Err(error) if is_transient_connect_error(&error) => {
+                    return Err(last_transient_error.unwrap_or(error));
                 }
                 Err(error) => return Err(error),
             }

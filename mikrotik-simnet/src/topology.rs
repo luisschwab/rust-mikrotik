@@ -23,17 +23,38 @@ pub struct Topology {
 }
 
 /// Runtime options for executing a topology.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunOptions {
     /// Run without waiting for Ctrl-C after topology checks pass.
     pub non_interactive: bool,
+    /// Run manifest checks after routers are bootstrapped.
+    pub run_checks: bool,
 }
 
 impl RunOptions {
     /// Return CI behavior: stop router processes after checks pass.
     #[must_use]
     pub const fn non_interactive() -> Self {
-        Self { non_interactive: true }
+        Self {
+            non_interactive: true,
+            run_checks: true,
+        }
+    }
+
+    /// Disable post-bootstrap manifest checks.
+    #[must_use]
+    pub const fn without_checks(mut self) -> Self {
+        self.run_checks = false;
+        self
+    }
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            non_interactive: false,
+            run_checks: true,
+        }
     }
 }
 

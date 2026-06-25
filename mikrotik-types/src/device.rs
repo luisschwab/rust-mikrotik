@@ -22,6 +22,8 @@ use crate::api::interface::Interface;
 use crate::api::ip::Address;
 use crate::api::ip::Neighbor;
 use crate::api::ip::Route;
+use crate::api::routing::BgpConnection;
+use crate::api::routing::BgpPeer;
 use crate::api::routing::BgpSession;
 use crate::api::system::Identity;
 use crate::api::system::Resource;
@@ -169,6 +171,10 @@ pub struct DeviceSnapshot {
     pub routes: Vec<Route>,
     /// `/routing/bgp/session/print` rows.
     pub bgp_sessions: Vec<BgpSession>,
+    /// `/routing/bgp/connection/print` rows.
+    pub bgp_connections: Vec<BgpConnection>,
+    /// `RouterOS` v6 `/routing/bgp/peer/print` rows.
+    pub bgp_peers: Vec<BgpPeer>,
     /// Raw `RouterOS` rows by endpoint name.
     pub raw: BTreeMap<String, Vec<Row>>,
 }
@@ -222,6 +228,8 @@ mod tests {
             addresses: Vec::new(),
             routes: Vec::new(),
             bgp_sessions: Vec::new(),
+            bgp_connections: Vec::new(),
+            bgp_peers: Vec::new(),
             raw: BTreeMap::new(),
         };
 

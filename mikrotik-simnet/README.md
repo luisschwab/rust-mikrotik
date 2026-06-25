@@ -1,7 +1,8 @@
 # mikrotik-simnet
 
 `mikrotik-simnet` is an internal QEMU/CHR simulation harness for running
-RouterOS topologies against the `rust-mikrotik` client and type crates.
+RouterOS topologies from the workspace `topologies` directory against the
+`rust-mikrotik` client and type crates.
 
 It reads a small deterministic TOML topology file, downloads or reuses MikroTik
 CHR images, starts one QEMU VM per router, waits for RouterOS API readiness,
@@ -53,7 +54,7 @@ cargo rbmt run run -p mikrotik-simnet -- run three-router-bgp.toml
 cargo rbmt run run -p mikrotik-simnet -- run stress-test.toml
 ```
 
-The bundled scenarios are:
+The bundled scenarios live under the workspace-level `topologies` directory:
 
 - `single-router.toml`: one CHR, API bootstrap, resource check.
 - `two-router.toml`: two CHRs with a point-to-point link, IPv4 and IPv6 routes.

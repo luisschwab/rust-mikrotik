@@ -14,7 +14,7 @@ fn resolves_bundled_topology_file_names() {
     assert_eq!(
         path,
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("topologies")
+            .join("../topologies")
             .join("single-router.toml")
     );
 }
@@ -231,7 +231,7 @@ fn selects_native_guest_for_v7_when_available() {
 #[test]
 fn all_versions_stress_topology_covers_every_cataloged_version() {
     let topology =
-        Topology::parse(include_str!("../topologies/stress-test.toml")).expect("stress-test topology should parse");
+        Topology::parse(include_str!("../../topologies/stress-test.toml")).expect("stress-test topology should parse");
     let versions = topology
         .routers
         .iter()

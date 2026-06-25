@@ -40,6 +40,8 @@ pub use catalog::RouterOsChannel;
 pub use catalog::RouterOsVersion;
 pub use error::Error;
 pub use error::Result;
+pub use runner::SpawnedNode;
+pub use runner::SpawnedTopology;
 pub use topology::Check;
 pub use topology::CommandAttribute;
 pub use topology::Endpoint;
@@ -61,8 +63,8 @@ const CACHE_DIR: &str = ".chr-cache";
 const IMAGES_DIR: &str = ".chr-cache/images";
 /// Directory for per-invocation overlays, sockets, logs, and pid files.
 const RUNS_DIR: &str = ".chr-cache/runs";
-/// Directory containing bundled topology manifests.
-const TOPOLOGIES_DIR: &str = "topologies";
+/// Workspace-level directory containing bundled topology manifests.
+const TOPOLOGIES_DIR: &str = "../topologies";
 /// Maximum time to wait for API login after starting routers.
 const DEFAULT_BOOT_TIMEOUT: Duration = Duration::from_secs(600);
 /// Default CHR admin username.
@@ -90,8 +92,36 @@ pub async fn run_topology_with_options(path: impl AsRef<Path>, options: RunOptio
     let path = path.as_ref();
     let topology_path = resolve_topology_path(path);
     let topology = Topology::read(&topology_path)?;
+
     runner::SimulatedNetwork::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")), topology)
         .run(options)
+        .await
+}
+
+/// Spawn a topology manifest from disk and keep it running until the returned handle is dropped.
+///
+/// # Errors
+///
+/// Returns an error if the manifest is invalid, required host tools are
+/// unavailable, image preparation fails, routers cannot boot, or bootstrap fails.
+pub async fn spawn_topology(path: impl AsRef<Path>) -> Result<SpawnedTopology> {
+    spawn_topology_with_options(path, RunOptions::default().without_checks()).await
+}
+
+/// Spawn a topology manifest from disk with explicit runtime options.
+///
+/// # Errors
+///
+/// Returns an error if the manifest is invalid, required host tools are
+/// unavailable, image preparation fails, routers cannot boot, bootstrap fails,
+/// or enabled checks fail.
+pub async fn spawn_topology_with_options(path: impl AsRef<Path>, options: RunOptions) -> Result<SpawnedTopology> {
+    let path = path.as_ref();
+    let topology_path = resolve_topology_path(path);
+    let topology = Topology::read(&topology_path)?;
+
+    runner::SimulatedNetwork::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")), topology)
+        .spawn(options)
         .await
 }
 

@@ -77,7 +77,8 @@ println!("interfaces: {}", interfaces.len());
 
 ## Simulated Networks
 
-`mikrotik-simnet` runs deterministic RouterOS topologies using MikroTik CHR
+`mikrotik-simnet` runs deterministic RouterOS topologies from the workspace
+`topologies` directory using MikroTik CHR
 images under QEMU. It downloads or reuses CHR images, starts one QEMU process
 per router, waits for API readiness with a rolling VM window, applies bootstrap
 commands, runs checks, and writes CSV/Mermaid/log artifacts under

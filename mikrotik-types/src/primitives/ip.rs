@@ -95,6 +95,22 @@ impl IpPrefix {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Return the IP address portion.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored value is not a valid IP prefix. Values are validated
+    /// when constructing or deserializing `IpPrefix`.
+    #[must_use]
+    pub fn address(&self) -> IpAddr {
+        let address = self.0.split_once('/').map_or(self.0.as_str(), |(address, _)| address);
+        address
+            .split_once('%')
+            .map_or(address, |(address, _)| address)
+            .parse()
+            .expect("IpPrefix stores only validated IP addresses")
+    }
 }
 
 impl FromStr for IpPrefix {

@@ -29,6 +29,8 @@ jobs:
                       topology: "two-router.toml"
                     - name: "Three Router BGP"
                       topology: "three-router-bgp.toml"
+                    - name: "ISP Topology"
+                      topology: "isp-edge.toml"
                     - name: "Stress Test (All RouterOS versions)"
                       topology: "stress-test.toml"
 
@@ -50,7 +52,7 @@ jobs:
               uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
               with:
                   path: mikrotik-simnet/.chr-cache/images
-                  key: simnet-chr-images-${{ runner.os }}-${{ matrix.topology }}-${{ hashFiles(format('mikrotik-simnet/topologies/{0}', matrix.topology)) }}
+                  key: simnet-chr-images-${{ runner.os }}-${{ matrix.topology }}-${{ hashFiles(format('topologies/{0}', matrix.topology)) }}
                   restore-keys: |
                       simnet-chr-images-${{ runner.os }}-${{ matrix.topology }}-
 

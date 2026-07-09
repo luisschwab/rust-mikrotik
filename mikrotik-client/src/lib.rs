@@ -22,14 +22,14 @@
 //! ## Usage
 //!
 //! ```rust,no_run
-//! use mikrotik_client::builder::Builder;
+//! use mikrotik_client::builder::ClientBuilder;
 //! use mikrotik_client::builder::Protocol;
-//! use mikrotik_client::client::AsyncClient;
+//! use mikrotik_client::client::Client;
 //! use mikrotik_client::commands;
 //! use mikrotik_client::types::target::Credentials;
 //!
 //! # async fn example() -> mikrotik_client::error::Result<()> {
-//! let client = AsyncClient::connect(Builder::new(
+//! let client = Client::connect(ClientBuilder::new(
 //!     "10.21.21.1",
 //!     Protocol::Api,
 //!     Credentials {

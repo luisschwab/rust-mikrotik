@@ -9,6 +9,9 @@ const SERVICE_CAPS_MAN_MANAGER_PRINT: &str = "/caps-man/manager/print";
 /// `RouterOS` print command `/caps-man/manager/interface/print`.
 const SERVICE_CAPS_MAN_MANAGER_INTERFACE_PRINT: &str = "/caps-man/manager/interface/print";
 
+/// `RouterOS` print command `/certificate/print`.
+const SERVICE_CERTIFICATE_PRINT: &str = "/certificate/print";
+
 /// `RouterOS` print command `/certificate/settings/print`.
 const SERVICE_CERTIFICATE_SETTINGS_PRINT: &str = "/certificate/settings/print";
 
@@ -46,6 +49,8 @@ pub enum Service {
     /// `RouterOS` print command.
     CapsManManagerInterface,
     /// `RouterOS` print command.
+    Certificate,
+    /// `RouterOS` print command.
     CertificateSettings,
     /// `RouterOS` print command.
     ConsoleSettings,
@@ -71,6 +76,7 @@ impl Service {
         Self::CapsManAaa,
         Self::CapsManManager,
         Self::CapsManManagerInterface,
+        Self::Certificate,
         Self::CertificateSettings,
         Self::ConsoleSettings,
         Self::DiskSettings,
@@ -88,6 +94,7 @@ impl Service {
             Self::CapsManAaa => SERVICE_CAPS_MAN_AAA_PRINT,
             Self::CapsManManager => SERVICE_CAPS_MAN_MANAGER_PRINT,
             Self::CapsManManagerInterface => SERVICE_CAPS_MAN_MANAGER_INTERFACE_PRINT,
+            Self::Certificate => SERVICE_CERTIFICATE_PRINT,
             Self::CertificateSettings => SERVICE_CERTIFICATE_SETTINGS_PRINT,
             Self::ConsoleSettings => SERVICE_CONSOLE_SETTINGS_PRINT,
             Self::DiskSettings => SERVICE_DISK_SETTINGS_PRINT,

@@ -17,7 +17,7 @@ use tokio::time::sleep;
 use tokio::time::timeout;
 use tracing::debug;
 
-use crate::builder::Builder;
+use crate::builder::ClientBuilder;
 use crate::commands::PrintCommand;
 use crate::error::DecodeError;
 use crate::error::Error;
@@ -35,14 +35,14 @@ const CONNECT_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
 
 /// Connected `RouterOS` binary API client.
 #[derive(Debug, Clone)]
-pub struct AsyncClient {
+pub struct Client {
     /// Connection configuration used to create the session.
-    config: Builder,
+    config: ClientBuilder,
     /// Shared serialized access to the underlying protocol session.
     session: Arc<Mutex<Session>>,
 }
 
-impl AsyncClient {
+impl Client {
     /// Connect to a `RouterOS` device and complete the login handshake.
     ///
     /// # Errors
@@ -50,7 +50,7 @@ impl AsyncClient {
     /// Returns an error if TCP/TLS connection setup or `RouterOS` authentication
     /// fails. Transient transport errors are retried with exponential backoff
     /// before the final error is returned.
-    pub async fn connect(config: Builder) -> Result<Self> {
+    pub async fn connect(config: ClientBuilder) -> Result<Self> {
         install_rustls_provider();
         let deadline = Instant::now() + config.connect_retry_timeout(CONNECT_RETRY_TIMEOUT);
         let attempt_timeout = config.connect_attempt_timeout(CONNECT_ATTEMPT_TIMEOUT);
@@ -99,7 +99,7 @@ impl AsyncClient {
     }
 
     /// Return this client's connection configuration.
-    pub fn config(&self) -> &Builder {
+    pub fn config(&self) -> &ClientBuilder {
         &self.config
     }
 
@@ -156,7 +156,7 @@ impl AsyncClient {
 }
 
 /// Run one connection attempt with a bounded TCP/login handshake duration.
-async fn connect_attempt(config: &Builder, deadline: Instant, attempt_timeout: Duration) -> Result<Session> {
+async fn connect_attempt(config: &ClientBuilder, deadline: Instant, attempt_timeout: Duration) -> Result<Session> {
     let timeout_for = attempt_timeout.min(deadline.saturating_duration_since(Instant::now()));
     match timeout(timeout_for, Session::connect(config)).await {
         Ok(result) => result,

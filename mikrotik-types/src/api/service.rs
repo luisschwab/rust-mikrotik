@@ -4,6 +4,7 @@
 //! the interface, IP, routing, system, tool, queue, SNMP, or user modules.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -70,6 +71,72 @@ pub struct CapsManManagerInterface {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this interface or `RoMON` port is forbidden.
     pub forbid: Option<bool>,
+}
+
+/// Response row from `/certificate/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Certificate {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// Certificate name.
+    pub name: Option<String>,
+    /// Certificate common name.
+    pub common_name: Option<String>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
+    /// Certificate subject alternative names.
+    pub subject_alt_name: Vec<String>,
+    /// Certificate issuer.
+    pub issuer: Option<String>,
+    /// Certificate serial number.
+    pub serial_number: Option<String>,
+    /// Certificate fingerprint.
+    pub fingerprint: Option<String>,
+    /// Private key algorithm.
+    pub key_type: Option<String>,
+    /// Private key size in bits or elliptic curve name.
+    pub key_size: Option<String>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Certificate validity period in days.
+    pub days_valid: Option<u32>,
+    /// Earliest validity timestamp.
+    pub invalid_before: Option<String>,
+    /// Latest validity timestamp.
+    pub invalid_after: Option<String>,
+    /// Remaining time before this certificate expires.
+    pub expires_after: Option<String>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
+    /// Certificate key usage flags.
+    pub key_usage: Vec<String>,
+    /// CA CRL host.
+    pub ca_crl_host: Option<String>,
+    /// Trust store selection.
+    pub trust_store: Option<String>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate has CRL data.
+    pub crl: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate uses a smart-card key.
+    pub smart_card_key: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate is a certificate authority.
+    pub authority: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate has been issued.
+    pub issued: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate has been revoked.
+    pub revoked: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate is expired.
+    pub expired: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this certificate is trusted.
+    pub trusted: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether the private key is present.
+    pub private_key: Option<bool>,
 }
 
 /// Response row from `/certificate/settings/print`.
@@ -242,4 +309,61 @@ pub struct RadiusIncoming {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether incoming requests are accepted.
     pub accept: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    use super::*;
+    use crate::Row;
+
+    #[test]
+    fn certificate_deserializes_chr_row() {
+        let mut row = Row::new();
+        row.insert(".id".to_string(), "*1".to_string());
+        row.insert("common-name".to_string(), "simnet-api".to_string());
+        row.insert("crl".to_string(), "false".to_string());
+        row.insert("days-valid".to_string(), "365".to_string());
+        row.insert("key-size".to_string(), "2048".to_string());
+        row.insert("key-type".to_string(), "rsa".to_string());
+        row.insert("key-usage".to_string(), "tls-server".to_string());
+        row.insert("name".to_string(), "simnet-api".to_string());
+        row.insert("private-key".to_string(), "false".to_string());
+        row.insert("trust-store".to_string(), "all".to_string());
+
+        let certificate: Certificate = crate::deserialize(&row).expect("certificate row should decode");
+
+        assert_eq!(certificate.id.as_ref().map(ToString::to_string).as_deref(), Some("*1"));
+        assert_eq!(certificate.name.as_deref(), Some("simnet-api"));
+        assert_eq!(certificate.key_usage, vec!["tls-server".to_string()]);
+        assert_eq!(certificate.key_size.as_deref(), Some("2048"));
+        assert_eq!(certificate.days_valid, Some(365));
+        assert_eq!(certificate.crl, Some(false));
+        assert_eq!(certificate.private_key, Some(false));
+        assert_eq!(certificate.trust_store.as_deref(), Some("all"));
+    }
+
+    #[test]
+    fn certificate_deserializes_ec_curve_key_size() {
+        let mut row = Row::new();
+        row.insert(".id".to_string(), "*3".to_string());
+        row.insert("common-name".to_string(), "cn_zwgtls5KrSfNNi2y".to_string());
+        row.insert("crl".to_string(), "false".to_string());
+        row.insert("days-valid".to_string(), "3650".to_string());
+        row.insert("key-size".to_string(), "prime256v1".to_string());
+        row.insert("key-type".to_string(), "ec".to_string());
+        row.insert("key-usage".to_string(), "key-cert-sign,crl-sign".to_string());
+        row.insert("name".to_string(), "ca.crt_0".to_string());
+
+        let certificate: Certificate = crate::deserialize(&row).expect("certificate row should decode");
+
+        assert_eq!(certificate.key_type.as_deref(), Some("ec"));
+        assert_eq!(certificate.key_size.as_deref(), Some("prime256v1"));
+        assert_eq!(
+            certificate.key_usage,
+            vec!["key-cert-sign".to_string(), "crl-sign".to_string()]
+        );
+    }
 }

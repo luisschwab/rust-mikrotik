@@ -20,11 +20,13 @@ use crate::ParseError;
 use crate::Row;
 use crate::api::interface::Interface;
 use crate::api::ip::Address;
+use crate::api::ip::IpService;
 use crate::api::ip::Neighbor;
 use crate::api::ip::Route;
 use crate::api::routing::BgpConnection;
 use crate::api::routing::BgpPeer;
 use crate::api::routing::BgpSession;
+use crate::api::service::Certificate;
 use crate::api::system::Identity;
 use crate::api::system::Resource;
 use crate::api::system::Routerboard;
@@ -169,6 +171,10 @@ pub struct DeviceSnapshot {
     pub addresses: Vec<Address>,
     /// `/ip/route/print` rows.
     pub routes: Vec<Route>,
+    /// `/ip/service/print` rows.
+    pub ip_services: Vec<IpService>,
+    /// `/certificate/print` rows.
+    pub certificates: Vec<Certificate>,
     /// `/routing/bgp/session/print` rows.
     pub bgp_sessions: Vec<BgpSession>,
     /// `/routing/bgp/connection/print` rows.
@@ -227,6 +233,8 @@ mod tests {
             neighbors: Vec::new(),
             addresses: Vec::new(),
             routes: Vec::new(),
+            ip_services: Vec::new(),
+            certificates: Vec::new(),
             bgp_sessions: Vec::new(),
             bgp_connections: Vec::new(),
             bgp_peers: Vec::new(),

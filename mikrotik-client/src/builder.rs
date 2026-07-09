@@ -74,7 +74,7 @@ impl Protocol {
 
 /// Connection configuration for one `RouterOS` device.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Builder {
+pub struct ClientBuilder {
     /// Device host name or IP address without a port.
     pub host: String,
     /// Device service port.
@@ -93,7 +93,7 @@ pub struct Builder {
     pub connect_retry_max_delay: Option<Duration>,
 }
 
-impl Builder {
+impl ClientBuilder {
     /// Build client configuration using the protocol's default port.
     pub fn new(host: impl Into<String>, protocol: Protocol, credentials: Credentials) -> Self {
         Self {
@@ -194,19 +194,19 @@ mod tests {
 
     #[test]
     fn builder_builds_socket_address() {
-        let config = Builder::new("192.0.2.1", Protocol::Api, credentials());
+        let config = ClientBuilder::new("192.0.2.1", Protocol::Api, credentials());
         assert_eq!(config.socket_address(), "192.0.2.1:8728");
 
-        let config = Builder::new("2001:db8::1", Protocol::ApiSsl, credentials());
+        let config = ClientBuilder::new("2001:db8::1", Protocol::ApiSsl, credentials());
         assert_eq!(config.socket_address(), "[2001:db8::1]:8729");
 
-        let config = Builder::new("router.local", Protocol::Api, credentials()).with_port(18728);
+        let config = ClientBuilder::new("router.local", Protocol::Api, credentials()).with_port(18728);
         assert_eq!(config.socket_address(), "router.local:18728");
     }
 
     #[test]
     fn builder_accepts_optional_log_label_and_connect_timeouts() {
-        let config = Builder::new("192.0.2.1", Protocol::Api, credentials())
+        let config = ClientBuilder::new("192.0.2.1", Protocol::Api, credentials())
             .with_log_label("R1")
             .with_connect_retry_timeout(Duration::from_secs(300))
             .with_connect_attempt_timeout(Duration::from_secs(3))

@@ -32,9 +32,6 @@ bytes = { version = "1.11.1", default-features = false }
 rustls-webpki = { version = "0.103.13", default-features = false }
 uuid = { version = "1.23.4", default-features = false }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.0", default-features = false }
-
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 

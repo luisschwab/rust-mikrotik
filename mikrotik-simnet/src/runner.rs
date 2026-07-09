@@ -10,9 +10,9 @@ use std::process::Stdio;
 use std::thread;
 use std::time::Duration;
 
-use mikrotik_client::builder::Builder;
+use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
-use mikrotik_client::client::AsyncClient;
+use mikrotik_client::client::Client;
 use mikrotik_client::commands::PrintCommand;
 use mikrotik_client::types::target::Credentials;
 use mikrotik_common::debug_with_label;
@@ -332,7 +332,7 @@ impl SimulatedNetwork {
         socket_dir: &Path,
         sh: &Shell,
         nodes: &mut Vec<SpawnedNode>,
-    ) -> Result<BTreeMap<String, AsyncClient>> {
+    ) -> Result<BTreeMap<String, Client>> {
         let mut clients = BTreeMap::new();
         let mut waiters = JoinSet::new();
         let mut next_router_index = 0;
@@ -379,7 +379,7 @@ impl SimulatedNetwork {
 
     /// Start one pending router and spawn its API readiness waiter.
     fn start_router_and_wait_for_client(
-        waiters: &mut JoinSet<Result<(String, AsyncClient)>>,
+        waiters: &mut JoinSet<Result<(String, Client)>>,
         router: &PreparedRouter,
         start_context: &StartContext<'_>,
         nodes: &mut Vec<SpawnedNode>,
@@ -410,7 +410,7 @@ impl SimulatedNetwork {
     }
 
     /// Wait until every link endpoint named by the topology exists in `RouterOS`.
-    async fn wait_for_link_interfaces(&self, clients: &BTreeMap<String, AsyncClient>) -> Result<()> {
+    async fn wait_for_link_interfaces(&self, clients: &BTreeMap<String, Client>) -> Result<()> {
         let mut expected = BTreeMap::<String, Vec<String>>::new();
         for link in &self.topology.links {
             expected
@@ -455,7 +455,7 @@ impl SimulatedNetwork {
     }
 
     /// Apply manifest bootstrap commands to every router.
-    async fn bootstrap(&self, clients: &BTreeMap<String, AsyncClient>) -> Result<()> {
+    async fn bootstrap(&self, clients: &BTreeMap<String, Client>) -> Result<()> {
         for router in &self.topology.routers {
             let client = clients
                 .get(&router.name)
@@ -480,7 +480,7 @@ impl SimulatedNetwork {
     }
 
     /// Run manifest checks against connected routers.
-    async fn run_checks(&self, clients: &BTreeMap<String, AsyncClient>, run_dir: &Path) -> Result<()> {
+    async fn run_checks(&self, clients: &BTreeMap<String, Client>, run_dir: &Path) -> Result<()> {
         info!("running {} check(s)", self.topology.checks.len());
         let mut check_index = 0;
         while check_index < self.topology.checks.len() {
@@ -528,7 +528,7 @@ impl SimulatedNetwork {
     /// Run print commands command-first across routers.
     async fn run_all_print_command_checks(
         &self,
-        clients: &BTreeMap<String, AsyncClient>,
+        clients: &BTreeMap<String, Client>,
         run_dir: &Path,
         checks: &[(String, bool)],
     ) -> Result<()> {
@@ -984,8 +984,8 @@ fn display_password(password: &str) -> &str {
 }
 
 /// Build a localhost API client configuration for a forwarded router port.
-fn client_config(router_name: &str, api_port: u16) -> Builder {
-    Builder::new(
+fn client_config(router_name: &str, api_port: u16) -> ClientBuilder {
+    ClientBuilder::new(
         "127.0.0.1",
         Protocol::Api,
         Credentials {
@@ -1001,7 +1001,7 @@ fn client_config(router_name: &str, api_port: u16) -> Builder {
 }
 
 /// Wait until one router accepts API login and return a connected client.
-async fn wait_for_client(router_name: &str, api_port: u16) -> Result<AsyncClient> {
+async fn wait_for_client(router_name: &str, api_port: u16) -> Result<Client> {
     let config = client_config(router_name, api_port);
 
     let start = Instant::now();
@@ -1010,7 +1010,7 @@ async fn wait_for_client(router_name: &str, api_port: u16) -> Result<AsyncClient
         "waiting for API readiness at localhost:{api_port}, this may take a while..."
     );
 
-    let client = AsyncClient::connect(config).await.map_err(|error| {
+    let client = Client::connect(config).await.map_err(|error| {
         Error::Tool(format!(
             "router {router_name} did not accept API login on localhost:{api_port}: {error}"
         ))

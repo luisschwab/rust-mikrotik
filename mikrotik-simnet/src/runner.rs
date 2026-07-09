@@ -749,6 +749,7 @@ struct StartContext<'a> {
 }
 
 /// Temporary QEMU socket directory removed after a simulation run.
+#[derive(Debug)]
 struct RuntimeSocketDir(PathBuf);
 
 impl Drop for RuntimeSocketDir {
@@ -763,6 +764,7 @@ impl Drop for RuntimeSocketDir {
 }
 
 /// Live simulated topology returned by code-driven spawns.
+#[derive(Debug)]
 pub struct SpawnedTopology {
     /// Topology name from the manifest.
     name: String,
@@ -811,6 +813,7 @@ impl SpawnedTopology {
 }
 
 /// One live simulated router.
+#[derive(Debug)]
 pub struct SpawnedNode {
     /// Router name from the topology manifest.
     name: String,

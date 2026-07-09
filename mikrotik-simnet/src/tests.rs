@@ -6,14 +6,15 @@ use crate::catalog::guest_arch;
 use crate::catalog::routeros_version;
 use crate::catalog::validate_routeros_versions;
 use crate::runner::mac;
+use std::path::Path;
 
 #[test]
 fn resolves_bundled_topology_file_names() {
-    let path = resolve_topology_path(std::path::Path::new("single-router.toml"));
+    let path = resolve_topology_path(Path::new("single-router.toml"));
 
     assert_eq!(
         path,
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../topologies")
             .join("single-router.toml")
     );

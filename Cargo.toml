@@ -27,10 +27,12 @@ tools = { cargo-audit = "=0.22.2", zizmor = "=1.26.1" }
 test = { sample_strategy = "all" }
 
 [workspace.lints.rust]
-missing_docs = "deny"
-unused = "deny"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
 
-# These are simply copied from `rust-bitcoin`
+# Copied over from `rust-bitcoin`
 [workspace.lints.clippy]
 # Exclude lints we don't think are valuable.
 needless_question_mark = "allow" # https://github.com/rust-bitcoin/rust-bitcoin/pull/2134

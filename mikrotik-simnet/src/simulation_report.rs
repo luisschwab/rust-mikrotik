@@ -88,7 +88,7 @@ async fn run_print_command(
 }
 
 /// Run one print command and return a report for that command.
-pub async fn run_print_command_check(
+pub(crate) async fn run_print_command_check(
     client: &AsyncClient,
     options: &PrintCommandCheckOptions,
     command: PrintCommand,
@@ -100,25 +100,25 @@ pub async fn run_print_command_check(
 
 /// Filter for selecting print commands by name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PrintCommandFilter(Option<String>);
+pub(crate) struct PrintCommandFilter(Option<String>);
 
 impl PrintCommandFilter {
     /// Return the configured command-name substring.
     #[must_use]
-    pub fn pattern(&self) -> Option<&str> {
+    pub(crate) fn pattern(&self) -> Option<&str> {
         self.0.as_deref()
     }
 
     /// Return whether this filter accepts `command`.
     #[must_use]
-    pub fn matches(&self, command: &str) -> bool {
+    pub(crate) fn matches(&self, command: &str) -> bool {
         self.pattern().is_none_or(|pattern| command.contains(pattern))
     }
 }
 
 /// Options for one print command sweep.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PrintCommandCheckOptions {
+pub(crate) struct PrintCommandCheckOptions {
     /// Router name included in failure output.
     router_name: Option<String>,
     /// Optional command-name filter.
@@ -130,20 +130,20 @@ pub struct PrintCommandCheckOptions {
 impl PrintCommandCheckOptions {
     /// Build default print command options.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Attach a router name to failures.
     #[must_use]
-    pub fn with_router_name(mut self, router_name: impl Into<String>) -> Self {
+    pub(crate) fn with_router_name(mut self, router_name: impl Into<String>) -> Self {
         self.router_name = Some(router_name.into());
         self
     }
 
     /// Skip print commands that this `RouterOS` version reports as unsupported.
     #[must_use]
-    pub const fn with_unsupported_commands_allowed(mut self) -> Self {
+    pub(crate) const fn with_unsupported_commands_allowed(mut self) -> Self {
         self.allow_unsupported_commands = true;
         self
     }
@@ -151,7 +151,7 @@ impl PrintCommandCheckOptions {
 
 /// Summary returned after running print command checks.
 #[derive(Debug, Clone, Default)]
-pub struct PrintCommandReport {
+pub(crate) struct PrintCommandReport {
     /// Number of print commands that matched the filter and ran.
     ran_commands: usize,
     /// Print commands attempted in report order.
@@ -167,36 +167,36 @@ pub struct PrintCommandReport {
 impl PrintCommandReport {
     /// Return the number of print commands executed.
     #[must_use]
-    pub const fn ran_commands(&self) -> usize {
+    pub(crate) const fn ran_commands(&self) -> usize {
         self.ran_commands
     }
 
     /// Return all attempted print command names in report order.
     #[must_use]
-    pub fn attempted_commands(&self) -> Vec<&str> {
+    pub(crate) fn attempted_commands(&self) -> Vec<&str> {
         self.attempted_commands.iter().map(String::as_str).collect()
     }
 
     /// Return all successful print command calls.
     #[must_use]
-    pub fn successes(&self) -> &[PrintCommandSuccess] {
+    pub(crate) fn successes(&self) -> &[PrintCommandSuccess] {
         &self.successes
     }
 
     /// Return all unsupported print command skips.
     #[must_use]
-    pub fn skipped(&self) -> &[PrintCommandSkipped] {
+    pub(crate) fn skipped(&self) -> &[PrintCommandSkipped] {
         &self.skipped
     }
 
     /// Return all failed print commands.
     #[must_use]
-    pub fn failures(&self) -> &[PrintCommandFailure] {
+    pub(crate) fn failures(&self) -> &[PrintCommandFailure] {
         &self.failures
     }
 
     /// Append another print command report to this report.
-    pub fn append(&mut self, mut other: Self) {
+    pub(crate) fn append(&mut self, mut other: Self) {
         self.ran_commands += other.ran_commands;
         self.attempted_commands.append(&mut other.attempted_commands);
         self.successes.append(&mut other.successes);
@@ -206,7 +206,7 @@ impl PrintCommandReport {
 
     /// Return whether every attempted command has exactly one recorded outcome.
     #[must_use]
-    pub fn has_complete_outcome_inventory(&self) -> bool {
+    pub(crate) fn has_complete_outcome_inventory(&self) -> bool {
         if self.ran_commands != self.attempted_commands.len() {
             return false;
         }
@@ -223,25 +223,25 @@ impl PrintCommandReport {
 
     /// Return unsupported print command names in report order.
     #[must_use]
-    pub fn skipped_commands(&self) -> Vec<&str> {
+    pub(crate) fn skipped_commands(&self) -> Vec<&str> {
         self.skipped.iter().map(PrintCommandSkipped::command).collect()
     }
 
     /// Return successful print command names in report order.
     #[must_use]
-    pub fn successful_commands(&self) -> Vec<&str> {
+    pub(crate) fn successful_commands(&self) -> Vec<&str> {
         self.successes.iter().map(PrintCommandSuccess::command).collect()
     }
 
     /// Return failed print command names in report order.
     #[must_use]
-    pub fn failed_commands(&self) -> Vec<&str> {
+    pub(crate) fn failed_commands(&self) -> Vec<&str> {
         self.failures.iter().map(PrintCommandFailure::command).collect()
     }
 
     /// Return a compact summary suitable for CI logs.
     #[must_use]
-    pub fn summary(&self) -> String {
+    pub(crate) fn summary(&self) -> String {
         let mut summary = format!(
             "{} command(s), {} ok, {} skipped, {} failed",
             self.ran_commands,
@@ -265,7 +265,7 @@ impl PrintCommandReport {
 
     /// Serialize this print command report as CSV rows.
     #[must_use]
-    pub fn to_csv(&self, router_name: &str, version: &str) -> String {
+    pub(crate) fn to_csv(&self, router_name: &str, version: &str) -> String {
         let mut lines = vec![
             "router,version,ran_commands,ok_count,skipped_count,failed_count,kind,command,row_count,error".to_owned(),
             self.csv_row(router_name, version, "summary", "", "", &self.summary()),
@@ -296,7 +296,7 @@ impl PrintCommandReport {
 
     /// Return all terminal failure CSV rows for this report.
     #[must_use]
-    pub fn failure_rows(&self, router: &str, version: &str) -> Vec<String> {
+    pub(crate) fn failure_rows(&self, router: &str, version: &str) -> Vec<String> {
         let mut failures = Vec::new();
         let attempted_commands = self.attempted_commands();
         if self.ran_commands() == 0 {
@@ -371,7 +371,7 @@ impl PrintCommandReport {
 
 /// Details for one successful print command check.
 #[derive(Debug, Clone)]
-pub struct PrintCommandSuccess {
+pub(crate) struct PrintCommandSuccess {
     /// Router name attached to this success, when known.
     router_name: Option<String>,
     /// Print command that succeeded.
@@ -392,13 +392,13 @@ impl PrintCommandSuccess {
 
     /// Return the print command that succeeded.
     #[must_use]
-    pub fn command(&self) -> &str {
+    pub(crate) fn command(&self) -> &str {
         &self.command
     }
 
     /// Return the number of rows returned by this print command.
     #[must_use]
-    pub const fn row_count(&self) -> usize {
+    pub(crate) const fn row_count(&self) -> usize {
         self.row_count
     }
 }
@@ -414,7 +414,7 @@ impl fmt::Display for PrintCommandSuccess {
 
 /// Details for one print command skipped because `RouterOS` rejected the path.
 #[derive(Debug, Clone)]
-pub struct PrintCommandSkipped {
+pub(crate) struct PrintCommandSkipped {
     /// Router name attached to this skip, when known.
     router_name: Option<String>,
     /// Print command that was skipped.
@@ -435,13 +435,13 @@ impl PrintCommandSkipped {
 
     /// Return the print command that was skipped.
     #[must_use]
-    pub fn command(&self) -> &str {
+    pub(crate) fn command(&self) -> &str {
         &self.command
     }
 
     /// Return the formatted client error.
     #[must_use]
-    pub fn error(&self) -> &str {
+    pub(crate) fn error(&self) -> &str {
         &self.error
     }
 }
@@ -457,7 +457,7 @@ impl fmt::Display for PrintCommandSkipped {
 
 /// Details for one failed print command check.
 #[derive(Debug, Clone)]
-pub struct PrintCommandFailure {
+pub(crate) struct PrintCommandFailure {
     /// Router name attached to this failure, when known.
     router_name: Option<String>,
     /// Print command that failed.
@@ -478,13 +478,13 @@ impl PrintCommandFailure {
 
     /// Return the print command that failed.
     #[must_use]
-    pub fn command(&self) -> &str {
+    pub(crate) fn command(&self) -> &str {
         &self.command
     }
 
     /// Return the formatted client error.
     #[must_use]
-    pub fn error(&self) -> &str {
+    pub(crate) fn error(&self) -> &str {
         &self.error
     }
 }

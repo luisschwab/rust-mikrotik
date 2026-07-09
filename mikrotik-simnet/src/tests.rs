@@ -1,5 +1,7 @@
 //! Unit tests for simnet parsing and helpers.
 
+use std::path::Path;
+
 use super::*;
 use crate::catalog::chr_url;
 use crate::catalog::guest_arch;
@@ -9,11 +11,11 @@ use crate::runner::mac;
 
 #[test]
 fn resolves_bundled_topology_file_names() {
-    let path = resolve_topology_path(std::path::Path::new("single-router.toml"));
+    let path = resolve_topology_path(Path::new("single-router.toml"));
 
     assert_eq!(
         path,
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../topologies")
             .join("single-router.toml")
     );

@@ -1,7 +1,5 @@
 //! `RouterOS` binary API command paths.
 
-use core::fmt;
-
 pub mod interface;
 pub mod ip;
 pub mod queue;
@@ -101,11 +99,7 @@ impl PrintCommand {
     }
 }
 
-impl fmt::Display for PrintCommand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(PrintCommand);
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,5 @@
 //! `RouterOS` queue print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/queue/interface/print`.
 const QUEUE_QUEUE_INTERFACE_PRINT: &str = "/queue/interface/print";
 
@@ -30,8 +28,4 @@ impl Queue {
     }
 }
 
-impl fmt::Display for Queue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Queue);

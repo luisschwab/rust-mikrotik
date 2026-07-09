@@ -19,9 +19,9 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "argh"
@@ -310,8 +310,10 @@ checksum = "6b947ae49db0d222b1dbc6b113ce7248a3fc3a6ca21b696717bfc000ba4484d8"
 name = "mikrotik-client"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "aws-lc-rs",
  "bytes",
+ "mikrotik-common",
  "mikrotik-proto",
  "mikrotik-types",
  "rustls",
@@ -322,6 +324,14 @@ dependencies = [
  "tracing",
  "uuid",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mikrotik-common"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -343,6 +353,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "mikrotik-client",
+ "mikrotik-common",
  "mikrotik-types",
  "nu-ansi-term",
  "serde",
@@ -359,6 +370,7 @@ name = "mikrotik-types"
 version = "0.0.0"
 dependencies = [
  "memchr",
+ "mikrotik-common",
  "serde",
  "serde_json",
  "time",
@@ -828,9 +840,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "uuid"
-version = "1.23.3"
+version = "1.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "144d6b123cef80b301b8f72a9e2ca4370ddec21950d0a103dd22c437006d2db7"
+checksum = "bf80a72845275afea99e7f2b434723d3bc7e38470fcd1c7ed39a599c73319a53"
 dependencies = [
  "getrandom 0.4.2",
 ]

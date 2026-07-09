@@ -1,5 +1,3 @@
-#![deny(missing_docs)]
-
 //! # `MikroTik` Client
 //!
 //! `RouterOS` API client for interfacing with `MikroTik` devices.

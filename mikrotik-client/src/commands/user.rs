@@ -1,7 +1,5 @@
 //! `RouterOS` user print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/user/active/print`.
 const USER_ACTIVE_USER_PRINT: &str = "/user/active/print";
 
@@ -54,8 +52,4 @@ impl User {
     }
 }
 
-impl fmt::Display for User {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(User);

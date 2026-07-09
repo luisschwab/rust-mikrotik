@@ -1,7 +1,5 @@
 //! `RouterOS` SNMP print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/snmp/print`.
 const SNMP_SNMP_PRINT: &str = "/snmp/print";
 
@@ -30,8 +28,4 @@ impl Snmp {
     }
 }
 
-impl fmt::Display for Snmp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Snmp);

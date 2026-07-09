@@ -1,14 +1,13 @@
 //! Connected client and raw command execution.
 
-use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::Once;
 use std::time::Duration;
 
+use mikrotik_common::Row;
 use mikrotik_proto::CommandBuilder;
 use mikrotik_proto::Event;
-use mikrotik_types::Row;
 use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -147,7 +146,7 @@ impl AsyncClient {
         let mut typed_rows = Vec::with_capacity(rows.len());
 
         for (row_index, row) in rows.iter().enumerate() {
-            let typed_row = mikrotik_types::deserialize(row)
+            let typed_row = mikrotik_common::deserialize(row)
                 .map_err(|error| Error::Decode(DecodeError::new(command, row_index, error.to_string(), row)))?;
             typed_rows.push(typed_row);
         }
@@ -247,7 +246,7 @@ fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String
     attributes
         .into_iter()
         .filter_map(|(key, value)| value.map(|value| (key, value)))
-        .collect::<BTreeMap<_, _>>()
+        .collect()
 }
 
 /// Install the process-wide rustls crypto provider once.

@@ -1,7 +1,5 @@
 //! `RouterOS` `/interface` print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/interface/bridge/print`.
 const INTERFACE_BRIDGE_PRINT: &str = "/interface/bridge/print";
 
@@ -145,8 +143,4 @@ impl Interface {
     }
 }
 
-impl fmt::Display for Interface {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Interface);

@@ -1,6 +1,6 @@
 [package]
-name = "mikrotik-types"
-description = "Versionless data models for MikroTik's API"
+name = "mikrotik-common"
+description = "Shared internals for rust-mikrotik crates"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true
@@ -13,13 +13,9 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-# Workspace Dependencies
-mikrotik-common = { path = "../mikrotik-common" }
 # External Dependencies
-memchr = { version = "2.6.0", default-features = false }
 serde.workspace = true
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
-time = { version = "0.3.41", default-features = false, features = ["alloc", "serde"] }
 
 [lints]
 workspace = true

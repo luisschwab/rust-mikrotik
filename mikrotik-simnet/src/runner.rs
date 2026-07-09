@@ -15,6 +15,9 @@ use mikrotik_client::builder::Protocol;
 use mikrotik_client::client::AsyncClient;
 use mikrotik_client::commands::PrintCommand;
 use mikrotik_client::types::target::Credentials;
+use mikrotik_common::debug_with_label;
+use mikrotik_common::error_with_label;
+use mikrotik_common::info_with_label;
 use mikrotik_types::target::DeviceTarget;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -70,27 +73,6 @@ const TOPOLOGY_REPORT_FILENAME: &str = "topology.csv";
 const TOPOLOGY_MERMAID_FILENAME: &str = "topology.mmd";
 /// Maximum number of QEMU routers allowed to boot toward API readiness at once.
 const ROUTER_START_WINDOW_SIZE: usize = 5;
-
-/// Emit one informational event for a specific label.
-macro_rules! info_with_label {
-    ($label:expr, $($argument:tt)*) => {
-        info!("{}: {}", $label, format_args!($($argument)*));
-    };
-}
-
-/// Emit one debug event for a specific label.
-macro_rules! debug_with_label {
-    ($label:expr, $($argument:tt)*) => {
-        debug!("{}: {}", $label, format_args!($($argument)*));
-    };
-}
-
-/// Emit one error event for a specific label.
-macro_rules! error_with_label {
-    ($label:expr, $($argument:tt)*) => {
-        error!("{}: {}", $label, format_args!($($argument)*));
-    };
-}
 
 /// Runtime executor for one parsed topology.
 pub(crate) struct SimulatedNetwork {

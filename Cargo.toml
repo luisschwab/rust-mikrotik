@@ -1,17 +1,18 @@
-[workspace.package]
-authors = ["Luis Schwab <dev@luisschwab.net>"]
-edition = "2024"
-rust-version = "1.85.0"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/luisschwab/rust-mikrotik"
-
 [workspace]
 resolver = "3"
 members = [
   "mikrotik-client",
+  "mikrotik-common",
   "mikrotik-simnet",
-  "mikrotik-types"
+  "mikrotik-types",
 ]
+
+[workspace.package]
+authors = ["Luis Schwab <dev@luisschwab.net>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/luisschwab/rust-mikrotik"
+rust-version = "1.85.0" # MSRV
+edition = "2024"
 
 [workspace.dependencies]
 argh = { version = "0.1.13" }

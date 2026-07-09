@@ -1,7 +1,5 @@
 //! `RouterOS` IP and IPv6 print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/ip/address/print`.
 const IP_ADDRESS_PRINT: &str = "/ip/address/print";
 
@@ -327,8 +325,4 @@ impl Ip {
     }
 }
 
-impl fmt::Display for Ip {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Ip);

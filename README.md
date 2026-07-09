@@ -29,8 +29,9 @@ validating behavior against QEMU/CHR simulated networks.
 Crates | Purpose
 ---|---
 [`mikrotik-client`](mikrotik-client) | Tokio-based RouterOS binary API client with raw calls and typed print commands.
-[`mikrotik-types`](mikrotik-types) | Versionless RouterOS API response models and reusable RouterOS primitive types.
+[`mikrotik-common`](mikrotik-common) | Shared internal helpers used by the workspace crates.
 [`mikrotik-simnet`](mikrotik-simnet) | Internal QEMU/CHR topology runner used to exercise the client and types against real RouterOS images.
+[`mikrotik-types`](mikrotik-types) | Versionless RouterOS API response models and reusable RouterOS primitive types.
 
 
 ## RouterOS API Client

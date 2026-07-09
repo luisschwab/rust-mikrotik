@@ -1,7 +1,5 @@
 //! `RouterOS` tool print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/tool/bandwidth-server/print`.
 const TOOL_BANDWIDTH_SERVER_PRINT: &str = "/tool/bandwidth-server/print";
 
@@ -90,8 +88,4 @@ impl Tool {
     }
 }
 
-impl fmt::Display for Tool {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Tool);

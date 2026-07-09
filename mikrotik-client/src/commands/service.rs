@@ -1,7 +1,5 @@
 //! `RouterOS` service and package-family print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/caps-man/aaa/print`.
 const SERVICE_CAPS_MAN_AAA_PRINT: &str = "/caps-man/aaa/print";
 
@@ -103,8 +101,4 @@ impl Service {
     }
 }
 
-impl fmt::Display for Service {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Service);

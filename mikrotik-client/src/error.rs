@@ -1,10 +1,10 @@
 //! Error types returned by the client.
 
-use std::collections::BTreeMap;
 use std::error;
 use std::fmt;
 
-use mikrotik_types::Row;
+use mikrotik_common::Row;
+use mikrotik_common::redact_row;
 
 /// Errors returned by the `MikroTik` client.
 #[derive(Debug)]
@@ -135,44 +135,6 @@ impl From<mikrotik_proto::error::LoginError> for Error {
 
 /// Result type used by the `MikroTik` client.
 pub type Result<T> = core::result::Result<T, Error>;
-
-/// Return a copy of a raw row with sensitive values replaced.
-fn redact_row(row: &Row) -> Row {
-    row.iter()
-        .map(|(key, value)| {
-            let value = if is_sensitive_key(key) {
-                "<redacted>".to_owned()
-            } else {
-                value.clone()
-            };
-            (key.clone(), value)
-        })
-        .collect::<BTreeMap<_, _>>()
-}
-
-/// Return whether a `RouterOS` row key likely carries sensitive material.
-fn is_sensitive_key(key: &str) -> bool {
-    let mut normalized = key.bytes().filter_map(|byte| {
-        if byte.is_ascii_alphanumeric() {
-            Some(byte.to_ascii_lowercase())
-        } else {
-            None
-        }
-    });
-
-    let key = normalized.by_ref().collect::<Vec<_>>();
-
-    contains_ascii(&key, b"password")
-        || contains_ascii(&key, b"secret")
-        || contains_ascii(&key, b"privatekey")
-        || contains_ascii(&key, b"presharedkey")
-        || contains_ascii(&key, b"authkey")
-}
-
-/// Return whether `needle` appears in `haystack`.
-fn contains_ascii(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|candidate| candidate == needle)
-}
 
 #[cfg(test)]
 mod tests {

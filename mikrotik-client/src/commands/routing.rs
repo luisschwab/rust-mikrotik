@@ -1,7 +1,5 @@
 //! `RouterOS` routing print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/routing/bgp/session/print`.
 const ROUTING_BGP_SESSION_PRINT: &str = "/routing/bgp/session/print";
 
@@ -117,8 +115,4 @@ impl Routing {
     }
 }
 
-impl fmt::Display for Routing {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(Routing);

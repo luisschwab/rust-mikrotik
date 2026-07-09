@@ -18,20 +18,24 @@ allowed_duplicates = [
 ]
 
 [dependencies]
-mikrotik-proto = { version = "0.2.0", features = ["std"] }
+# Workspace Dependencies
+mikrotik-common = { path = "../mikrotik-common" }
 mikrotik-types = { path = "../mikrotik-types" }
+# External Dependencies
+mikrotik-proto = { version = "0.2.0", features = ["std"] }
 rustls = { version = "0.23.40", default-features = false, features = ["aws_lc_rs", "std"] }
 serde.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "sync", "time"] }
 tokio-rustls = { version = "0.26.0", default-features = false, features = ["tls12"] }
 tracing.workspace = true
 
-# Minimal-version floors for transitive dependencies that otherwise resolve to
-# vulnerable or incompatible versions.
+# Minimal-version floors for transitive dependencies
+# that otherwise resolve to vulnerable or incompatible versions.
+anyhow = { version = "1.0.103", default-features = false } # blame: uuid@1.23.4 -> getrandom@0.4.2 -> wasip3@0.4.0+wasi-0.3.0-rc-2026-01-06 -> wit-bindgen@0.51.0 -> anyhow (RUSTSEC-2026-0190)
 aws-lc-rs = { version = "1.17.0", default-features = false }
 bytes = { version = "1.11.1", default-features = false }
 rustls-webpki = { version = "0.103.13", default-features = false }
-uuid = { version = "1.23.3", default-features = false }
+uuid = { version = "1.23.4", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.0", default-features = false }

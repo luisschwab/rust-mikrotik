@@ -1,5 +1,3 @@
-#![deny(missing_docs)]
-
 //! Local QEMU/CHR simulation harness for `rust-mikrotik`.
 //!
 //! This crate is intentionally internal. It parses deterministic topology

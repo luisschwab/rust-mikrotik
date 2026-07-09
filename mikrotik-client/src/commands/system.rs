@@ -1,7 +1,5 @@
 //! `RouterOS` system print command paths.
 
-use core::fmt;
-
 /// `RouterOS` print command `/system/clock/print`.
 const SYSTEM_CLOCK_PRINT: &str = "/system/clock/print";
 
@@ -187,8 +185,4 @@ impl System {
     }
 }
 
-impl fmt::Display for System {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_path())
-    }
-}
+mikrotik_common::impl_command_display!(System);

@@ -28,14 +28,14 @@ client yet.
 ## Usage
 
 ```rust,no_run
-use mikrotik_client::builder::Builder;
+use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
-use mikrotik_client::client::AsyncClient;
+use mikrotik_client::client::Client;
 use mikrotik_client::commands;
 use mikrotik_client::types::target::Credentials;
 
 # async fn example() -> mikrotik_client::error::Result<()> {
-let client = AsyncClient::connect(Builder::new(
+let client = Client::connect(ClientBuilder::new(
     "10.21.21.1",
     Protocol::Api,
     Credentials {
@@ -67,8 +67,8 @@ Typed print calls use command enums instead of stringly-typed inventory:
 
 ```rust,no_run
 # use mikrotik_client::commands;
-# use mikrotik_client::client::AsyncClient;
-# async fn example(client: &AsyncClient) -> mikrotik_client::error::Result<()> {
+# use mikrotik_client::client::Client;
+# async fn example(client: &Client) -> mikrotik_client::error::Result<()> {
 let rows = client
     .print::<mikrotik_client::types::api::system::Resource>(
         commands::PrintCommand::System(commands::System::Resource),
@@ -79,13 +79,13 @@ println!("resource rows: {}", rows.len());
 # }
 ```
 
-Use `AsyncClient::call` when you need a command that does not yet have a typed
+Use `Client::call` when you need a command that does not yet have a typed
 wrapper.
 
 ## Logging and Readiness
 
 Connection retries are logged with an optional label from
-`Builder::with_log_label`. The default retry timings are conservative for real
+`ClientBuilder::with_log_label`. The default retry timings are conservative for real
 devices. Simnet overrides them for local QEMU port-forwarded RouterOS boots.
 
 ## Development

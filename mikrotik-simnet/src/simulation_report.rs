@@ -3,7 +3,7 @@
 use core::fmt;
 use std::time::Duration;
 
-use mikrotik_client::client::AsyncClient;
+use mikrotik_client::client::Client;
 use mikrotik_client::commands::PrintCommand;
 use mikrotik_client::error::Error;
 use tokio::time::sleep;
@@ -33,7 +33,7 @@ fn print_command_trace(options: &PrintCommandCheckOptions, arguments: fmt::Argum
 
 /// Run one generated print command and record its outcome.
 async fn run_print_command(
-    client: &AsyncClient,
+    client: &Client,
     options: &PrintCommandCheckOptions,
     report: &mut PrintCommandReport,
     command: PrintCommand,
@@ -89,7 +89,7 @@ async fn run_print_command(
 
 /// Run one print command and return a report for that command.
 pub(crate) async fn run_print_command_check(
-    client: &AsyncClient,
+    client: &Client,
     options: &PrintCommandCheckOptions,
     command: PrintCommand,
 ) -> PrintCommandReport {
@@ -567,7 +567,7 @@ mod tests {
     use std::io;
     use std::path::Path;
 
-    use mikrotik_client::builder::Builder;
+    use mikrotik_client::builder::ClientBuilder;
     use mikrotik_client::builder::Protocol;
     use mikrotik_client::types::target::Credentials;
 
@@ -708,9 +708,7 @@ mod tests {
             return;
         };
 
-        let client = AsyncClient::connect(config)
-            .await
-            .expect("live router should accept login");
+        let client = Client::connect(config).await.expect("live router should accept login");
         let filter = print_command_filter_from_env();
 
         if let Some(pattern) = filter.pattern() {
@@ -728,10 +726,7 @@ mod tests {
         assert_print_command_success(&report);
     }
 
-    async fn run_all_print_command_checks(
-        client: &AsyncClient,
-        options: PrintCommandCheckOptions,
-    ) -> PrintCommandReport {
+    async fn run_all_print_command_checks(client: &Client, options: PrintCommandCheckOptions) -> PrintCommandReport {
         let mut report = PrintCommandReport::default();
 
         for command in PrintCommand::all() {
@@ -775,7 +770,7 @@ mod tests {
         std::env::var(LIVE_ENABLE_ENV).is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
     }
 
-    fn live_config() -> io::Result<Option<Builder>> {
+    fn live_config() -> io::Result<Option<ClientBuilder>> {
         let creds = read_creds_file(Path::new(env!("CARGO_MANIFEST_DIR")).join(LIVE_CREDS_PATH))?;
 
         if LIVE_CREDS_KEYS.iter().any(|key| !creds.contains_key(*key)) {
@@ -793,7 +788,7 @@ mod tests {
         let protocol = parse_protocol(creds.get("protocol").expect("presence checked"));
 
         Ok(Some(
-            Builder::new(
+            ClientBuilder::new(
                 address,
                 protocol,
                 Credentials {

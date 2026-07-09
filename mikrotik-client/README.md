@@ -95,6 +95,7 @@ From the workspace root:
 ```text
 cargo rbmt fmt
 cargo rbmt lint
+cargo rbmt docs
 cargo rbmt test
 ```
 

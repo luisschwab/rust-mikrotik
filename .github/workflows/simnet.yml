@@ -23,16 +23,16 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - name: "Single Router"
-                      topology: "single-router.toml"
-                    - name: "Two Router"
-                      topology: "two-router.toml"
-                    - name: "Three Router BGP"
-                      topology: "three-router-bgp.toml"
-                    - name: "ISP Topology"
-                      topology: "isp-edge.toml"
-                    - name: "Stress Test (All RouterOS versions)"
-                      topology: "stress-test.toml"
+                    - name: Single Router
+                      topology: single-router.toml
+                    - name: Two Router
+                      topology: two-router.toml
+                    - name: Three Router BGP
+                      topology: three-router-bgp.toml
+                    - name: ISP Topology
+                      topology: isp-edge.toml
+                    - name: Stress Test (All RouterOS versions)
+                      topology: stress-test.toml
 
         steps:
             - name: Checkout Repository
@@ -60,13 +60,15 @@ jobs:
               uses: ./.github/actions/setup-rbmt
 
             - name: "Run scenario: ${{ matrix.name }} (${{ matrix.topology }})"
-              run: cargo rbmt run run -p mikrotik-simnet -- run --non-interactive ${{ matrix.topology }}
+              run: cargo rbmt -p mikrotik-simnet run -- run -- run --non-interactive ${{ matrix.topology }}
 
             - name: Upload MikroTik SimNet Logs
               if: always()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: simnet-${{ strategy.job-index }}-logs
+                  retention-days: 14
+                  if-no-files-found: ignore
                   path: |
                       mikrotik-simnet/.chr-cache/runs/**/*.qemu.args
                       mikrotik-simnet/.chr-cache/runs/**/*.qemu.log
@@ -74,5 +76,3 @@ jobs:
                       mikrotik-simnet/.chr-cache/runs/**/*.serial.log
                       mikrotik-simnet/.chr-cache/runs/**/topology.csv
                       mikrotik-simnet/.chr-cache/runs/**/topology.mmd
-                  if-no-files-found: ignore
-                  retention-days: 14

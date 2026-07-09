@@ -8,12 +8,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[package.metadata.rbmt.lint]
-allowed_duplicates = [
-  "argh_shared",
-  "wit-bindgen",
-]
-
 [dependencies]
 # Workspace Dependencies
 mikrotik-client = { path = "../mikrotik-client" }
@@ -35,3 +29,9 @@ sharded-slab = { version = "0.1.7" } # floor for tracing-subscriber minimal-vers
 
 [lints]
 workspace = true
+
+[package.metadata.rbmt]
+lint = { allowed_duplicates = [
+  "argh_shared",
+  "wit-bindgen",
+] }

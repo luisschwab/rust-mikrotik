@@ -6,11 +6,17 @@ updates:
       schedule:
           interval: "weekly"
       cooldown:
-          default-days: 45 # curb supply-chain attacks
+          default-days: 60
+      groups:
+          all:
+              patterns: ["*"]
 
     - package-ecosystem: "github-actions"
       directory: "/"
       schedule:
           interval: "weekly"
       cooldown:
-          default-days: 45 # curb supply-chain attacks
+          default-days: 60
+      groups:
+          all:
+              patterns: ["*"]

@@ -48,10 +48,10 @@ cargo rbmt test
 Then run scenarios through the wrapper:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- run single-router.toml
-cargo rbmt run run -p mikrotik-simnet -- run two-router.toml
-cargo rbmt run run -p mikrotik-simnet -- run three-router-bgp.toml
-cargo rbmt run run -p mikrotik-simnet -- run stress-test.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run single-router.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run two-router.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run three-router-bgp.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run stress-test.toml
 ```
 
 The bundled scenarios live under the workspace-level `topologies` directory:
@@ -70,13 +70,13 @@ directory.
 For CI or one-shot validation, stop the scenario as soon as checks pass:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- run --non-interactive stress-test.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run --non-interactive stress-test.toml
 ```
 
 Render a topology manifest as a Mermaid flowchart without starting QEMU:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- mermaid two-router.toml
+cargo rbmt -p mikrotik-simnet run -- run -- mermaid two-router.toml
 ```
 
 ## Topology Format
@@ -157,13 +157,13 @@ List cataloged versions, release channels, inferred guest architecture, and
 available CHR image architectures:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- list-versions
+cargo rbmt -p mikrotik-simnet run -- run -- list-versions
 ```
 
 Run each topology explicitly:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- run single-router.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run single-router.toml
 ```
 
 ## Bootstrap Commands
@@ -204,7 +204,7 @@ The CLI defaults to INFO logs. Run with debug logging to print run directories
 and file paths:
 
 ```text
-RUST_LOG=debug cargo rbmt run run -p mikrotik-simnet -- run single-router.toml
+RUST_LOG=debug cargo rbmt -p mikrotik-simnet run -- run -- run single-router.toml
 ```
 
 Inspect these files first:
@@ -233,6 +233,7 @@ Use the workspace wrapper commands for repo checks:
 cargo rbmt lock
 cargo rbmt fmt
 cargo rbmt lint
+cargo rbmt docs
 cargo rbmt test
 ```
 

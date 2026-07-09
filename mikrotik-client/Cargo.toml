@@ -12,11 +12,6 @@ repository.workspace = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
-[package.metadata.rbmt.lint]
-allowed_duplicates = [
-  "wit-bindgen",
-]
-
 [dependencies]
 # Workspace Dependencies
 mikrotik-common = { path = "../mikrotik-common" }
@@ -42,6 +37,11 @@ windows-sys = { version = "0.61.0", default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[package.metadata.rbmt]
+lint = { allowed_duplicates = [
+    "wit-bindgen"
+] }
 
 [lints]
 workspace = true

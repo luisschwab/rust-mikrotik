@@ -88,13 +88,13 @@ commands, runs checks, and writes CSV/Mermaid/log artifacts under
 Run a one-shot scenario from the workspace root:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- run --non-interactive three-router-bgp.toml
+cargo rbmt -p mikrotik-simnet run -- run -- run --non-interactive three-router-bgp.toml
 ```
 
 Render a topology diagram without starting QEMU:
 
 ```text
-cargo rbmt run run -p mikrotik-simnet -- mermaid three-router-bgp.toml
+cargo rbmt -p mikrotik-simnet run -- run -- mermaid three-router-bgp.toml
 ```
 
 See [mikrotik-simnet/README.md](mikrotik-simnet/README.md) for host
@@ -108,6 +108,7 @@ Use the repo wrapper commands rather than invoking raw Cargo tasks directly:
 cargo rbmt lock
 cargo rbmt fmt
 cargo rbmt lint
+cargo rbmt docs
 cargo rbmt test
 ```
 

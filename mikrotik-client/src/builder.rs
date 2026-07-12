@@ -1,8 +1,10 @@
 //! Connection configuration for binary `RouterOS` API sessions.
 
-use std::time::Duration;
+use core::time::Duration;
 
 use mikrotik_types::target::Credentials;
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Default plaintext `RouterOS` API port.
 pub const API_PORT: u16 = 8728;
@@ -32,7 +34,8 @@ pub const WINBOX_PORT: u16 = 8291;
 pub const MAC_TELNET_PORT: u16 = 20561;
 
 /// `RouterOS` management service protocol.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Protocol {
     /// Plaintext `RouterOS` API service.
     #[default]

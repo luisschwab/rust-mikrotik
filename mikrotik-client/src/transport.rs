@@ -1,6 +1,6 @@
 //! Tokio transport for the sans-IO `RouterOS` protocol state machines.
 
-use std::fmt;
+use core::fmt;
 use std::sync::Arc;
 
 use mikrotik_proto::Connection;
@@ -53,8 +53,8 @@ impl Session {
 }
 
 impl fmt::Debug for Session {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Session").finish_non_exhaustive()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session").finish_non_exhaustive()
     }
 }
 

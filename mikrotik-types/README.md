@@ -75,7 +75,7 @@ The crate is intentionally versionless: one type attempts to model the stable
 shape of an endpoint across RouterOS versions, with optional fields for values
 that are version-, platform-, package-, or configuration-dependent.
 
-Fixture tests cover captured live rows, and `mikrotik-simnet` exercises typed
+Fixture tests cover captured live rows, and `mikrotik-qemu-runner` exercises typed
 deserialization against real CHR images across the cataloged RouterOS versions.
 
 ## Development

@@ -177,6 +177,32 @@ pub struct DiskSettings {
     pub auto_smb_sharing: Option<bool>,
 }
 
+/// Response row from `/disk/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Disk {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// Disk or partition name.
+    pub name: Option<String>,
+    /// Disk slot or identifier.
+    pub slot: Option<String>,
+    /// Disk model.
+    pub model: Option<String>,
+    /// Filesystem type.
+    pub file_system: Option<String>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Disk size.
+    pub size: Option<RouterOsByteSize>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Free disk space.
+    pub free: Option<RouterOsByteSize>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this disk is disabled.
+    pub disabled: Option<bool>,
+}
+
 /// Response row from `/file/print`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
@@ -323,20 +349,20 @@ mod tests {
     fn certificate_deserializes_chr_row() {
         let mut row = Row::new();
         row.insert(".id".to_string(), "*1".to_string());
-        row.insert("common-name".to_string(), "simnet-api".to_string());
+        row.insert("common-name".to_string(), "scenario-api".to_string());
         row.insert("crl".to_string(), "false".to_string());
         row.insert("days-valid".to_string(), "365".to_string());
         row.insert("key-size".to_string(), "2048".to_string());
         row.insert("key-type".to_string(), "rsa".to_string());
         row.insert("key-usage".to_string(), "tls-server".to_string());
-        row.insert("name".to_string(), "simnet-api".to_string());
+        row.insert("name".to_string(), "scenario-api".to_string());
         row.insert("private-key".to_string(), "false".to_string());
         row.insert("trust-store".to_string(), "all".to_string());
 
         let certificate: Certificate = crate::deserialize(&row).expect("certificate row should decode");
 
         assert_eq!(certificate.id.as_ref().map(ToString::to_string).as_deref(), Some("*1"));
-        assert_eq!(certificate.name.as_deref(), Some("simnet-api"));
+        assert_eq!(certificate.name.as_deref(), Some("scenario-api"));
         assert_eq!(certificate.key_usage, vec!["tls-server".to_string()]);
         assert_eq!(certificate.key_size.as_deref(), Some("2048"));
         assert_eq!(certificate.days_valid, Some(365));

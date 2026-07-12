@@ -653,57 +653,57 @@ pub struct EthernetInterface {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct EthernetCounters {
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Bytes received by the Ethernet driver.
-    pub driver_rx_byte: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub driver_rx_byte: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Received packet count.
-    pub driver_rx_packet: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub driver_rx_packet: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Bytes transmitted by the Ethernet driver.
-    pub driver_tx_byte: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub driver_tx_byte: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Transmitted packet count.
-    pub driver_tx_packet: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub driver_tx_packet: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Received byte count.
-    pub rx_bytes: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_bytes: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Transmitted byte count.
-    pub tx_bytes: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_bytes: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Received broadcast Ethernet frames.
-    pub rx_broadcast: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_broadcast: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Transmitted broadcast Ethernet frames.
-    pub tx_broadcast: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_broadcast: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Received multicast Ethernet frames.
-    pub rx_multicast: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_multicast: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Transmitted multicast Ethernet frames.
-    pub tx_multicast: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_multicast: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Received Ethernet frames with FCS errors.
-    pub rx_fcs_error: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_fcs_error: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Received Ethernet frames with alignment errors.
-    pub rx_align_error: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_align_error: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Receive overflow counter.
-    pub rx_overflow: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_overflow: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Transmit collision counter.
-    pub tx_collision: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_collision: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Excessive transmit collision counter.
-    pub tx_excessive_collision: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_excessive_collision: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Late transmit collision counter.
-    pub tx_late_collision: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_late_collision: Vec<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Transmit underrun counter.
-    pub tx_underrun: Option<u64>,
+    pub tx_underrun: Vec<u64>,
 }
 
 /// Response row from `/interface/ethernet/switch/print`.
@@ -749,9 +749,8 @@ pub struct EthernetSwitchPort {
     pub vlan_header: Option<String>,
     /// VLAN mode configured for the switch port.
     pub vlan_mode: Option<String>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
     /// Default VLAN ID assigned to untagged traffic.
-    pub default_vlan_id: Option<u16>,
+    pub default_vlan_id: Option<String>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether `RouterOS` considers this row invalid.
     pub invalid: Option<bool>,
@@ -850,8 +849,11 @@ pub struct WirelessSecurityProfile {
 #[cfg(test)]
 mod tests {
     use alloc::string::ToString as _;
+    use alloc::vec;
 
     use super::BridgePort;
+    use super::EthernetSwitch;
+    use super::EthernetSwitchPort;
     use super::Interface;
     use crate::Row;
 
@@ -918,6 +920,53 @@ mod tests {
             Some("admit-only-untagged-and-priority-tagged")
         );
         assert_eq!(port.role.as_deref(), Some("designated-port"));
+    }
+
+    #[test]
+    fn ethernet_switch_deserializes_comma_list_counters() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*0".into());
+        row.insert("name".into(), "switch1".into());
+        row.insert("type".into(), "MediaTek-MT7621".into());
+        row.insert("driver-rx-byte".into(), "11511702323,0".into());
+        row.insert("driver-rx-packet".into(), "105007900,0".into());
+        row.insert("driver-tx-byte".into(), "448579048,0".into());
+        row.insert("driver-tx-packet".into(), "2396222,0".into());
+        row.insert("rx-bytes".into(), "157422711,0".into());
+        row.insert("tx-bytes".into(), "0,458163936".into());
+        row.insert("rx-fcs-error".into(), "0,0".into());
+        row.insert("invalid".into(), "false".into());
+
+        let switch = crate::deserialize::<EthernetSwitch>(&row).expect("ethernet switch row should deserialize");
+
+        assert_eq!(switch.switch_type.as_deref(), Some("MediaTek-MT7621"));
+        assert_eq!(switch.counters.driver_rx_byte, vec![11_511_702_323, 0]);
+        assert_eq!(switch.counters.tx_bytes, vec![0, 458_163_936]);
+        assert_eq!(switch.counters.rx_fcs_error, vec![0, 0]);
+        assert_eq!(switch.invalid, Some(false));
+    }
+
+    #[test]
+    fn ethernet_switch_port_deserializes_auto_default_vlan_and_scalar_counters() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*1".into());
+        row.insert("name".into(), "ether1".into());
+        row.insert("switch".into(), "switch1".into());
+        row.insert("default-vlan-id".into(), "auto".into());
+        row.insert("driver-rx-byte".into(), "39024322928447".into());
+        row.insert("rx-bytes".into(), "39218030774158".into());
+        row.insert("tx-bytes".into(), "6286125183807".into());
+        row.insert("invalid".into(), "false".into());
+        row.insert("vlan-header".into(), "leave-as-is".into());
+        row.insert("vlan-mode".into(), "disabled".into());
+
+        let port = crate::deserialize::<EthernetSwitchPort>(&row).expect("ethernet switch port row should deserialize");
+
+        assert_eq!(port.default_vlan_id.as_deref(), Some("auto"));
+        assert_eq!(port.counters.driver_rx_byte, vec![39_024_322_928_447]);
+        assert_eq!(port.counters.rx_bytes, vec![39_218_030_774_158]);
+        assert_eq!(port.counters.tx_bytes, vec![6_286_125_183_807]);
+        assert_eq!(port.invalid, Some(false));
     }
 
     #[test]

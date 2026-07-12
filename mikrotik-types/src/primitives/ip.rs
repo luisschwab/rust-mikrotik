@@ -55,9 +55,9 @@ impl FromStr for MacAddress {
 }
 
 impl fmt::Display for MacAddress {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
+            f,
             "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
             self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5]
         )
@@ -139,8 +139,8 @@ impl FromStr for IpPrefix {
 }
 
 impl fmt::Display for IpPrefix {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -215,8 +215,8 @@ impl FromStr for ScopedIpAddress {
 }
 
 impl fmt::Display for ScopedIpAddress {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -272,8 +272,8 @@ impl FromStr for IpEndpointAddress {
 }
 
 impl fmt::Display for IpEndpointAddress {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -334,8 +334,8 @@ impl FromStr for DiscoveryProtocol {
 }
 
 impl fmt::Display for DiscoveryProtocol {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             Self::Mndp => "mndp",
             Self::Lldp => "lldp",
             Self::Cdp => "cdp",
@@ -376,8 +376,8 @@ impl FromStr for SystemCapability {
 }
 
 impl fmt::Display for SystemCapability {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
             Self::Bridge => "bridge",
             Self::WlanAp => "wlan-ap",
             Self::Router => "router",
@@ -419,13 +419,13 @@ impl FromStr for ArpStatus {
 }
 
 impl fmt::Display for ArpStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Permanent => formatter.write_str("permanent"),
-            Self::Reachable => formatter.write_str("reachable"),
-            Self::Stale => formatter.write_str("stale"),
-            Self::Delay => formatter.write_str("delay"),
-            Self::Unknown(value) => formatter.write_str(value),
+            Self::Permanent => f.write_str("permanent"),
+            Self::Reachable => f.write_str("reachable"),
+            Self::Stale => f.write_str("stale"),
+            Self::Delay => f.write_str("delay"),
+            Self::Unknown(value) => f.write_str(value),
         }
     }
 }
@@ -462,13 +462,13 @@ impl FromStr for DhcpLeaseStatus {
 }
 
 impl fmt::Display for DhcpLeaseStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Bound => formatter.write_str("bound"),
-            Self::Waiting => formatter.write_str("waiting"),
-            Self::Offered => formatter.write_str("offered"),
-            Self::Busy => formatter.write_str("busy"),
-            Self::Unknown(value) => formatter.write_str(value),
+            Self::Bound => f.write_str("bound"),
+            Self::Waiting => f.write_str("waiting"),
+            Self::Offered => f.write_str("offered"),
+            Self::Busy => f.write_str("busy"),
+            Self::Unknown(value) => f.write_str(value),
         }
     }
 }

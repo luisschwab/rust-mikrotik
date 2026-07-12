@@ -1,16 +1,14 @@
+# workspace
+target/**
 Cargo.lock
 Cargo.lock.backup
 
-/debug
-/target
+# mikrotik-crawler
+mikrotik-crawler/src/bin/runs/**
 
-mikrotik-isp-tools/.live-runs
-mikrotik-isp-tools/.simnet-runs
-mikrotik-simnet/.chr-cache
-mikrotik-simnet/tests/live_router_creds.toml
-mikrotik-types/assets/fixtures/*.json
+# mikrotik-qemu-runner
+mikrotik-qemu-runner/.chr-cache
 
+# notes
 TODO.md
 NOTES.md
-DEVICES.md
-unreachable-ips.md

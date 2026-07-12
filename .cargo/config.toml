@@ -1,0 +1,4 @@
+[env]
+# Force C build scripts, such as ring's, to use Apple clang and
+# its SDK discovery instead of a shell-provided Homebrew LLVM clang.
+CC = { value = "/usr/bin/clang", force = true }

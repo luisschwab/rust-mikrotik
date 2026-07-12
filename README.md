@@ -3,8 +3,7 @@
 <h1>Rust MikroTik</h1>
 
 <p>
-Rust crates for talking to MikroTik RouterOS, decoding RouterOS API rows, and
-validating behavior against QEMU/CHR simulated networks.
+    A suite of Rust crates for simulating and interacting with MikroTik devices
 </p>
 
 <p>
@@ -17,104 +16,14 @@ validating behavior against QEMU/CHR simulated networks.
 <a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml">
     <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg">
 </a>
-<a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simnet.yml">
-    <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simnet.yml/badge.svg">
+<a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml">
+    <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml/badge.svg">
 </a>
 </p>
 
 </div>
 
-## Crates
-
-Crates | Purpose
----|---
-[`mikrotik-client`](mikrotik-client) | Tokio-based RouterOS binary API client with raw calls and typed print commands.
-[`mikrotik-common`](mikrotik-common) | Shared internal helpers used by the workspace crates.
-[`mikrotik-simnet`](mikrotik-simnet) | Internal QEMU/CHR topology runner used to exercise the client and types against real RouterOS images.
-[`mikrotik-types`](mikrotik-types) | Versionless RouterOS API response models and reusable RouterOS primitive types.
-
-
-## RouterOS API Client
-
-`mikrotik-client` supports the RouterOS binary API transports:
-
-- API on port `8728`
-- API SSL on port `8729`
-
-Other MikroTik management protocols such as SSH, Telnet, MAC-Telnet, HTTP,
-HTTPS, FTP, and WinBox are represented in the protocol enum for service
-metadata, but they are not implemented as client transports yet.
-
-```rust,no_run
-use mikrotik_client::builder::ClientBuilder;
-use mikrotik_client::builder::Protocol;
-use mikrotik_client::client::Client;
-use mikrotik_client::commands;
-use mikrotik_client::types::target::Credentials;
-
-# async fn example() -> mikrotik_client::error::Result<()> {
-let client = Client::connect(ClientBuilder::new(
-    "192.0.2.1",
-    Protocol::Api,
-    Credentials {
-        username: "admin".to_owned(),
-        password: Some("password".to_owned()),
-    },
-))
-.await?;
-
-let identity = client.call("/system/identity/print", &[]).await?;
-println!("identity rows: {identity:?}");
-
-let interfaces = client
-    .print::<mikrotik_client::types::api::interface::Interface>(
-        commands::PrintCommand::Interface(commands::Interface::Interface),
-    )
-    .await?;
-println!("interfaces: {}", interfaces.len());
-# Ok(())
-# }
-```
-
-## Simulated Networks
-
-`mikrotik-simnet` runs deterministic RouterOS topologies from the workspace
-`topologies` directory using MikroTik CHR
-images under QEMU. It downloads or reuses CHR images, starts one QEMU process
-per router, waits for API readiness with a rolling VM window, applies bootstrap
-commands, runs checks, and writes CSV/Mermaid/log artifacts under
-`mikrotik-simnet/.chr-cache/runs`.
-
-Run a one-shot scenario from the workspace root:
-
-```text
-cargo rbmt -p mikrotik-simnet run -- run -- run --non-interactive three-router-bgp.toml
-```
-
-Render a topology diagram without starting QEMU:
-
-```text
-cargo rbmt -p mikrotik-simnet run -- run -- mermaid three-router-bgp.toml
-```
-
-See [mikrotik-simnet/README.md](mikrotik-simnet/README.md) for host
-requirements, topology format, bundled scenarios, and debugging notes.
-
-## Development
-
-Use the repo wrapper commands rather than invoking raw Cargo tasks directly:
-
-```text
-cargo rbmt lock
-cargo rbmt fmt
-cargo rbmt lint
-cargo rbmt docs
-cargo rbmt test
-```
-
-The normal test suite covers unit tests, doctests, feature combinations, and
-the no-std build for `mikrotik-types`. Full QEMU topology runs are separate
-because they depend on host QEMU support and live RouterOS CHR images.
+TBD
 
 ## Minimum Supported Rust Version
 

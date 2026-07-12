@@ -9,6 +9,9 @@ const SYSTEM_DEVICE_MODE_PRINT: &str = "/system/device-mode/print";
 /// `RouterOS` print command `/system/history/print`.
 const SYSTEM_HISTORY_ENTRY_PRINT: &str = "/system/history/print";
 
+/// `RouterOS` print command `/system/health/print`.
+const SYSTEM_HEALTH_PRINT: &str = "/system/health/print";
+
 /// `RouterOS` print command `/system/identity/print`.
 const SYSTEM_IDENTITY_PRINT: &str = "/system/identity/print";
 
@@ -51,6 +54,9 @@ const SYSTEM_RESOURCE_CPU_PRINT: &str = "/system/resource/cpu/print";
 /// `RouterOS` print command `/system/resource/irq/print`.
 const SYSTEM_RESOURCE_IRQ_PRINT: &str = "/system/resource/irq/print";
 
+/// `RouterOS` print command `/system/resource/hardware/print`.
+const SYSTEM_RESOURCE_HARDWARE_PRINT: &str = "/system/resource/hardware/print";
+
 /// `RouterOS` print command `/system/resource/usb/settings/print`.
 const SYSTEM_RESOURCE_USB_SETTINGS_PRINT: &str = "/system/resource/usb/settings/print";
 
@@ -65,6 +71,12 @@ const SYSTEM_ROUTERBOARD_SETTINGS_PRINT: &str = "/system/routerboard/settings/pr
 
 /// `RouterOS` print command `/system/script/job/print`.
 const SYSTEM_SCRIPT_JOB_PRINT: &str = "/system/script/job/print";
+
+/// `RouterOS` print command `/system/script/print`.
+const SYSTEM_SCRIPT_PRINT: &str = "/system/script/print";
+
+/// `RouterOS` print command `/system/scheduler/print`.
+const SYSTEM_SCHEDULER_PRINT: &str = "/system/scheduler/print";
 
 /// `RouterOS` print command `/system/upgrade/mirror/print`.
 const SYSTEM_UPGRADE_MIRROR_PRINT: &str = "/system/upgrade/mirror/print";
@@ -81,6 +93,8 @@ pub enum System {
     DeviceMode,
     /// `RouterOS` print command.
     HistoryEntry,
+    /// `RouterOS` print command.
+    Health,
     /// `RouterOS` print command.
     Identity,
     /// `RouterOS` print command.
@@ -108,6 +122,8 @@ pub enum System {
     /// `RouterOS` print command.
     ResourceCpu,
     /// `RouterOS` print command.
+    ResourceHardware,
+    /// `RouterOS` print command.
     ResourceIrq,
     /// `RouterOS` print command.
     ResourceUsbSettings,
@@ -118,7 +134,11 @@ pub enum System {
     /// `RouterOS` print command.
     RouterboardSettings,
     /// `RouterOS` print command.
+    Script,
+    /// `RouterOS` print command.
     ScriptJob,
+    /// `RouterOS` print command.
+    Scheduler,
     /// `RouterOS` print command.
     UpgradeMirror,
     /// `RouterOS` print command.
@@ -130,6 +150,7 @@ impl System {
     pub const ALL: &[Self] = &[
         Self::Clock,
         Self::DeviceMode,
+        Self::Health,
         Self::HistoryEntry,
         Self::Identity,
         Self::Led,
@@ -144,12 +165,15 @@ impl System {
         Self::PackageUpdate,
         Self::Resource,
         Self::ResourceCpu,
+        Self::ResourceHardware,
         Self::ResourceIrq,
         Self::ResourceUsbSettings,
         Self::Routerboard,
         Self::RouterboardResetButton,
         Self::RouterboardSettings,
+        Self::Script,
         Self::ScriptJob,
+        Self::Scheduler,
         Self::UpgradeMirror,
         Self::Watchdog,
     ];
@@ -159,6 +183,7 @@ impl System {
         match self {
             Self::Clock => SYSTEM_CLOCK_PRINT,
             Self::DeviceMode => SYSTEM_DEVICE_MODE_PRINT,
+            Self::Health => SYSTEM_HEALTH_PRINT,
             Self::HistoryEntry => SYSTEM_HISTORY_ENTRY_PRINT,
             Self::Identity => SYSTEM_IDENTITY_PRINT,
             Self::Led => SYSTEM_LED_PRINT,
@@ -173,12 +198,15 @@ impl System {
             Self::PackageUpdate => SYSTEM_PACKAGE_UPDATE_PRINT,
             Self::Resource => SYSTEM_RESOURCE_PRINT,
             Self::ResourceCpu => SYSTEM_RESOURCE_CPU_PRINT,
+            Self::ResourceHardware => SYSTEM_RESOURCE_HARDWARE_PRINT,
             Self::ResourceIrq => SYSTEM_RESOURCE_IRQ_PRINT,
             Self::ResourceUsbSettings => SYSTEM_RESOURCE_USB_SETTINGS_PRINT,
             Self::Routerboard => SYSTEM_ROUTERBOARD_PRINT,
             Self::RouterboardResetButton => SYSTEM_ROUTERBOARD_RESET_BUTTON_PRINT,
             Self::RouterboardSettings => SYSTEM_ROUTERBOARD_SETTINGS_PRINT,
+            Self::Script => SYSTEM_SCRIPT_PRINT,
             Self::ScriptJob => SYSTEM_SCRIPT_JOB_PRINT,
+            Self::Scheduler => SYSTEM_SCHEDULER_PRINT,
             Self::UpgradeMirror => SYSTEM_UPGRADE_MIRROR_PRINT,
             Self::Watchdog => SYSTEM_WATCHDOG_PRINT,
         }

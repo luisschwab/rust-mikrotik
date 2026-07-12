@@ -1,0 +1,236 @@
+name = "config-stress"
+allow_software_emulation = true
+
+[[routers]]
+name = "CFG_EDGE"
+version = "7.23.1"
+memory_mib = 512
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_EDGE",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/system/note/set note=config-stress-edge",
+  "/system/logging/action/add name=stressmemory target=memory memory-lines=200",
+  "/system/logging/add topics=info action=stressmemory prefix=stress",
+  "/system/script/add name=stress-script policy=read,write,test source=:log-info-stress",
+  "/system/scheduler/add name=stress-scheduler interval=5m on-event=stress-script disabled=yes",
+  "/interface/bridge/add name=br-core protocol-mode=rstp vlan-filtering=yes igmp-snooping=yes comment=bridge-core",
+  "/interface/bridge/add name=br-guest protocol-mode=none comment=bridge-guest",
+  "/interface/vlan/add name=vlan10-core interface=br-core vlan-id=10",
+  "/interface/vlan/add name=vlan20-guest interface=br-core vlan-id=20",
+  "/interface/bridge/vlan/add bridge=br-core vlan-ids=10 tagged=br-core",
+  "/interface/bridge/vlan/add bridge=br-core vlan-ids=20 tagged=br-core",
+  "/interface/list/add name=WAN",
+  "/interface/list/add name=LAN",
+  "/interface/list/member/add list=WAN interface=ether2",
+  "/interface/list/member/add list=LAN interface=br-core",
+  "/interface/detect-internet/set detect-interface-list=WAN lan-interface-list=LAN wan-interface-list=WAN internet-interface-list=WAN",
+  "/ip/address/add address=172.30.0.1/30 interface=ether2 comment=core-link",
+  "/ip/address/add address=172.30.0.5/30 interface=ether3 comment=vpn-link",
+  "/ip/address/add address=10.30.10.1/24 interface=vlan10-core comment=core-lan",
+  "/ip/address/add address=10.30.20.1/24 interface=vlan20-guest comment=guest-lan",
+  "/ipv6/address/add address=2001:db8:30:10::1/64 interface=vlan10-core advertise=yes",
+  "/ipv6/nd/add interface=vlan10-core ra-interval=20s-1m ra-lifetime=30m",
+  "/ip/pool/add name=edge-dhcp ranges=10.30.10.100-10.30.10.150",
+  "/ip/pool/add name=ppp-pool ranges=10.30.200.10-10.30.200.50",
+  "/ip/dhcp-server/network/add address=10.30.10.0/24 gateway=10.30.10.1 dns-server=10.30.10.1 domain=edge.test",
+  "/ip/dhcp-server/add name=edge-dhcp interface=vlan10-core address-pool=edge-dhcp lease-time=1h disabled=no",
+  "/ip/dns/set allow-remote-requests=yes cache-max-ttl=1d servers=1.1.1.1,8.8.8.8 doh-timeout=5s",
+  "/ip/firewall/address-list/add list=stress-v4 address=10.30.10.0/24 comment=cidr-list",
+  "/ip/firewall/address-list/add list=stress-v4 address=example.invalid comment=dns-list",
+  "/ip/firewall/filter/add chain=input action=accept protocol=tcp dst-port=8728 src-address-list=stress-v4 comment=api-from-lan",
+  "/ip/firewall/filter/add chain=forward action=drop connection-state=invalid comment=drop-invalid",
+  "/ip/firewall/nat/add chain=srcnat action=masquerade out-interface-list=WAN comment=masq-wan",
+  "/ip/firewall/mangle/add chain=prerouting action=mark-connection new-connection-mark=stress_conn passthrough=yes src-address=10.30.10.0/24 comment=mark-conn",
+  "/ip/firewall/raw/add chain=prerouting action=notrack src-address=10.30.20.0/24 comment=raw-notrack",
+  "/ip/firewall/connection/tracking/set enabled=auto tcp-established-timeout=1h udp-timeout=20s",
+  "/ip/route/add dst-address=10.31.0.0/16 gateway=172.30.0.2 comment=core-routes",
+  "/ip/route/add dst-address=10.32.0.0/16 gateway=172.30.0.6 comment=vpn-routes",
+  "/ip/vrf/add name=tenant-a interfaces=vlan20-guest",
+  "/routing/bgp/instance/add name=edge-as as=65030 router-id=10.30.10.1",
+  "/routing/bgp/template/add name=edge-template as=65030 routing-table=main",
+  "/routing/bgp/connection/add name=edge-core instance=edge-as remote.address=172.30.0.2 remote.as=65031 local.role=ebgp connect=yes",
+  "/routing/bgp/connection/add name=edge-disabled instance=edge-as remote.address=198.51.100.254 remote.as=64512 local.role=ebgp disabled=yes",
+  "/queue/type/add name=pcq-stress kind=pcq pcq-rate=10M pcq-classifier=src-address",
+  "/queue/simple/add name=edge-simple target=10.30.10.0/24 max-limit=20M/20M queue=pcq-stress/pcq-stress",
+  "/queue/interface/set numbers=ether2 queue=only-hardware-queue",
+  "/snmp/set enabled=yes contact=ops location=config-stress trap-version=2",
+  "/snmp/community/add name=stress addresses=10.30.10.0/24 security=none",
+  "/tool/bandwidth-server/set enabled=yes authenticate=no",
+  "/tool/e-mail/set server=192.0.2.25 port=587 from=edge@example.invalid tls=starttls",
+  "/tool/graphing/set store-every=5m",
+  "/tool/graphing/interface/add interface=ether2 allow-address=10.30.10.0/24 store-on-disk=no",
+  "/tool/mac-server/ping/set enabled=yes",
+  "/tool/romon/set enabled=yes id=00:00:00:00:30:01",
+  "/tool/romon/port/add interface=ether2 disabled=no forbid=no",
+  "/tool/sniffer/set filter-interface=ether2 filter-ip-protocol=tcp memory-limit=100KiB",
+  "/ip/proxy/set enabled=yes port=8080 cache-administrator=ops@example.invalid",
+  "/ip/socks/set enabled=yes port=1080 connection-idle-timeout=2m",
+  "/ip/traffic-flow/set enabled=yes active-flow-timeout=30m inactive-flow-timeout=15s interfaces=ether2",
+  "/ip/upnp/set enabled=yes allow-disable-external-interface=no show-dummy-rule=yes",
+]
+
+[[routers]]
+name = "CFG_CORE"
+version = "7.23.1"
+memory_mib = 512
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_CORE",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-core protocol-mode=mstp vlan-filtering=yes comment=core-bridge",
+  "/interface/vlan/add name=vlan31 interface=br-core vlan-id=31",
+  "/ip/address/add address=172.30.0.2/30 interface=ether2 comment=edge-link",
+  "/ip/address/add address=172.31.0.1/30 interface=ether3 comment=access-link",
+  "/ip/address/add address=10.31.10.1/24 interface=vlan31 comment=core-vlan",
+  "/ipv6/address/add address=2001:db8:31::1/64 interface=vlan31 advertise=yes",
+  "/ip/pool/add name=core-pool ranges=10.31.10.20-10.31.10.80",
+  "/ip/dhcp-server/network/add address=10.31.10.0/24 gateway=10.31.10.1 dns-server=10.31.10.1",
+  "/ip/dhcp-server/add name=core-dhcp interface=vlan31 address-pool=core-pool lease-time=12h disabled=no",
+  "/ip/dhcp-client/add interface=ether1 add-default-route=no use-peer-dns=no disabled=yes",
+  "/ip/firewall/address-list/add list=core-nets address=10.31.0.0/16 timeout=1h",
+  "/ip/firewall/filter/add chain=input action=accept src-address-list=core-nets comment=core-input",
+  "/ip/firewall/mangle/add chain=output action=mark-routing new-routing-mark=main passthrough=no comment=mark-routing",
+  "/ip/route/add dst-address=10.30.0.0/16 gateway=172.30.0.1 comment=edge-routes",
+  "/ip/route/add dst-address=10.32.0.0/16 gateway=172.31.0.2 comment=access-routes",
+  "/routing/bgp/instance/add name=core-as as=65031 router-id=10.31.10.1",
+  "/routing/bgp/connection/add name=core-edge instance=core-as remote.address=172.30.0.1 remote.as=65030 local.role=ebgp connect=yes",
+  "/routing/bgp/connection/add name=core-access instance=core-as remote.address=172.31.0.2 remote.as=65032 local.role=ebgp connect=yes",
+  "/routing/table/add name=tenant-fib fib",
+  "/routing/rule/add action=lookup-only-in-table table=tenant-fib src-address=10.31.10.0/24",
+  "/ppp/profile/add name=core-ppp local-address=10.31.10.1 remote-address=core-pool use-encryption=yes only-one=no",
+  "/ppp/secret/add name=stress password=stress service=any profile=core-ppp local-address=10.31.10.1 remote-address=10.31.10.20",
+  "/interface/pppoe-server/server/add service-name=stress-pppoe interface=br-core default-profile=core-ppp authentication=pap,chap disabled=no",
+  "/interface/l2tp-server/server/set enabled=yes default-profile=core-ppp authentication=chap,mschap2 use-ipsec=no",
+  "/interface/pptp-server/server/set enabled=yes default-profile=core-ppp authentication=mschap2",
+  "/interface/sstp-server/server/set enabled=yes default-profile=core-ppp authentication=mschap2 certificate=none",
+  "/interface/ovpn-server/server/add name=ovpn-stress disabled=no default-profile=core-ppp auth=sha1 cipher=aes128-cbc mode=ip netmask=24 require-client-certificate=no",
+  "/queue/simple/add name=core-simple target=10.31.10.0/24 max-limit=50M/50M burst-limit=60M/60M burst-time=30s/30s",
+  "/tool/romon/set enabled=yes id=00:00:00:00:31:01",
+  "/tool/sniffer/set filter-interface=ether2 filter-mac-protocol=ip memory-limit=200KiB",
+]
+
+[[routers]]
+name = "CFG_VPN"
+version = "7.23.1"
+memory_mib = 512
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_VPN",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/wireguard/add name=wg-stress listen-port=13231 mtu=1420",
+  "/interface/gre/add name=gre-stress local-address=172.30.0.6 remote-address=172.31.0.2 disabled=no",
+  "/interface/ipip/add name=ipip-stress local-address=172.30.0.6 remote-address=172.31.0.2 disabled=no",
+  "/interface/eoip/add name=eoip-stress tunnel-id=320 local-address=172.30.0.6 remote-address=172.31.0.2 disabled=no",
+  "/interface/vxlan/add name=vxlan-stress vni=10032 port=4789",
+  "/ip/address/add address=172.30.0.6/30 interface=ether2 comment=edge-link",
+  "/ip/address/add address=172.32.0.1/30 interface=ether3 comment=access-link",
+  "/ip/address/add address=10.32.10.1/24 interface=wg-stress comment=wg-net",
+  "/ip/address/add address=10.32.20.1/30 interface=gre-stress comment=gre-net",
+  "/ip/address/add address=10.32.30.1/30 interface=ipip-stress comment=ipip-net",
+  "/ip/address/add address=10.32.40.1/30 interface=eoip-stress comment=eoip-net",
+  "/ipv6/address/add address=2001:db8:32::1/64 interface=wg-stress advertise=no",
+  "/ip/ipsec/profile/add name=ipsec-main dh-group=modp1024,modp2048 enc-algorithm=aes-256,3des hash-algorithm=sha256 dpd-interval=disable-dpd lifetime=8h nat-traversal=yes proposal-check=obey",
+  "/ip/ipsec/profile/add name=ipsec-fast dh-group=ecp256 enc-algorithm=aes-128 hash-algorithm=sha256 dpd-interval=30s dpd-maximum-failures=3 lifetime=1h nat-traversal=no",
+  "/ip/ipsec/proposal/add name=proposal-main auth-algorithms=sha256,sha1 enc-algorithms=aes-256-cbc,3des lifetime=30m pfs-group=modp1024",
+  "/ip/ipsec/proposal/add name=proposal-null auth-algorithms=sha1 enc-algorithms=null lifetime=10m pfs-group=none disabled=yes",
+  "/ip/ipsec/peer/add name=peer-template address=198.51.100.1/32 profile=ipsec-main exchange-mode=ike2 disabled=yes",
+  "/ip/ipsec/policy/add src-address=10.32.10.0/24 dst-address=10.31.10.0/24 tunnel=yes action=encrypt proposal=proposal-main peer=peer-template disabled=yes comment=disabled-template",
+  "/ip/firewall/filter/add chain=input action=accept protocol=udp dst-port=500,4500 comment=ipsec-ike",
+  "/ip/firewall/filter/add chain=input action=accept protocol=ipsec-esp comment=ipsec-esp",
+  "/ip/firewall/nat/add chain=srcnat action=accept src-address=10.32.10.0/24 dst-address=10.31.10.0/24 comment=no-nat-ipsec",
+  "/ip/route/add dst-address=10.30.0.0/16 gateway=172.30.0.5 comment=edge-routes",
+  "/ip/route/add dst-address=10.31.0.0/16 gateway=172.32.0.2 comment=access-routes",
+  "/routing/bgp/instance/add name=vpn-as as=65032 router-id=10.32.10.1",
+  "/routing/bgp/connection/add name=vpn-access instance=vpn-as remote.address=172.32.0.2 remote.as=65033 local.role=ebgp connect=yes",
+  "/snmp/set enabled=yes contact=vpn location=config-stress",
+  "/tool/romon/set enabled=yes id=00:00:00:00:32:01",
+]
+
+[[routers]]
+name = "CFG_ACCESS"
+version = "7.23.1"
+memory_mib = 512
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_ACCESS",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-access protocol-mode=rstp vlan-filtering=yes comment=access-bridge",
+  "/interface/vlan/add name=vlan100-users interface=br-access vlan-id=100",
+  "/interface/vlan/add name=vlan200-voice interface=br-access vlan-id=200",
+  "/interface/bridge/vlan/add bridge=br-access vlan-ids=100 tagged=br-access",
+  "/interface/bridge/vlan/add bridge=br-access vlan-ids=200 tagged=br-access",
+  "/ip/address/add address=172.31.0.2/30 interface=ether2 comment=core-link",
+  "/ip/address/add address=172.32.0.2/30 interface=ether3 comment=vpn-link",
+  "/ip/address/add address=10.33.100.1/24 interface=vlan100-users",
+  "/ip/address/add address=10.33.200.1/24 interface=vlan200-voice",
+  "/ipv6/address/add address=2001:db8:33:100::1/64 interface=vlan100-users advertise=yes",
+  "/ip/pool/add name=users ranges=10.33.100.100-10.33.100.180",
+  "/ip/pool/add name=voice ranges=10.33.200.20-10.33.200.80",
+  "/ip/dhcp-server/network/add address=10.33.100.0/24 gateway=10.33.100.1 dns-server=10.33.100.1",
+  "/ip/dhcp-server/network/add address=10.33.200.0/24 gateway=10.33.200.1 dns-server=10.33.100.1",
+  "/ip/dhcp-server/add name=users interface=vlan100-users address-pool=users lease-time=30m disabled=no",
+  "/ip/dhcp-server/add name=voice interface=vlan200-voice address-pool=voice lease-time=2h disabled=no",
+  "/ip/hotspot/profile/add name=hs-prof hotspot-address=10.33.100.1 dns-name=login.example.invalid html-directory=hotspot",
+  "/ip/hotspot/user/add name=guest password=guest profile=default",
+  "/ip/firewall/address-list/add list=voice address=10.33.200.0/24",
+  "/ip/firewall/filter/add chain=forward action=accept src-address-list=voice dst-address=10.33.100.0/24 comment=voice-to-users",
+  "/ip/firewall/raw/add chain=prerouting action=drop src-address=192.0.2.0/24 comment=bogon-drop",
+  "/ip/route/add dst-address=10.30.0.0/16 gateway=172.31.0.1 comment=edge-via-core",
+  "/ip/route/add dst-address=10.32.0.0/16 gateway=172.32.0.1 comment=vpn-link",
+  "/routing/bgp/instance/add name=access-as as=65033 router-id=10.33.100.1",
+  "/routing/bgp/connection/add name=access-core instance=access-as remote.address=172.31.0.1 remote.as=65031 local.role=ebgp connect=yes",
+  "/routing/bgp/connection/add name=access-vpn instance=access-as remote.address=172.32.0.1 remote.as=65032 local.role=ebgp connect=yes",
+  "/queue/type/add name=fq-codel-stress kind=fq-codel fq-codel-limit=1024 fq-codel-interval=100ms fq-codel-target=5ms",
+  "/queue/simple/add name=users-simple target=10.33.100.0/24 max-limit=30M/30M queue=fq-codel-stress/fq-codel-stress",
+  "/tool/graphing/queue/add simple-queue=users-simple allow-address=10.33.100.0/24 store-on-disk=no",
+]
+
+[[routers]]
+name = "CFG_EDGE_OLD"
+version = "7.20.8"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_EDGE_OLD",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-old protocol-mode=none comment=old-shapes",
+  "/interface/vlan/add name=vlan4094 interface=br-old vlan-id=4094",
+  "/ip/address/add address=10.34.10.1/24 interface=vlan4094",
+  "/ip/address/add address=172.34.0.1/30 interface=br-old",
+  "/ipv6/address/add address=2001:db8:34::1/64 interface=vlan4094 advertise=no",
+  "/ip/pool/add name=old-pool ranges=10.34.10.10-10.34.10.40",
+  "/ip/dhcp-server/network/add address=10.34.10.0/24 gateway=10.34.10.1 dns-server=9.9.9.9",
+  "/ip/dhcp-server/add name=old-dhcp interface=vlan4094 address-pool=old-pool lease-time=1d disabled=no",
+  "/ip/ipsec/profile/add name=old-disable-dpd dh-group=modp1024 enc-algorithm=3des hash-algorithm=sha1 dpd-interval=disable-dpd lifetime=8h proposal-check=obey",
+  "/ip/ipsec/proposal/add name=old-proposal auth-algorithms=sha1 enc-algorithms=3des lifetime=1h pfs-group=modp1024",
+  "/ip/firewall/address-list/add list=old-list address=198.51.100.10 timeout=1d",
+  "/ip/firewall/filter/add chain=input action=accept src-address-list=old-list comment=old-list",
+  "/ip/firewall/nat/add chain=dstnat action=dst-nat protocol=tcp dst-port=2222 to-addresses=10.34.10.10 to-ports=22",
+  "/ip/route/add dst-address=0.0.0.0/0 gateway=172.34.0.2 distance=2 comment=old-default",
+  "/routing/bgp/instance/add name=old-as as=65034 router-id=10.34.10.1",
+  "/routing/bgp/connection/add name=old-disabled instance=old-as remote.address=172.34.0.2 remote.as=65035 local.role=ebgp disabled=yes",
+  "/ppp/profile/add name=old-ppp local-address=10.34.10.1 remote-address=old-pool",
+  "/ppp/secret/add name=old password=old service=pppoe profile=old-ppp",
+]
+
+[[links]]
+a = "CFG_EDGE:ether2"
+b = "CFG_CORE:ether2"
+
+[[links]]
+a = "CFG_CORE:ether3"
+b = "CFG_ACCESS:ether2"
+
+[[links]]
+a = "CFG_EDGE:ether3"
+b = "CFG_VPN:ether2"
+
+[[links]]
+a = "CFG_VPN:ether3"
+b = "CFG_ACCESS:ether3"

@@ -1,0 +1,79 @@
+name: Simulation
+
+on:
+    push:
+      branches: [ master ]
+    pull_request:
+    workflow_dispatch:
+
+permissions: {}
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+    RBMT_LOG_LEVEL: verbose
+
+jobs:
+    simulate:
+        name: ${{ matrix.name }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 120
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: One Router
+                      test: one_router_scenario
+                    - name: Two Router
+                      test: two_router_scenario
+                    - name: Three Router with BGP
+                      test: three_router_bgp_scenario
+                    - name: ISP Network
+                      test: isp_network_scenario
+                    - name: Config Stress
+                      test: config_stress_scenario
+                    - name: RouterOS Version Stress
+                      test: stress_test_scenario
+
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Install CHR Runtime Tools
+              run: |
+                  sudo apt update
+                  sudo apt install -y qemu-system-x86 qemu-utils
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            - name: Setup CHR Image Cache
+              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              with:
+                  path: mikrotik-qemu-runner/.chr-cache/images
+                  key: qemu-runner-chr-images-${{ runner.os }}-${{ matrix.test }}-${{ hashFiles('mikrotik-qemu-runner/src/**', 'mikrotik-qemu-runner/tests/**', 'mikrotik-qemu-runner/scenarios/**') }}
+                  restore-keys: |
+                      qemu-runner-chr-images-${{ runner.os }}-
+
+            - name: Setup cargo-rbmt
+              uses: ./.github/actions/setup-rbmt
+
+            - name: 'Run ${{ matrix.name }} Scenario'
+              run: cargo rbmt -p mikrotik-qemu-runner run -- test --test scenarios ${{ matrix.test }} -- --ignored --exact --nocapture
+
+            - name: Upload MikroTik QEMU Runner Logs
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: qemu-runner-${{ strategy.job-index }}-logs
+                  retention-days: 14
+                  if-no-files-found: ignore
+                  path: |
+                      mikrotik-qemu-runner/.chr-cache/runs/**/*.pid
+                      mikrotik-qemu-runner/.chr-cache/runs/**/*.qemu.args
+                      mikrotik-qemu-runner/.chr-cache/runs/**/*.qemu.log
+                      mikrotik-qemu-runner/.chr-cache/runs/**/*.serial.log
+                      mikrotik-qemu-runner/.chr-cache/runs/**/scenario.csv

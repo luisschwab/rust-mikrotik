@@ -15,11 +15,16 @@ const USER_USER_GROUP_PRINT: &str = "/user/group/print";
 /// `RouterOS` print command `/user/settings/print`.
 const USER_USER_SETTINGS_PRINT: &str = "/user/settings/print";
 
+/// `RouterOS` print command `/user/ssh-keys/print`.
+const USER_SSH_KEY_PRINT: &str = "/user/ssh-keys/print";
+
 /// `RouterOS` print commands in this command family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum User {
     /// `RouterOS` print command.
     ActiveUser,
+    /// `RouterOS` print command.
+    SshKey,
     /// `RouterOS` print command.
     User,
     /// `RouterOS` print command.
@@ -34,6 +39,7 @@ impl User {
     /// All command variants in generated order.
     pub const ALL: &[Self] = &[
         Self::ActiveUser,
+        Self::SshKey,
         Self::User,
         Self::UserAaa,
         Self::UserGroup,
@@ -44,6 +50,7 @@ impl User {
     pub const fn as_path(self) -> &'static str {
         match self {
             Self::ActiveUser => USER_ACTIVE_USER_PRINT,
+            Self::SshKey => USER_SSH_KEY_PRINT,
             Self::User => USER_USER_PRINT,
             Self::UserAaa => USER_USER_AAA_PRINT,
             Self::UserGroup => USER_USER_GROUP_PRINT,

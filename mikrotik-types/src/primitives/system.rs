@@ -43,8 +43,8 @@ impl FromStr for RouterOsVersion {
 }
 
 impl fmt::Display for RouterOsVersion {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -86,12 +86,12 @@ impl FromStr for RouterOsDateTime {
 }
 
 impl fmt::Display for RouterOsDateTime {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let date = self.0.date();
         let time = self.0.time();
 
         write!(
-            formatter,
+            f,
             "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
             date.year(),
             u8::from(date.month()),
@@ -157,9 +157,9 @@ impl FromStr for RouterOsDate {
 }
 
 impl fmt::Display for RouterOsDate {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
+            f,
             "{:04}-{:02}-{:02}",
             self.0.year(),
             u8::from(self.0.month()),
@@ -208,14 +208,8 @@ impl FromStr for RouterOsTime {
 }
 
 impl fmt::Display for RouterOsTime {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{:02}:{:02}:{:02}",
-            self.0.hour(),
-            self.0.minute(),
-            self.0.second()
-        )
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:02}:{:02}:{:02}", self.0.hour(), self.0.minute(), self.0.second())
     }
 }
 
@@ -376,21 +370,23 @@ fn parse_u8_as(value: &str, error: ParseError) -> Result<u8, ParseError> {
     value.parse().map_err(|_| error)
 }
 
-/// `RouterOS` duration such as `4d17h7m22s`.
+/// A `RouterOS` duration (e.g. `4d17h7m22s`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RouterOsDuration(Duration);
+pub enum RouterOsDuration {
+    /// Finite duration value.
+    Finite(Duration),
+    /// `RouterOS` sentinel duration value `never`.
+    Never,
+}
 
 impl RouterOsDuration {
-    /// Return the duration value.
+    /// Return the [`RouterOsDuration`] as a [`Duration`].
     #[must_use]
     pub const fn as_duration(&self) -> Duration {
-        self.0
-    }
-
-    /// Return the duration value by value.
-    #[must_use]
-    pub const fn into_duration(self) -> Duration {
-        self.0
+        match self {
+            Self::Finite(duration) => *duration,
+            Self::Never => Duration::MAX,
+        }
     }
 }
 
@@ -398,25 +394,32 @@ impl FromStr for RouterOsDuration {
     type Err = ParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        parse_router_os_duration(value).map(Self)
+        if value == "never" {
+            Ok(Self::Never)
+        } else {
+            parse_router_os_duration(value).map(Self::Finite)
+        }
     }
 }
 
 impl fmt::Display for RouterOsDuration {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_router_os_duration(self.0, formatter)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Finite(duration) => write_router_os_duration(*duration, f),
+            Self::Never => f.write_str("never"),
+        }
     }
 }
 
 impl From<Duration> for RouterOsDuration {
     fn from(value: Duration) -> Self {
-        Self(value)
+        Self::Finite(value)
     }
 }
 
 impl From<RouterOsDuration> for Duration {
     fn from(value: RouterOsDuration) -> Self {
-        value.0
+        value.as_duration()
     }
 }
 
@@ -475,8 +478,8 @@ impl FromStr for RouterOsDurationRange {
 }
 
 impl fmt::Display for RouterOsDurationRange {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}..{}", self.start, self.end)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
     }
 }
 
@@ -536,8 +539,8 @@ impl FromStr for RouterOsByteSize {
 }
 
 impl fmt::Display for RouterOsByteSize {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -597,11 +600,11 @@ impl FromStr for RouterOsTimeZoneOffset {
 }
 
 impl fmt::Display for RouterOsTimeZoneOffset {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let sign = if self.0 < 0 { '-' } else { '+' };
         let absolute = self.0.unsigned_abs();
 
-        write!(formatter, "{sign}{:02}:{:02}", absolute / 60, absolute % 60)
+        write!(f, "{sign}{:02}:{:02}", absolute / 60, absolute % 60)
     }
 }
 
@@ -731,7 +734,7 @@ fn parse_duration_unit(value: &str) -> Result<(DurationUnit, &str), ParseError> 
 }
 
 /// Format a standard duration using compact `RouterOS` duration units.
-fn write_router_os_duration(duration: Duration, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn write_router_os_duration(duration: Duration, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut seconds = duration.as_secs();
     let milliseconds = duration.subsec_millis();
     let weeks = seconds / (7 * 24 * 60 * 60);
@@ -744,26 +747,26 @@ fn write_router_os_duration(duration: Duration, formatter: &mut fmt::Formatter<'
     seconds %= 60;
 
     if weeks == 0 && days == 0 && hours == 0 && minutes == 0 && seconds == 0 && milliseconds == 0 {
-        return formatter.write_str("0s");
+        return f.write_str("0s");
     }
 
     if weeks > 0 {
-        write!(formatter, "{weeks}w")?;
+        write!(f, "{weeks}w")?;
     }
     if days > 0 {
-        write!(formatter, "{days}d")?;
+        write!(f, "{days}d")?;
     }
     if hours > 0 {
-        write!(formatter, "{hours}h")?;
+        write!(f, "{hours}h")?;
     }
     if minutes > 0 {
-        write!(formatter, "{minutes}m")?;
+        write!(f, "{minutes}m")?;
     }
     if seconds > 0 {
-        write!(formatter, "{seconds}s")?;
+        write!(f, "{seconds}s")?;
     }
     if milliseconds > 0 {
-        write!(formatter, "{milliseconds}ms")?;
+        write!(f, "{milliseconds}ms")?;
     }
 
     Ok(())

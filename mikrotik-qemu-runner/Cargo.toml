@@ -1,0 +1,32 @@
+[package]
+name = "mikrotik-qemu-runner"
+description = "Rust-first QEMU-powered MikroTik CHR simulation harness"
+version = "0.0.0"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Workspace Dependencies
+mikrotik-client = { path = "../mikrotik-client" }
+mikrotik-common = { path = "../mikrotik-common", features = ["tracing-subscriber"] }
+mikrotik-types = { path = "../mikrotik-types" }
+# External Dependencies
+bitreq = { version = "0.3.7", default-features = false, features = ["std", "https"] }
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+toml = { version = "0.8.23" }
+tracing.workspace = true
+xshell = { version = "0.3.0-pre.2" }
+zip = { version = "7.2.0", default-features = false, features = ["bzip2", "deflate"] }
+
+[lints]
+workspace = true
+
+[package.metadata.rbmt]
+lint = { allowed_duplicates = [
+  "getrandom",
+  "windows-sys",
+] }

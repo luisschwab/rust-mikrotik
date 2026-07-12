@@ -42,8 +42,8 @@ impl FromStr for RoutingTableName {
 }
 
 impl fmt::Display for RoutingTableName {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -80,8 +80,8 @@ impl FromStr for RouteGateway {
 }
 
 impl fmt::Display for RouteGateway {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -117,10 +117,10 @@ impl FromStr for RouteDestination {
 }
 
 impl fmt::Display for RouteDestination {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Prefix(prefix) => fmt::Display::fmt(prefix, formatter),
-            Self::Interface(interface) => fmt::Display::fmt(interface, formatter),
+            Self::Prefix(prefix) => fmt::Display::fmt(prefix, f),
+            Self::Interface(interface) => fmt::Display::fmt(interface, f),
         }
     }
 }
@@ -201,15 +201,15 @@ impl FromStr for BgpSessionState {
 }
 
 impl fmt::Display for BgpSessionState {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Idle => formatter.write_str("idle"),
-            Self::Active => formatter.write_str("active"),
-            Self::Connect => formatter.write_str("connect"),
-            Self::OpenSent => formatter.write_str("open-sent"),
-            Self::OpenConfirm => formatter.write_str("open-confirm"),
-            Self::Established => formatter.write_str("established"),
-            Self::Unknown(value) => formatter.write_str(value),
+            Self::Idle => f.write_str("idle"),
+            Self::Active => f.write_str("active"),
+            Self::Connect => f.write_str("connect"),
+            Self::OpenSent => f.write_str("open-sent"),
+            Self::OpenConfirm => f.write_str("open-confirm"),
+            Self::Established => f.write_str("established"),
+            Self::Unknown(value) => f.write_str(value),
         }
     }
 }

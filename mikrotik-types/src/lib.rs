@@ -22,18 +22,19 @@
 
 extern crate alloc;
 
+pub mod abstractions;
 pub mod api;
 pub mod device;
 pub mod primitives;
 pub mod target;
 pub mod topology;
 
-pub use mikrotik_common::Row;
-pub use mikrotik_common::comma_list;
-pub use mikrotik_common::comma_list_from_str;
-pub use mikrotik_common::deserialize;
-pub use mikrotik_common::optional_bool;
-pub use mikrotik_common::optional_from_str;
+pub use mikrotik_common::row::Row;
+pub use mikrotik_common::serde::comma_list;
+pub use mikrotik_common::serde::comma_list_from_str;
+pub use mikrotik_common::serde::deserialize;
+pub use mikrotik_common::serde::optional_bool;
+pub use mikrotik_common::serde::optional_from_str;
 pub use primitives::ParseError;
 pub use primitives::RouterOsId;
 pub(crate) use primitives::parse_non_empty;

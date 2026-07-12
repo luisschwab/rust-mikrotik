@@ -1,0 +1,13 @@
+name = "one-router"
+allow_software_emulation = true
+
+[[routers]]
+name = "R01"
+version = "7.23.1"
+memory_mib = 256
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R01",
+  "/certificate/add name=scenario-api common-name=scenario-api key-usage=tls-server",
+  "/ip/service/enable numbers=api",
+]

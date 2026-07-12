@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <title>MikroTik Interactive Topology</title>
+
+        <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
+
+        <style>
+            html, body {
+                margin: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                background: #f8fafc;
+                color: #111827;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
+
+            .topology {
+                width: 100vw;
+                height: 100vh;
+            }
+
+            .topology svg {
+                display: block;
+                width: 100%;
+                height: 100%;
+            }
+
+            .topology svg text {
+                font-family: "Berkeley Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace !important;
+            }
+
+            .tooltip {
+                position: fixed;
+                z-index: 10;
+                display: none;
+                max-width: min(680px, calc(100vw - 32px));
+                padding: 10px 12px;
+                border: 1px solid #475569;
+                border-radius: 4px;
+                background: #0f172a;
+                color: #f8fafc;
+                font: {GRAPHVIZ_HTML_TOOLTIP_FONT_SIZE}/1.4 "Berkeley Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+                white-space: pre-wrap;
+                pointer-events: none;
+                box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="topology">
+            {svg}
+        </div>
+
+        <div id="tooltip" class="tooltip" role="tooltip"></div>
+
+        <script>
+            const tooltip = document.getElementById("tooltip");
+            const xlinkNamespace = "http://www.w3.org/1999/xlink";
+            const svg = document.querySelector(".topology svg");
+            if (svg) {
+                svg.id = "topology-svg";
+                svg.removeAttribute("width");
+                svg.removeAttribute("height");
+            }
+
+            function tooltipText(anchor) {
+                return anchor.getAttributeNS(xlinkNamespace, "title")
+                    || anchor.getAttribute("xlink:title")
+                    || anchor.getAttribute("title")
+                    || "";
+            }
+
+            function disableNativeTooltip(anchor) {
+                anchor.removeAttributeNS(xlinkNamespace, "title");
+                anchor.removeAttribute("xlink:title");
+                anchor.removeAttribute("title");
+                for (const title of anchor.querySelectorAll("title")) {
+                    title.remove();
+                }
+            }
+
+            function moveTooltip(event) {
+                const margin = 16;
+                tooltip.style.left = `${event.clientX + margin}px`;
+                tooltip.style.top = `${event.clientY + margin}px`;
+            }
+
+            function enlargeHoverArea(anchor) {
+                for (const path of anchor.querySelectorAll("path")) {
+                    const hitPath = path.cloneNode(false);
+                    hitPath.removeAttribute("class");
+                    hitPath.setAttribute("fill", "none");
+                    hitPath.setAttribute("stroke", "transparent");
+                    hitPath.setAttribute("stroke-width", "22");
+                    hitPath.setAttribute("stroke-linecap", "round");
+                    hitPath.setAttribute("stroke-linejoin", "round");
+                    hitPath.setAttribute("pointer-events", "stroke");
+                    anchor.appendChild(hitPath);
+                }
+            }
+
+            for (const title of document.querySelectorAll("svg title")) {
+                title.remove();
+            }
+
+            for (const anchor of document.querySelectorAll("svg a")) {
+                const text = tooltipText(anchor);
+                disableNativeTooltip(anchor);
+                if (!text) {
+                    continue;
+                }
+
+                enlargeHoverArea(anchor);
+                anchor.addEventListener("mouseenter", (event) => {
+                    tooltip.textContent = text;
+                    tooltip.style.display = "block";
+                    moveTooltip(event);
+                });
+                anchor.addEventListener("mousemove", moveTooltip);
+                anchor.addEventListener("mouseleave", () => {
+                    tooltip.style.display = "none";
+                });
+            }
+
+            if (window.svgPanZoom && svg) {
+                svgPanZoom("#topology-svg", {
+                    zoomEnabled: true,
+                    controlIconsEnabled: true,
+                    fit: true,
+                    center: true,
+                    minZoom: 0.05,
+                    maxZoom: 20,
+                    zoomScaleSensitivity: 0.22
+                });
+            }
+        </script>
+
+    </body>
+</html>

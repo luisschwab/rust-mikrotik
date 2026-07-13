@@ -41,8 +41,8 @@ impl FromStr for InterfaceName {
 }
 
 impl fmt::Display for InterfaceName {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -94,14 +94,14 @@ impl FromStr for InterfaceType {
 }
 
 impl fmt::Display for InterfaceType {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Ethernet => formatter.write_str("ether"),
-            Self::Bridge => formatter.write_str("bridge"),
-            Self::Vlan => formatter.write_str("vlan"),
-            Self::Loopback => formatter.write_str("loopback"),
-            Self::WireGuard => formatter.write_str("wg"),
-            Self::Unknown(value) => formatter.write_str(value),
+            Self::Ethernet => f.write_str("ether"),
+            Self::Bridge => f.write_str("bridge"),
+            Self::Vlan => f.write_str("vlan"),
+            Self::Loopback => f.write_str("loopback"),
+            Self::WireGuard => f.write_str("wg"),
+            Self::Unknown(value) => f.write_str(value),
         }
     }
 }
@@ -128,10 +128,10 @@ impl FromStr for Mtu {
 }
 
 impl fmt::Display for Mtu {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Auto => formatter.write_str("auto"),
-            Self::Bytes(bytes) => write!(formatter, "{bytes}"),
+            Self::Auto => f.write_str("auto"),
+            Self::Bytes(bytes) => write!(f, "{bytes}"),
         }
     }
 }
@@ -182,11 +182,11 @@ impl FromStr for BridgePortStatus {
 }
 
 impl fmt::Display for BridgePortStatus {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InBridge => formatter.write_str("in-bridge"),
-            Self::Inactive => formatter.write_str("inactive"),
-            Self::Unknown(value) => formatter.write_str(value),
+            Self::InBridge => f.write_str("in-bridge"),
+            Self::Inactive => f.write_str("inactive"),
+            Self::Unknown(value) => f.write_str(value),
         }
     }
 }

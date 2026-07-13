@@ -82,25 +82,25 @@ pub enum ParseError {
 }
 
 impl fmt::Display for ParseError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RouterOsId => formatter.write_str("invalid RouterOS row id"),
-            Self::NonEmptyString => formatter.write_str("value must not be empty"),
-            Self::MacAddress => formatter.write_str("invalid MAC address"),
-            Self::Mtu => formatter.write_str("invalid MTU"),
-            Self::RouterOsDuration => formatter.write_str("invalid RouterOS duration"),
-            Self::RouterOsDurationRange => formatter.write_str("invalid RouterOS duration range"),
-            Self::RouterOsByteSize => formatter.write_str("invalid RouterOS byte size"),
-            Self::RouterOsTimeZoneOffset => formatter.write_str("invalid RouterOS timezone offset"),
-            Self::RouterOsDateTime => formatter.write_str("invalid RouterOS date/time"),
-            Self::RouterOsDate => formatter.write_str("invalid RouterOS date"),
-            Self::RouterOsTime => formatter.write_str("invalid RouterOS time"),
-            Self::IpPrefix => formatter.write_str("invalid IP prefix"),
-            Self::ScopedIpAddress => formatter.write_str("invalid scoped IP address"),
-            Self::IpEndpointAddress => formatter.write_str("invalid IP endpoint address"),
-            Self::DeviceStatus => formatter.write_str("invalid device status"),
-            Self::DeviceRole => formatter.write_str("invalid device role"),
-            Self::LanHostSource => formatter.write_str("invalid LAN host source"),
+            Self::RouterOsId => f.write_str("invalid RouterOS row id"),
+            Self::NonEmptyString => f.write_str("value must not be empty"),
+            Self::MacAddress => f.write_str("invalid MAC address"),
+            Self::Mtu => f.write_str("invalid MTU"),
+            Self::RouterOsDuration => f.write_str("invalid RouterOS duration"),
+            Self::RouterOsDurationRange => f.write_str("invalid RouterOS duration range"),
+            Self::RouterOsByteSize => f.write_str("invalid RouterOS byte size"),
+            Self::RouterOsTimeZoneOffset => f.write_str("invalid RouterOS timezone offset"),
+            Self::RouterOsDateTime => f.write_str("invalid RouterOS date/time"),
+            Self::RouterOsDate => f.write_str("invalid RouterOS date"),
+            Self::RouterOsTime => f.write_str("invalid RouterOS time"),
+            Self::IpPrefix => f.write_str("invalid IP prefix"),
+            Self::ScopedIpAddress => f.write_str("invalid scoped IP address"),
+            Self::IpEndpointAddress => f.write_str("invalid IP endpoint address"),
+            Self::DeviceStatus => f.write_str("invalid device status"),
+            Self::DeviceRole => f.write_str("invalid device role"),
+            Self::LanHostSource => f.write_str("invalid LAN host source"),
         }
     }
 }
@@ -131,8 +131,8 @@ impl FromStr for RouterOsId {
 }
 
 impl fmt::Display for RouterOsId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

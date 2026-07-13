@@ -21,6 +21,9 @@ const SERVICE_CONSOLE_SETTINGS_PRINT: &str = "/console/settings/print";
 /// `RouterOS` print command `/disk/settings/print`.
 const SERVICE_DISK_SETTINGS_PRINT: &str = "/disk/settings/print";
 
+/// `RouterOS` print command `/disk/print`.
+const SERVICE_DISK_PRINT: &str = "/disk/print";
+
 /// `RouterOS` print command `/file/print`.
 const SERVICE_FILE_PRINT: &str = "/file/print";
 
@@ -55,6 +58,8 @@ pub enum Service {
     /// `RouterOS` print command.
     ConsoleSettings,
     /// `RouterOS` print command.
+    Disk,
+    /// `RouterOS` print command.
     DiskSettings,
     /// `RouterOS` print command.
     File,
@@ -79,6 +84,7 @@ impl Service {
         Self::Certificate,
         Self::CertificateSettings,
         Self::ConsoleSettings,
+        Self::Disk,
         Self::DiskSettings,
         Self::File,
         Self::MplsSettings,
@@ -97,6 +103,7 @@ impl Service {
             Self::Certificate => SERVICE_CERTIFICATE_PRINT,
             Self::CertificateSettings => SERVICE_CERTIFICATE_SETTINGS_PRINT,
             Self::ConsoleSettings => SERVICE_CONSOLE_SETTINGS_PRINT,
+            Self::Disk => SERVICE_DISK_PRINT,
             Self::DiskSettings => SERVICE_DISK_SETTINGS_PRINT,
             Self::File => SERVICE_FILE_PRINT,
             Self::MplsSettings => SERVICE_MPLS_SETTINGS_PRINT,

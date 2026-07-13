@@ -1,11 +1,11 @@
 //! Connected client and raw command execution.
 
+use core::time::Duration;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::Once;
-use std::time::Duration;
 
-use mikrotik_common::Row;
+use mikrotik_common::row::Row;
 use mikrotik_proto::CommandBuilder;
 use mikrotik_proto::Event;
 use serde::de::DeserializeOwned;
@@ -67,7 +67,7 @@ impl Client {
                     let sleep_for = delay.min(deadline.saturating_duration_since(Instant::now()));
                     if let Some(label) = &config.log_label {
                         debug!(
-                            "{}: RouterOS API at {} is not ready yet after {:?}: {error}; retrying in {:?}",
+                            "{}: RouterOS API at {} is not ready yet after {:?}: {error}. Retrying in {:?}",
                             label,
                             config.socket_address(),
                             attempt_elapsed,
@@ -75,7 +75,7 @@ impl Client {
                         );
                     } else {
                         debug!(
-                            "RouterOS API at {} is not ready yet after {:?}: {error}; retrying in {:?}",
+                            "RouterOS API at {} is not ready yet after {:?}: {error}. Retrying in {:?}",
                             config.socket_address(),
                             attempt_elapsed,
                             sleep_for
@@ -146,7 +146,7 @@ impl Client {
         let mut typed_rows = Vec::with_capacity(rows.len());
 
         for (row_index, row) in rows.iter().enumerate() {
-            let typed_row = mikrotik_common::deserialize(row)
+            let typed_row = mikrotik_common::serde::deserialize(row)
                 .map_err(|error| Error::Decode(DecodeError::new(command, row_index, error.to_string(), row)))?;
             typed_rows.push(typed_row);
         }
@@ -162,7 +162,7 @@ async fn connect_attempt(config: &ClientBuilder, deadline: Instant, attempt_time
         Ok(result) => result,
         Err(_) => Err(Error::Io(std::io::Error::new(
             ErrorKind::TimedOut,
-            format!("connect attempt exceeded {timeout_for:?}"),
+            format!("connect attempt exceeded {attempt_timeout:?}"),
         ))),
     }
 }
@@ -249,11 +249,11 @@ fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String
         .collect()
 }
 
-/// Install the process-wide rustls crypto provider once.
+/// Install the process-wide `rustls` crypto provider used by `mikrotik-client`.
 fn install_rustls_provider() {
     static RUSTLS_PROVIDER: Once = Once::new();
     RUSTLS_PROVIDER.call_once(|| {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let _ = rustls::crypto::ring::default_provider().install_default();
     });
 }
 

@@ -1,4 +1,4 @@
-//! IP, IPv6, firewall, neighbor, and DHCP API response rows.
+//! IPv4, IPv6, firewall, neighbor, and DHCP API response rows.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -213,6 +213,8 @@ pub struct ArpEntry {
     pub address: Option<IpAddr>,
     /// MAC address associated with the ARP entry.
     pub mac_address: Option<MacAddress>,
+    /// Hostname associated with the ARP entry, when available.
+    pub host_name: Option<String>,
     /// Interface where `RouterOS` sees this entry.
     #[serde(deserialize_with = "crate::optional_from_str")]
     pub interface: Option<InterfaceName>,
@@ -1259,9 +1261,8 @@ pub struct IpsecProfile {
     pub hash_algorithm: Option<String>,
     /// `IPsec` proposal checking mode.
     pub proposal_check: Option<String>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
     /// Dead peer detection interval.
-    pub dpd_interval: Option<RouterOsDuration>,
+    pub dpd_interval: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Dead peer detection failures allowed before declaring a peer down.
     pub dpd_maximum_failures: Option<u32>,
@@ -1458,6 +1459,7 @@ mod tests {
     use core::time::Duration;
 
     use super::DhcpLease;
+    use super::IpsecProfile;
     use super::Neighbor;
     use super::Route;
     use super::ScopedIpAddress;
@@ -1503,6 +1505,42 @@ mod tests {
         assert_eq!(
             lease.last_seen.expect("last seen should be present").as_duration(),
             Duration::from_secs(80)
+        );
+    }
+
+    #[test]
+    fn dhcp_lease_deserializes_never_durations() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*AD06".into());
+        row.insert("expires-after".into(), "never".into());
+        row.insert("last-seen".into(), "never".into());
+
+        let lease = crate::deserialize::<DhcpLease>(&row).expect("DHCP lease row should deserialize");
+
+        assert_eq!(
+            lease.expires_after.expect("expiry should be present").to_string(),
+            "never"
+        );
+        assert_eq!(
+            lease.last_seen.expect("last seen should be present").as_duration(),
+            Duration::MAX
+        );
+    }
+
+    #[test]
+    fn ipsec_profile_deserializes_disabled_dpd_interval() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*B".into());
+        row.insert("name".into(), "DigiSystem - SonicWall".into());
+        row.insert("dpd-interval".into(), "disable-dpd".into());
+        row.insert("lifetime".into(), "8h".into());
+
+        let profile = crate::deserialize::<IpsecProfile>(&row).expect("IPsec profile row should deserialize");
+
+        assert_eq!(profile.dpd_interval.as_deref(), Some("disable-dpd"));
+        assert_eq!(
+            profile.lifetime.expect("lifetime should be present").as_duration(),
+            Duration::from_secs(8 * 60 * 60)
         );
     }
 

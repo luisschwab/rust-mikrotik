@@ -58,6 +58,23 @@ pub struct ActiveUser {
     pub radius: Option<bool>,
 }
 
+/// Response row from `/user/ssh-keys/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct SshKey {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// User that owns this SSH public key.
+    pub user: Option<String>,
+    /// SSH public key fingerprint.
+    pub fingerprint: Option<String>,
+    /// Key bits or algorithm detail.
+    pub bits: Option<String>,
+    /// Key name or comment.
+    pub key_owner: Option<String>,
+}
+
 /// Response row from `/user/group/print`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]

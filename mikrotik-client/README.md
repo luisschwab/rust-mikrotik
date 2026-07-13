@@ -86,7 +86,7 @@ wrapper.
 
 Connection retries are logged with an optional label from
 `ClientBuilder::with_log_label`. The default retry timings are conservative for real
-devices. Simnet overrides them for local QEMU port-forwarded RouterOS boots.
+devices. The QEMU runner uses local port-forwarded RouterOS boots.
 
 ## Development
 
@@ -99,5 +99,5 @@ cargo rbmt docs
 cargo rbmt test
 ```
 
-The integration-heavy behavior is exercised by `mikrotik-simnet`, which runs
+The integration-heavy behavior is exercised by `mikrotik-qemu-runner`, which runs
 real RouterOS CHR images under QEMU.

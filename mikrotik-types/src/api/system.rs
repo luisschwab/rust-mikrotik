@@ -159,6 +159,22 @@ pub struct HistoryEntry {
     pub undoable: Option<bool>,
 }
 
+/// Response row from `/system/health/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Health {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// Health sensor name.
+    pub name: Option<String>,
+    /// Sensor type.
+    #[serde(rename = "type")]
+    pub health_type: Option<String>,
+    /// Current sensor value.
+    pub value: Option<String>,
+}
+
 /// Response row from `/system/package/print`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
@@ -211,6 +227,26 @@ pub struct ResourceCpu {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Disk usage percentage associated with the CPU resource row.
     pub disk: Option<u8>,
+}
+
+/// Response row from `/system/resource/hardware/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct ResourceHardware {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// Hardware device name.
+    pub device: Option<String>,
+    /// Device type.
+    #[serde(rename = "type")]
+    pub hardware_type: Option<String>,
+    /// Driver associated with this hardware row.
+    pub driver: Option<String>,
+    /// IRQ assigned to this hardware row.
+    pub irq: Option<String>,
+    /// Memory or I/O resource range.
+    pub memory: Option<String>,
 }
 
 /// Response row from `/system/logging/print`.
@@ -286,7 +322,7 @@ pub struct LoggingAction {
 }
 
 /// Response row from `/system/ntp/client/print`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct NtpClient {
     /// Operating mode configured for this entry.
@@ -295,9 +331,20 @@ pub struct NtpClient {
     pub status: Option<String>,
     /// VRF name.
     pub vrf: Option<String>,
+    #[serde(deserialize_with = "crate::comma_list")]
+    /// Configured NTP server names or addresses.
+    pub servers: Vec<String>,
+    /// Server currently used for synchronization.
+    pub synced_server: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Measured NTP frequency drift.
-    pub freq_drift: Option<i32>,
+    pub freq_drift: Option<f64>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Stratum reported by the synchronized server.
+    pub synced_stratum: Option<u8>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Current system clock offset from the synchronized server.
+    pub system_offset: Option<f64>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this feature is enabled.
     pub enabled: Option<bool>,
@@ -491,9 +538,9 @@ pub struct ResourceIrq {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Counter value for this statistic row.
     pub count: Option<u64>,
-    #[serde(deserialize_with = "crate::optional_from_str")]
-    /// Whether IRQ counters are split per CPU.
-    pub per_cpu_count: Option<u64>,
+    #[serde(deserialize_with = "crate::comma_list_from_str")]
+    /// Counter values split by CPU.
+    pub per_cpu_count: Vec<u64>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether the entry is read-only.
     pub read_only: Option<bool>,
@@ -526,6 +573,55 @@ pub struct ScriptJob {
     pub job_type: Option<String>,
 }
 
+/// Response row from `/system/script/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Script {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// Script name.
+    pub name: Option<String>,
+    /// Script owner.
+    pub owner: Option<String>,
+    #[serde(deserialize_with = "crate::comma_list")]
+    /// Policy names applied to this script.
+    pub policy: Vec<String>,
+    /// Last script execution result.
+    pub last_started: Option<String>,
+    /// Script source text.
+    pub source: Option<String>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this row is invalid.
+    pub invalid: Option<bool>,
+}
+
+/// Response row from `/system/scheduler/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct Scheduler {
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    /// Internal `RouterOS` row ID.
+    pub id: Option<RouterOsId>,
+    /// Scheduler entry name.
+    pub name: Option<String>,
+    /// Scheduler start date.
+    pub start_date: Option<String>,
+    /// Scheduler start time.
+    pub start_time: Option<String>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Scheduler interval.
+    pub interval: Option<RouterOsDuration>,
+    /// Event script or command.
+    pub on_event: Option<String>,
+    #[serde(deserialize_with = "crate::comma_list")]
+    /// Policy names applied to this scheduler.
+    pub policy: Vec<String>,
+    #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this row is disabled.
+    pub disabled: Option<bool>,
+}
+
 /// Response row from `/system/watchdog/print`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
@@ -552,9 +648,12 @@ pub struct Watchdog {
 #[cfg(test)]
 mod tests {
     use alloc::string::ToString as _;
+    use alloc::vec;
     use core::time::Duration;
 
+    use super::NtpClient;
     use super::Resource;
+    use super::ResourceIrq;
     use crate::Row;
     use crate::primitives::system::RouterOsByteSize;
     use crate::primitives::system::RouterOsDate;
@@ -611,6 +710,58 @@ mod tests {
             Duration::from_secs(9 * 7 * 24 * 60 * 60 + 24 * 60 * 60 + 60 * 60 + 39 * 60 + 9)
         );
         assert_eq!(resource.bad_blocks, Some(0.1));
+    }
+
+    #[test]
+    fn resource_irq_deserializes_per_cpu_count_list() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*1".into());
+        row.insert("active-cpu".into(), "0".into());
+        row.insert("count".into(), "6".into());
+        row.insert("cpu".into(), "auto".into());
+        row.insert("irq".into(), "1".into());
+        row.insert(
+            "per-cpu-count".into(),
+            "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6".into(),
+        );
+        row.insert("read-only".into(), "false".into());
+        row.insert("users".into(), "TILEGx_Serial".into());
+
+        let irq = crate::deserialize::<ResourceIrq>(&row).expect("resource IRQ row should deserialize");
+
+        assert_eq!(
+            irq.id.as_ref().map(alloc::string::ToString::to_string).as_deref(),
+            Some("*1")
+        );
+        assert_eq!(irq.irq.as_deref(), Some("1"));
+        assert_eq!(irq.count, Some(6));
+        assert_eq!(irq.per_cpu_count.len(), 36);
+        assert_eq!(irq.per_cpu_count[35], 6);
+        assert_eq!(irq.per_cpu_count[..35], vec![0; 35]);
+        assert_eq!(irq.read_only, Some(false));
+    }
+
+    #[test]
+    fn ntp_client_deserializes_decimal_drift_and_offset() {
+        let mut row = Row::new();
+        row.insert("enabled".into(), "true".into());
+        row.insert("freq-drift".into(), "8.003".into());
+        row.insert("mode".into(), "unicast".into());
+        row.insert("servers".into(), "201.49.148.135,200.160.7.186".into());
+        row.insert("status".into(), "synchronized".into());
+        row.insert("synced-server".into(), "200.160.7.186".into());
+        row.insert("synced-stratum".into(), "1".into());
+        row.insert("system-offset".into(), "-0.025".into());
+        row.insert("vrf".into(), "main".into());
+
+        let client = crate::deserialize::<NtpClient>(&row).expect("NTP client row should deserialize");
+
+        assert_eq!(client.enabled, Some(true));
+        assert_eq!(client.freq_drift, Some(8.003));
+        assert_eq!(client.system_offset, Some(-0.025));
+        assert_eq!(client.synced_stratum, Some(1));
+        assert_eq!(client.servers.len(), 2);
+        assert_eq!(client.synced_server.as_deref(), Some("200.160.7.186"));
     }
 
     #[test]

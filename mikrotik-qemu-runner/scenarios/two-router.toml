@@ -1,0 +1,32 @@
+name = "two-router"
+allow_software_emulation = true
+
+[[routers]]
+name = "R01"
+version = "7.23.1"
+memory_mib = 256
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R1",
+  "/ip/address/add address=192.0.2.1/30 interface=ether2",
+  "/ipv6/address/add address=2001:db8:12::1/64 interface=ether2",
+  "/ip/route/add dst-address=198.51.100.2/32 gateway=192.0.2.2",
+  "/ipv6/route/add dst-address=2001:db8:2::2/128 gateway=2001:db8:12::2",
+]
+
+[[routers]]
+name = "R02"
+version = "7.23.1"
+memory_mib = 256
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R2",
+  "/ip/address/add address=192.0.2.2/30 interface=ether2",
+  "/ipv6/address/add address=2001:db8:12::2/64 interface=ether2",
+  "/ip/route/add dst-address=198.51.100.1/32 gateway=192.0.2.1",
+  "/ipv6/route/add dst-address=2001:db8:1::1/128 gateway=2001:db8:12::1",
+]
+
+[[links]]
+a = "R01:ether2"
+b = "R02:ether2"

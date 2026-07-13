@@ -1,16 +1,17 @@
 //! Error types returned by the client.
 
+use core::fmt;
 use std::error;
-use std::fmt;
+use std::io;
 
-use mikrotik_common::Row;
-use mikrotik_common::redact_row;
+use mikrotik_common::redaction::redact_row;
+use mikrotik_common::row::Row;
 
 /// Errors returned by the `MikroTik` client.
 #[derive(Debug)]
 pub enum Error {
     /// Error returned by the network transport.
-    Io(std::io::Error),
+    Io(io::Error),
     /// Error returned by the sans-IO connection state machine.
     Connection(mikrotik_proto::error::ConnectionError),
     /// Error returned by the `RouterOS` login handshake.
@@ -77,9 +78,9 @@ impl DecodeError {
 }
 
 impl fmt::Display for DecodeError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
-            formatter,
+            f,
             "command {} row {} failed to decode: {}; row: {:?}",
             self.command, self.row_index, self.message, self.row
         )
@@ -89,16 +90,16 @@ impl fmt::Display for DecodeError {
 impl error::Error for DecodeError {}
 
 impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => write!(formatter, "RouterOS transport error: {error}"),
-            Self::Connection(error) => write!(formatter, "RouterOS protocol connection error: {error}"),
-            Self::Login(error) => write!(formatter, "RouterOS login error: {error}"),
-            Self::UnsupportedProtocol(protocol) => write!(formatter, "unsupported RouterOS protocol: {protocol}"),
-            Self::ConnectionClosed => write!(formatter, "RouterOS connection closed"),
-            Self::Trap(message) => write!(formatter, "RouterOS trap: {message}"),
-            Self::Fatal(reason) => write!(formatter, "RouterOS fatal response: {reason}"),
-            Self::Decode(error) => write!(formatter, "RouterOS row decode error: {error}"),
+            Self::Io(error) => write!(f, "RouterOS transport error: {error}"),
+            Self::Connection(error) => write!(f, "RouterOS protocol connection error: {error}"),
+            Self::Login(error) => write!(f, "RouterOS login error: {error}"),
+            Self::UnsupportedProtocol(protocol) => write!(f, "unsupported RouterOS protocol: {protocol}"),
+            Self::ConnectionClosed => write!(f, "RouterOS connection closed"),
+            Self::Trap(message) => write!(f, "RouterOS trap: {message}"),
+            Self::Fatal(reason) => write!(f, "RouterOS fatal response: {reason}"),
+            Self::Decode(error) => write!(f, "RouterOS row decode error: {error}"),
         }
     }
 }
@@ -115,8 +116,8 @@ impl error::Error for Error {
     }
 }
 
-impl From<std::io::Error> for Error {
-    fn from(error: std::io::Error) -> Self {
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
 }

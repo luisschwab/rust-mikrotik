@@ -65,8 +65,8 @@ impl FromStr for BgpRemoteAddress {
 }
 
 impl fmt::Display for BgpRemoteAddress {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -355,6 +355,16 @@ pub struct RoutingStatsProcess {
     pub pid: Option<String>,
     /// Routing process runtime identifier.
     pub rpid: Option<String>,
+    /// Private memory blocks used by this process.
+    pub private_mem_blocks: Option<String>,
+    /// Shared memory blocks used by this process.
+    pub shared_mem_blocks: Option<String>,
+    /// Proportional set size reported by `RouterOS`.
+    pub pss: Option<String>,
+    /// Resident set size reported by `RouterOS`.
+    pub rss: Option<String>,
+    /// Virtual memory size reported by `RouterOS`.
+    pub vms: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Kernel time consumed by the routing process.
     pub kernel_time: Option<RouterOsDuration>,
@@ -367,6 +377,12 @@ pub struct RoutingStatsProcess {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Maximum busy time observed for the routing process.
     pub max_busy: Option<RouterOsDuration>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Current routing calculation time.
+    pub cur_calc: Option<RouterOsDuration>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Maximum routing calculation time.
+    pub max_calc: Option<RouterOsDuration>,
     #[serde(deserialize_with = "crate::comma_list")]
     /// Tasks currently associated with the routing process.
     pub tasks: Vec<String>,
@@ -379,6 +395,18 @@ pub struct RoutingSettings {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether routing runs in a single process.
     pub single_process: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Interval between gateway ping checks.
+    pub check_gateway_ping_interval: Option<RouterOsDuration>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Timeout for gateway ping checks.
+    pub check_gateway_ping_timeout: Option<RouterOsDuration>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Number of gateway pings used by each check.
+    pub check_gateway_ping_count: Option<u32>,
+    #[serde(deserialize_with = "crate::comma_list")]
+    /// Enabled routing policy rule sources.
+    pub policy_rules: Vec<String>,
 }
 
 /// Response row from `/routing/stats/memory/print`.

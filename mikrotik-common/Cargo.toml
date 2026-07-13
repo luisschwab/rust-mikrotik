@@ -12,10 +12,24 @@ repository.workspace = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+default = []
+tracing-subscriber = [
+  "dep:lazy_static",
+  "dep:nu-ansi-term",
+  "dep:sharded-slab",
+  "dep:tracing-subscriber",
+]
+
 [dependencies]
 # External Dependencies
 serde.workspace = true
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
+tracing-subscriber = { workspace = true, optional = true }
+# Pinned transitive deps:
+lazy_static = { version = "1.5.0", optional = true } # blame: sharded-slab@0.1.7 -> tracing-subscriber@0.3.23
+nu-ansi-term = { version = "0.50.3", optional = true } # blame: tracing-subscriber@0.3.23
+sharded-slab = { version = "0.1.7", optional = true } # blame: tracing-subscriber@0.3.23
 
 [lints]
 workspace = true

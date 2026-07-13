@@ -3,9 +3,9 @@
 use core::fmt;
 use std::sync::Arc;
 
-use mikrotik_proto::Connection;
-use mikrotik_proto::LoginProgress;
-use mikrotik_proto::handshake::Handshaking;
+use mikrotik_proto2::Connection;
+use mikrotik_proto2::LoginProgress;
+use mikrotik_proto2::handshake::Handshaking;
 use rustls::ClientConfig;
 use rustls::DigitallySignedStruct;
 use rustls::Error as RustlsError;

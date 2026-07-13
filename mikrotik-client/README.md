@@ -9,7 +9,7 @@
 
 Tokio client for the RouterOS binary API.
 
-This crate uses the sans-IO `mikrotik-proto` protocol implementation with a
+This crate uses the sans-IO `mikrotik-proto2` protocol implementation with a
 Tokio TCP/TLS transport. It exposes raw command execution and typed print
 commands that deserialize rows into `mikrotik-types`.
 

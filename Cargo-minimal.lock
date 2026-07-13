@@ -392,7 +392,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "mikrotik-common",
- "mikrotik-proto",
+ "mikrotik-proto2",
  "mikrotik-types",
  "ring",
  "rustls",
@@ -401,7 +401,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -442,17 +441,6 @@ dependencies = [
  "mikrotik-types",
  "serde",
  "time",
-]
-
-[[package]]
-name = "mikrotik-proto"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4bfa65d096fee86dd1f27c579bc729d4fdb0b1bfee24e2fc71acd0a8349e836"
-dependencies = [
- "hashbrown 0.17.1",
- "thiserror 2.0.0",
- "uuid",
 ]
 
 [[package]]
@@ -907,16 +895,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d032db01164196ffdea5d016aa5cacd9d163a4fb00b85e9fc3ad18c5b1a3951d"
 dependencies = [
- "thiserror-impl 1.0.0",
-]
-
-[[package]]
-name = "thiserror"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15291287e9bff1bc6f9ff3409ed9af665bec7a5fc8ac079ea96be07bca0e2668"
-dependencies = [
- "thiserror-impl 2.0.0",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -928,17 +907,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.0",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22efd00f33f93fa62848a7cab956c3d38c8d43095efda1decfc2b3a5dc0b8972"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.89",
 ]
 
 [[package]]
@@ -1078,7 +1046,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3566e8ce28cc0a3fe42519fc80e6b4c943cc4c8cef275620eb8dac2d3d4e06cf"
 dependencies = [
  "crossbeam-channel",
- "thiserror 1.0.0",
+ "thiserror",
  "time",
  "tracing-subscriber",
 ]

@@ -4,8 +4,11 @@
 //! protocol processing: wire-format decoding, word parsing, sentence parsing,
 //! response parsing, connection state, and login.
 
-use core::{fmt, num::ParseIntError};
+use core::fmt;
+use core::num::ParseIntError;
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use thiserror::Error;
 
 use crate::response::TrapResponse;
@@ -52,7 +55,7 @@ pub enum ProtocolError {
         /// The unexpected [`WordType`] that was encountered.
         word: WordType,
         /// The expected [`WordType`] variants.
-        expected: alloc::vec::Vec<WordType>,
+        expected: Vec<WordType>,
     },
     /// Error parsing or identifying a trap response category.
     #[error("Trap category error: {0}")]
@@ -89,10 +92,10 @@ pub enum WordType {
 impl fmt::Display for WordType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WordType::Tag => write!(f, "tag"),
-            WordType::Category => write!(f, "category"),
-            WordType::Attribute => write!(f, "attribute"),
-            WordType::Message => write!(f, "message"),
+            Self::Tag => write!(f, "tag"),
+            Self::Category => write!(f, "category"),
+            Self::Attribute => write!(f, "attribute"),
+            Self::Message => write!(f, "message"),
         }
     }
 }
@@ -100,10 +103,10 @@ impl fmt::Display for WordType {
 impl From<Word<'_>> for WordType {
     fn from(word: Word) -> Self {
         match word {
-            Word::Tag(_) => WordType::Tag,
-            Word::Category(_) => WordType::Category,
-            Word::Attribute(_) => WordType::Attribute,
-            Word::Message(_) => WordType::Message,
+            Word::Tag(_) => Self::Tag,
+            Word::Category(_) => Self::Category,
+            Word::Attribute(_) => Self::Attribute,
+            Word::Message(_) => Self::Message,
         }
     }
 }
@@ -123,9 +126,9 @@ pub enum TrapCategoryError {
     #[error("Invalid trap attribute: key={key}, value={value:?}")]
     InvalidAttribute {
         /// The key of the invalid attribute.
-        key: alloc::string::String,
+        key: String,
         /// The value of the invalid attribute, if present.
-        value: Option<alloc::string::String>,
+        value: Option<String>,
     },
     /// The required `message` attribute is missing from a trap response.
     #[error("Missing message attribute in trap response")]
@@ -158,7 +161,7 @@ pub enum LoginError {
     Authentication(TrapResponse),
     /// A fatal error occurred during login.
     #[error("fatal error during login: {0}")]
-    Fatal(alloc::string::String),
+    Fatal(String),
     /// A protocol error occurred during login.
     #[error("protocol error during login: {0}")]
     Protocol(#[from] ProtocolError),

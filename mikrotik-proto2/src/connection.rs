@@ -7,13 +7,16 @@
 //! # Usage pattern (mirrors `quinn-proto`)
 //!
 //! ```rust
-//! use mikrotik_proto::connection::{Connection, Event};
 //! use mikrotik_proto::command::CommandBuilder;
+//! use mikrotik_proto::connection::Connection;
+//! use mikrotik_proto::connection::Event;
 //!
 //! let mut conn = Connection::new();
 //!
 //! // Send a command
-//! let cmd = CommandBuilder::new().command("/system/resource/print").build();
+//! let cmd = CommandBuilder::new()
+//!     .command("/system/resource/print")
+//!     .build();
 //! let tag = conn.send_command(cmd).unwrap();
 //!
 //! // In your event loop you would:
@@ -43,10 +46,14 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::HashMap;
-use crate::codec::{self, Decode};
-use crate::command::{Command, CommandBuilder};
+use crate::codec::Decode;
+use crate::codec::{self};
+use crate::command::Command;
+use crate::command::CommandBuilder;
 use crate::error::ConnectionError;
-use crate::response::{CommandResponse, ReplyResponse, TrapResponse};
+use crate::response::CommandResponse;
+use crate::response::ReplyResponse;
+use crate::response::TrapResponse;
 use crate::tag::Tag;
 use crate::word::Word;
 
@@ -354,16 +361,14 @@ impl Connection {
 
     // ── Internal dispatch logic ──
 
+    /// Dispatch a parsed response into command-specific events.
     fn dispatch_response(&mut self, response: CommandResponse) {
         match response {
             CommandResponse::Reply(reply) => {
                 let tag = reply.tag;
                 if let Some(cmd_state) = self.in_flight.get_mut(&tag) {
                     cmd_state.reply_count += 1;
-                    self.events.push_back(Event::Reply {
-                        tag,
-                        response: reply,
-                    });
+                    self.events.push_back(Event::Reply { tag, response: reply });
                 }
                 // Silently ignore replies for unknown tags (command may have
                 // been cancelled and a straggling reply arrived).
@@ -384,10 +389,7 @@ impl Connection {
             CommandResponse::Trap(trap) => {
                 let tag = trap.tag;
                 self.in_flight.remove(&tag);
-                self.events.push_back(Event::Trap {
-                    tag,
-                    response: trap,
-                });
+                self.events.push_back(Event::Trap { tag, response: trap });
             }
 
             CommandResponse::Fatal(reason) => {
@@ -399,6 +401,7 @@ impl Connection {
         }
     }
 
+    /// Convert a tagged parse error into a trap event.
     fn handle_parse_error(&mut self, error: &crate::error::ProtocolError, tag_opt: Option<Tag>) {
         if let Some(tag) = tag_opt {
             self.in_flight.remove(&tag);
@@ -425,11 +428,12 @@ impl Default for Connection {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::codec;
     use alloc::format;
     use alloc::string::String;
     use alloc::vec;
+
+    use super::*;
+    use crate::codec;
 
     /// Build wire-format sentence data from word byte slices.
     fn build_sentence(words: &[&[u8]]) -> Vec<u8> {
@@ -457,7 +461,7 @@ mod tests {
         for (k, v) in attrs {
             words.push(format!("={k}={v}").into_bytes());
         }
-        let word_refs: Vec<&[u8]> = words.iter().map(|w| w.as_slice()).collect();
+        let word_refs: Vec<&[u8]> = words.iter().map(Vec::as_slice).collect();
         build_sentence(&word_refs)
     }
 
@@ -533,10 +537,8 @@ mod tests {
         while conn.poll_transmit().is_some() {}
 
         // Two replies
-        conn.receive(&build_reply(tag, &[("name", "ether1")]))
-            .unwrap();
-        conn.receive(&build_reply(tag, &[("name", "ether2")]))
-            .unwrap();
+        conn.receive(&build_reply(tag, &[("name", "ether1")])).unwrap();
+        conn.receive(&build_reply(tag, &[("name", "ether2")])).unwrap();
         // Then done
         conn.receive(&build_done(tag)).unwrap();
 
@@ -544,10 +546,7 @@ mod tests {
         match conn.poll_event().unwrap() {
             Event::Reply { tag: t, response } => {
                 assert_eq!(t, tag);
-                assert_eq!(
-                    response.attributes.get("name"),
-                    Some(&Some(String::from("ether1")))
-                );
+                assert_eq!(response.attributes.get("name"), Some(&Some(String::from("ether1"))));
             }
             other => panic!("expected Reply, got {other:?}"),
         }
@@ -556,10 +555,7 @@ mod tests {
         match conn.poll_event().unwrap() {
             Event::Reply { tag: t, response } => {
                 assert_eq!(t, tag);
-                assert_eq!(
-                    response.attributes.get("name"),
-                    Some(&Some(String::from("ether2")))
-                );
+                assert_eq!(response.attributes.get("name"), Some(&Some(String::from("ether2"))));
             }
             other => panic!("expected Reply, got {other:?}"),
         }
@@ -709,8 +705,7 @@ mod tests {
         let unknown_tag = Tag::new();
 
         // Receive a reply for a tag we never sent
-        conn.receive(&build_reply(unknown_tag, &[("name", "test")]))
-            .unwrap();
+        conn.receive(&build_reply(unknown_tag, &[("name", "test")])).unwrap();
 
         // No event should be emitted
         assert!(conn.poll_event().is_none());

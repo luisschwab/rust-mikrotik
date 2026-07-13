@@ -64,7 +64,7 @@ pub const fn check_mikrotik_command(cmd: &str) -> &str {
 /// assert!(!cmd.data().is_empty());
 ///
 /// // Command with attributes
-/// let cmd = command!("/interface/print", user="admin", detail);
+/// let cmd = command!("/interface/print", user = "admin", detail);
 /// assert!(!cmd.data().is_empty());
 /// ```
 #[macro_export]
@@ -95,10 +95,11 @@ macro_rules! command {
 #[cfg(test)]
 mod tests {
     use alloc::string::String;
+    use alloc::vec::Vec;
 
     /// Helper to parse words from command wire data.
-    fn parse_words(data: &[u8]) -> alloc::vec::Vec<String> {
-        let mut words = alloc::vec::Vec::new();
+    fn parse_words(data: &[u8]) -> Vec<String> {
+        let mut words = Vec::new();
         let mut i = 0;
         while i < data.len() {
             if i >= data.len() {
@@ -109,9 +110,7 @@ mod tests {
             if len == 0 {
                 break;
             }
-            if i + len > data.len() {
-                panic!("Malformed command data");
-            }
+            assert!(i + len <= data.len(), "Malformed command data");
             let word = &data[i..i + len];
             i += len;
             words.push(String::from_utf8_lossy(word).into_owned());

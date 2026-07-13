@@ -44,6 +44,10 @@ impl Tag {
     /// This is the fast path used by word parsing — the `.tag=<uuid>` value
     /// on the wire is always ASCII hex digits and hyphens, so we can skip
     /// `from_utf8` entirely and hand the bytes directly to the UUID parser.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`uuid::Error`] if the bytes are not a valid UUID.
     pub fn try_from_ascii_bytes(bytes: &[u8]) -> Result<Self, uuid::Error> {
         Uuid::try_parse_ascii(bytes).map(Self)
     }

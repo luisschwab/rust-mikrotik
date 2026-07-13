@@ -52,10 +52,11 @@ extern crate alloc;
 // When the `std` feature is enabled (default), public types use
 // `std::collections::HashMap`. When disabled (for `no_std` environments),
 // they fall back to `hashbrown::HashMap`.
-#[cfg(not(feature = "std"))]
-pub use hashbrown::HashMap;
 #[cfg(feature = "std")]
 pub use std::collections::HashMap;
+
+#[cfg(not(feature = "std"))]
+pub use hashbrown::HashMap;
 
 /// Wire-format codec for MikroTik API length-prefixed words and sentences.
 pub mod codec;
@@ -77,8 +78,14 @@ pub mod tag;
 pub mod word;
 
 // Re-export key types at crate root for convenience
-pub use command::{Command, CommandBuilder};
-pub use connection::{Connection, Event, State, Transmit};
-pub use handshake::{Authenticated, Handshaking, LoginProgress};
+pub use command::Command;
+pub use command::CommandBuilder;
+pub use connection::Connection;
+pub use connection::Event;
+pub use connection::State;
+pub use connection::Transmit;
+pub use handshake::Authenticated;
+pub use handshake::Handshaking;
+pub use handshake::LoginProgress;
 pub use response::CommandResponse;
 pub use tag::Tag;

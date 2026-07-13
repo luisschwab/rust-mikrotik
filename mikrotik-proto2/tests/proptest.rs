@@ -1,14 +1,14 @@
-//! Property-based tests for mikrotik-proto.
+//! Property-based tests for `mikrotik-proto2`.
 //!
 //! These tests use proptest to verify invariants with randomized inputs:
 //! - Encode/decode roundtrips always produce the original value.
 //! - Decoders never panic on arbitrary byte sequences.
 //! - The connection state machine never panics on arbitrary input.
 
+use mikrotik_proto2::codec::Decode;
+use mikrotik_proto2::codec::{self};
+use mikrotik_proto2::connection::Connection;
 use proptest::prelude::*;
-
-use mikrotik_proto::codec::{self, Decode};
-use mikrotik_proto::connection::Connection;
 
 // ── Codec roundtrip properties ──
 
@@ -186,7 +186,7 @@ proptest! {
     #[test]
     fn parse_well_formed_sentence_no_panic(sentence in arb_sentence()) {
         if let Ok(Decode::Complete { value: raw, .. }) = codec::decode_sentence(&sentence) {
-            let _ = mikrotik_proto::response::CommandResponse::parse(&raw);
+            let _ = mikrotik_proto2::response::CommandResponse::parse(&raw);
         }
         // incomplete or error is fine
     }

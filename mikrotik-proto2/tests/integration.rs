@@ -4,18 +4,21 @@
 //! → wire encoding → decoding → response parsing → event polling.
 //! Unlike unit tests, they exercise multiple modules composed together.
 
-use mikrotik_proto::codec;
-use mikrotik_proto::command;
-use mikrotik_proto::command::CommandBuilder;
-use mikrotik_proto::connection::{Connection, Event, State};
-use mikrotik_proto::handshake::{Handshaking, LoginProgress};
-use mikrotik_proto::response::TrapCategory;
-use mikrotik_proto::tag::Tag;
+use mikrotik_proto2::codec;
+use mikrotik_proto2::command;
+use mikrotik_proto2::command::CommandBuilder;
+use mikrotik_proto2::connection::Connection;
+use mikrotik_proto2::connection::Event;
+use mikrotik_proto2::connection::State;
+use mikrotik_proto2::handshake::Handshaking;
+use mikrotik_proto2::handshake::LoginProgress;
+use mikrotik_proto2::response::TrapCategory;
+use mikrotik_proto2::tag::Tag;
 
 // ── Test helpers ──
 
 /// Build a wire-format sentence from raw word byte slices.
-/// This simulates what a MikroTik router would send.
+/// This simulates what a `MikroTik` router would send.
 fn build_sentence(words: &[&[u8]]) -> Vec<u8> {
     let mut data = Vec::new();
     for word in words {
@@ -44,12 +47,7 @@ fn build_trap_with_category(tag: Tag, category: u8, message: &str) -> Vec<u8> {
     let tag_word = format!(".tag={tag}");
     let cat_word = format!("=category={category}");
     let msg_word = format!("=message={message}");
-    build_sentence(&[
-        b"!trap",
-        tag_word.as_bytes(),
-        cat_word.as_bytes(),
-        msg_word.as_bytes(),
-    ])
+    build_sentence(&[b"!trap", tag_word.as_bytes(), cat_word.as_bytes(), msg_word.as_bytes()])
 }
 
 fn build_fatal(message: &str) -> Vec<u8> {
@@ -93,10 +91,7 @@ fn full_command_lifecycle() {
     assert!(conn.poll_transmit().is_none());
 
     // Simulate router response: one reply row + done
-    let reply_wire = build_reply(
-        tag,
-        &[("name", "ether1"), ("type", "ether"), ("mtu", "1500")],
-    );
+    let reply_wire = build_reply(tag, &[("name", "ether1"), ("type", "ether"), ("mtu", "1500")]);
     let done_wire = build_done(tag);
 
     let mut response = reply_wire;
@@ -111,18 +106,9 @@ fn full_command_lifecycle() {
     match &events[0] {
         Event::Reply { tag: t, response } => {
             assert_eq!(*t, tag);
-            assert_eq!(
-                response.attributes.get("name").unwrap(),
-                &Some("ether1".to_string())
-            );
-            assert_eq!(
-                response.attributes.get("type").unwrap(),
-                &Some("ether".to_string())
-            );
-            assert_eq!(
-                response.attributes.get("mtu").unwrap(),
-                &Some("1500".to_string())
-            );
+            assert_eq!(response.attributes.get("name").unwrap(), &Some("ether1".to_string()));
+            assert_eq!(response.attributes.get("type").unwrap(), &Some("ether".to_string()));
+            assert_eq!(response.attributes.get("mtu").unwrap(), &Some("1500".to_string()));
         }
         other => panic!("expected Reply, got {other:?}"),
     }
@@ -162,20 +148,14 @@ fn handshake_then_commands() {
     assert_eq!(conn.in_flight_count(), 0);
 
     // Now send a real command
-    let cmd = CommandBuilder::new()
-        .command("/system/resource/print")
-        .build();
+    let cmd = CommandBuilder::new().command("/system/resource/print").build();
     let tag = conn.send_command(cmd).unwrap();
     drain_transmits(&mut conn);
 
     // Simulate router response
     let reply_wire = build_reply(
         tag,
-        &[
-            ("uptime", "3d12h"),
-            ("cpu-load", "5"),
-            ("free-memory", "1073741824"),
-        ],
+        &[("uptime", "3d12h"), ("cpu-load", "5"), ("free-memory", "1073741824")],
     );
     let done_wire = build_done(tag);
     conn.receive(&reply_wire).unwrap();
@@ -186,10 +166,7 @@ fn handshake_then_commands() {
 
     match &events[0] {
         Event::Reply { response, .. } => {
-            assert_eq!(
-                response.attributes.get("uptime").unwrap(),
-                &Some("3d12h".to_string())
-            );
+            assert_eq!(response.attributes.get("uptime").unwrap(), &Some("3d12h".to_string()));
         }
         other => panic!("expected Reply, got {other:?}"),
     }
@@ -206,9 +183,7 @@ fn concurrent_multiplexing() {
     // Send 3 commands
     let cmd1 = CommandBuilder::new().command("/interface/print").build();
     let cmd2 = CommandBuilder::new().command("/ip/address/print").build();
-    let cmd3 = CommandBuilder::new()
-        .command("/system/resource/print")
-        .build();
+    let cmd3 = CommandBuilder::new().command("/system/resource/print").build();
     let tag1 = conn.send_command(cmd1).unwrap();
     let tag2 = conn.send_command(cmd2).unwrap();
     let tag3 = conn.send_command(cmd3).unwrap();
@@ -380,10 +355,7 @@ fn back_to_back_streaming_replies() {
             Event::Reply { tag: t, response } => {
                 assert_eq!(*t, tag);
                 let expected_name = format!("ether{i}");
-                assert_eq!(
-                    response.attributes.get("name").unwrap(),
-                    &Some(expected_name)
-                );
+                assert_eq!(response.attributes.get("name").unwrap(), &Some(expected_name));
             }
             other => panic!("expected Reply at index {i}, got {other:?}"),
         }
@@ -441,8 +413,7 @@ fn fatal_kills_connection() {
     drain_transmits(&mut conn);
 
     // Send a reply for cmd1 first
-    conn.receive(&build_reply(tag1, &[("data", "hello")]))
-        .unwrap();
+    conn.receive(&build_reply(tag1, &[("data", "hello")])).unwrap();
 
     // Then fatal
     conn.receive(&build_fatal("out of memory")).unwrap();

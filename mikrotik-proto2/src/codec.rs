@@ -25,7 +25,8 @@
 use alloc::vec::Vec;
 use core::num::NonZeroUsize;
 
-use crate::error::{DecodeError, SentenceError};
+use crate::error::DecodeError;
+use crate::error::SentenceError;
 use crate::word::Word;
 
 /// Result of attempting to decode a frame from a byte buffer.
@@ -51,12 +52,12 @@ pub enum Decode<T> {
 impl<T> Decode<T> {
     /// Returns `true` if the decode was successful.
     pub fn is_complete(&self) -> bool {
-        matches!(self, Decode::Complete { .. })
+        matches!(self, Self::Complete { .. })
     }
 
     /// Returns `true` if more data is needed.
     pub fn is_incomplete(&self) -> bool {
-        matches!(self, Decode::Incomplete { .. })
+        matches!(self, Self::Incomplete { .. })
     }
 }
 
@@ -75,9 +76,7 @@ pub struct RawSentence<'a> {
 impl<'a> RawSentence<'a> {
     /// Iterate over the raw byte slices of each word in the sentence.
     pub fn words(&self) -> impl Iterator<Item = &'a [u8]> + '_ {
-        self.words
-            .iter()
-            .map(|&(offset, len)| &self.data[offset..offset + len])
+        self.words.iter().map(|&(offset, len)| &self.data[offset..offset + len])
     }
 
     /// Returns the number of words in this sentence.
@@ -154,10 +153,7 @@ pub fn decode_length(data: &[u8]) -> Result<Decode<(u32, usize)>, DecodeError> {
                     needed: NonZeroUsize::new(4 - data.len()),
                 });
             }
-            let val = ((c & 0x0F) << 24)
-                | (u32::from(data[1]) << 16)
-                | (u32::from(data[2]) << 8)
-                | u32::from(data[3]);
+            let val = ((c & 0x0F) << 24) | (u32::from(data[1]) << 16) | (u32::from(data[2]) << 8) | u32::from(data[3]);
             Ok(Decode::Complete {
                 value: (val, 4),
                 bytes_consumed: 4,
@@ -190,8 +186,8 @@ pub fn decode_length(data: &[u8]) -> Result<Decode<(u32, usize)>, DecodeError> {
 ///
 /// # Returns
 ///
-/// - `Ok(Decode::Complete { value, bytes_consumed })` — a full sentence was decoded.
-///   The caller should advance the buffer by `bytes_consumed`.
+/// - `Ok(Decode::Complete { value, bytes_consumed })` — a full sentence was decoded. The caller should advance the
+///   buffer by `bytes_consumed`.
 /// - `Ok(Decode::Incomplete { needed })` — more data is needed to complete the sentence.
 ///
 /// # Errors
@@ -355,7 +351,7 @@ mod tests {
         assert_eq!(
             result,
             Decode::Complete {
-                value: (0x200000, 4),
+                value: (0x0020_0000, 4),
                 bytes_consumed: 4,
             }
         );
@@ -368,7 +364,7 @@ mod tests {
         assert_eq!(
             result,
             Decode::Complete {
-                value: (0x10000000, 5),
+                value: (0x1000_0000, 5),
                 bytes_consumed: 5,
             }
         );
@@ -498,10 +494,10 @@ mod tests {
                         assert_eq!(bc2, s2.len());
                         assert_eq!(raw2.word_count(), 2);
                     }
-                    _ => panic!("expected Complete for second sentence"),
+                    Decode::Incomplete { .. } => panic!("expected Complete for second sentence"),
                 }
             }
-            _ => panic!("expected Complete for first sentence"),
+            Decode::Incomplete { .. } => panic!("expected Complete for first sentence"),
         }
     }
 
@@ -516,15 +512,14 @@ mod tests {
     use uuid::Uuid;
 
     use crate::tag::Tag;
-    use crate::word::{WordAttribute, WordCategory};
+    use crate::word::WordAttribute;
+    use crate::word::WordCategory;
 
     const TEST_TAG1: Tag = Tag::from_uuid(Uuid::from_bytes([
-        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
-        0xd8,
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
     ]));
     const TEST_TAG2: Tag = Tag::from_uuid(Uuid::from_bytes([
-        0xb1, 0xb2, 0xb3, 0xb4, 0xc1, 0xc2, 0xd1, 0xd2, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7,
-        0xe8,
+        0xb1, 0xb2, 0xb3, 0xb4, 0xc1, 0xc2, 0xd1, 0xd2, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8,
     ]));
 
     fn decode_raw(data: &[u8]) -> RawSentence<'_> {
@@ -536,18 +531,11 @@ mod tests {
 
     #[test]
     fn test_typed_words_done_with_tag_and_attribute() {
-        let data = build_sentence(&[
-            b"!done",
-            b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8",
-            b"=name=ether1",
-        ]);
+        let data = build_sentence(&[b"!done", b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8", b"=name=ether1"]);
         let raw = decode_raw(&data);
         let mut words = raw.typed_words();
 
-        assert_eq!(
-            words.next().unwrap().unwrap(),
-            Word::Category(WordCategory::Done)
-        );
+        assert_eq!(words.next().unwrap().unwrap(), Word::Category(WordCategory::Done));
         assert_eq!(words.next().unwrap().unwrap(), Word::Tag(TEST_TAG1));
         assert_eq!(
             words.next().unwrap().unwrap(),
@@ -562,18 +550,11 @@ mod tests {
 
     #[test]
     fn test_typed_words_mixed() {
-        let data = build_sentence(&[
-            b"!re",
-            b"=a=b",
-            b".tag=b1b2b3b4-c1c2-d1d2-e1e2-e3e4e5e6e7e8",
-        ]);
+        let data = build_sentence(&[b"!re", b"=a=b", b".tag=b1b2b3b4-c1c2-d1d2-e1e2-e3e4e5e6e7e8"]);
         let raw = decode_raw(&data);
         let mut words = raw.typed_words();
 
-        assert_eq!(
-            words.next().unwrap().unwrap(),
-            Word::Category(WordCategory::Reply)
-        );
+        assert_eq!(words.next().unwrap().unwrap(), Word::Category(WordCategory::Reply));
         assert_eq!(
             words.next().unwrap().unwrap(),
             Word::Attribute(WordAttribute {
@@ -592,10 +573,7 @@ mod tests {
         let raw = decode_raw(&data);
         let mut words = raw.typed_words();
 
-        assert_eq!(
-            words.next().unwrap().unwrap(),
-            Word::Category(WordCategory::Fatal)
-        );
+        assert_eq!(words.next().unwrap().unwrap(), Word::Category(WordCategory::Fatal));
         assert_eq!(words.next().unwrap().unwrap(), Word::Message("server down"));
         assert!(words.next().is_none());
     }
@@ -606,10 +584,7 @@ mod tests {
         let raw = decode_raw(&data);
         let mut words = raw.typed_words();
 
-        assert_eq!(
-            words.next().unwrap().unwrap(),
-            Word::Category(WordCategory::Empty)
-        );
+        assert_eq!(words.next().unwrap().unwrap(), Word::Category(WordCategory::Empty));
         assert_eq!(words.next().unwrap().unwrap(), Word::Tag(TEST_TAG1));
         assert!(words.next().is_none());
     }

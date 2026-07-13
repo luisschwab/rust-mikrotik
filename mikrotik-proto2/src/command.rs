@@ -25,10 +25,11 @@ use crate::codec;
 use crate::tag::Tag;
 
 /// Marker type: no command word has been set yet.
+#[derive(Debug)]
 pub struct NoCmd;
 
 /// Marker type: a command word has been set, attributes can be added.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Cmd;
 
 /// Builds `MikroTik` router commands using a fluent typestate API.
@@ -40,11 +41,14 @@ pub struct Cmd;
 ///
 /// - `CommandBuilder<NoCmd>` — initial state, call `.command()` to transition
 /// - `CommandBuilder<Cmd>` — command word set, can add attributes and `.build()`
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct CommandBuilder<State> {
+    /// Command tag used to correlate responses.
     tag: Tag,
+    /// Encoded wire-format command bytes.
     buf: Vec<u8>,
+    /// Typestate marker.
     state: PhantomData<State>,
 }
 
@@ -68,8 +72,8 @@ impl CommandBuilder<NoCmd> {
     ///
     /// # Arguments
     ///
-    /// * `tag` — A [`Tag`] that identifies the command for `RouterOS` correlation.
-    ///   **Must be unique** within a connection.
+    /// * `tag` — A [`Tag`] that identifies the command for `RouterOS` correlation. **Must be unique** within a
+    ///   connection.
     pub fn with_tag(tag: Tag) -> Self {
         Self {
             tag,
@@ -90,10 +94,7 @@ impl CommandBuilder<NoCmd> {
     /// Builds a command to cancel a specific running command identified by `tag`.
     pub fn cancel(tag: Tag) -> Command {
         // Use the same tag so the cancel is correlated
-        Self::with_tag(tag)
-            .command("/cancel")
-            .attribute_tag("tag", tag)
-            .build()
+        Self::with_tag(tag).command("/cancel").attribute_tag("tag", tag).build()
     }
 
     /// Specify the command path to be executed, transitioning to the `Cmd` state.
@@ -128,8 +129,7 @@ impl CommandBuilder<Cmd> {
     /// # Arguments
     ///
     /// * `key` — The attribute's key.
-    /// * `value` — The attribute's value. If `None`, the attribute is treated
-    ///   as a flag (e.g., `=key=`).
+    /// * `value` — The attribute's value. If `None`, the attribute is treated as a flag (e.g., `=key=`).
     pub fn attribute(self, key: &str, value: Option<&str>) -> Self {
         let Self { tag, mut buf, .. } = self;
 
@@ -143,7 +143,7 @@ impl CommandBuilder<Cmd> {
         buf.push(b'=');
         buf.extend_from_slice(value_bytes.as_bytes());
 
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -164,7 +164,7 @@ impl CommandBuilder<Cmd> {
         buf.push(b'=');
         buf.extend_from_slice(value_bytes);
 
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -187,7 +187,7 @@ impl CommandBuilder<Cmd> {
         codec::encode_length(word_len as u32, &mut buf);
         buf.push(b'?');
         buf.extend_from_slice(name.as_bytes());
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -201,7 +201,7 @@ impl CommandBuilder<Cmd> {
         codec::encode_length(word_len as u32, &mut buf);
         buf.extend_from_slice(b"?-");
         buf.extend_from_slice(name.as_bytes());
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -217,7 +217,7 @@ impl CommandBuilder<Cmd> {
         buf.extend_from_slice(name.as_bytes());
         buf.push(b'=');
         buf.extend_from_slice(value.as_bytes());
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -233,7 +233,7 @@ impl CommandBuilder<Cmd> {
         buf.extend_from_slice(key.as_bytes());
         buf.push(b'=');
         buf.extend_from_slice(value.as_bytes());
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -249,7 +249,7 @@ impl CommandBuilder<Cmd> {
         buf.extend_from_slice(key.as_bytes());
         buf.push(b'=');
         buf.extend_from_slice(value.as_bytes());
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -269,7 +269,7 @@ impl CommandBuilder<Cmd> {
         buf.extend_from_slice(b"?#");
         buf.extend_from_slice(&ops);
 
-        CommandBuilder {
+        Self {
             tag,
             buf,
             state: PhantomData,
@@ -325,31 +325,32 @@ pub enum QueryOperator {
 }
 
 impl QueryOperator {
+    /// Return the wire byte for this query operator.
     #[inline]
     fn code(self) -> u8 {
         match self {
-            QueryOperator::Not => b'!',
-            QueryOperator::And => b'&',
-            QueryOperator::Or => b'|',
-            QueryOperator::Dot => b'.',
+            Self::Not => b'!',
+            Self::And => b'&',
+            Self::Or => b'|',
+            Self::Dot => b'.',
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::String;
+
     use uuid::Uuid;
 
     use super::*;
-    use alloc::string::String;
 
     const TEST_TAG: Tag = Tag::from_uuid(Uuid::from_bytes([
-        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
-        0xd8,
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
     ]));
     const TEST_TAG_WORD: &str = ".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8";
 
-    /// Helper to parse the RouterOS length-prefixed "words" out of the command data.
+    /// Helper to parse the `RouterOS` length-prefixed "words" out of the command data.
     fn parse_words(data: &[u8]) -> Vec<String> {
         let mut words = Vec::new();
         let mut i = 0;
@@ -359,9 +360,10 @@ mod tests {
             if len == 0 {
                 break;
             }
-            if i + len > data.len() {
-                panic!("Malformed command data: length prefix exceeds available data.");
-            }
+            assert!(
+                i + len <= data.len(),
+                "Malformed command data: length prefix exceeds available data."
+            );
             let word = &data[i..i + len];
             i += len;
             words.push(String::from_utf8_lossy(word).into_owned());
@@ -425,9 +427,7 @@ mod tests {
 
     #[test]
     fn test_command_no_attributes() {
-        let cmd = CommandBuilder::new()
-            .command("/system/resource/print")
-            .build();
+        let cmd = CommandBuilder::new().command("/system/resource/print").build();
         let words = parse_words(&cmd.data);
 
         assert_eq!(words[0], "/system/resource/print");
@@ -484,7 +484,7 @@ mod tests {
                 assert_eq!(words[3], b"=disabled=");
                 assert_eq!(words.len(), 4);
             }
-            _ => panic!("expected Complete"),
+            codec::Decode::Incomplete { .. } => panic!("expected Complete"),
         }
     }
 }

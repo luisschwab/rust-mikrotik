@@ -18,8 +18,12 @@
 //! completing the login handshake.
 
 use crate::command::CommandBuilder;
-use crate::connection::{Connection, Event, State, Transmit};
-use crate::error::{ConnectionError, LoginError};
+use crate::connection::Connection;
+use crate::connection::Event;
+use crate::connection::State;
+use crate::connection::Transmit;
+use crate::error::ConnectionError;
+use crate::error::LoginError;
 use crate::tag::Tag;
 
 /// A connection that has not yet authenticated.
@@ -28,8 +32,11 @@ use crate::tag::Tag;
 /// 1. Call [`poll_transmit()`](Handshaking::poll_transmit) and send the bytes.
 /// 2. Feed response bytes via [`receive()`](Handshaking::receive).
 /// 3. Call [`advance()`](Handshaking::advance) to check for completion.
+#[derive(Debug)]
 pub struct Handshaking {
+    /// Underlying unauthenticated connection state.
     inner: Connection,
+    /// Tag of the queued login command.
     login_tag: Tag,
 }
 
@@ -38,7 +45,9 @@ pub struct Handshaking {
 /// This type guarantees that the login handshake has completed successfully.
 /// Use [`connection()`](Authenticated::connection) to access the underlying
 /// [`Connection`] for sending commands and processing events.
+#[derive(Debug)]
 pub struct Authenticated {
+    /// Underlying authenticated connection state.
     inner: Connection,
 }
 
@@ -53,8 +62,8 @@ pub enum LoginProgress {
 impl core::fmt::Debug for LoginProgress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            LoginProgress::Pending(_) => f.debug_tuple("Pending").field(&"...").finish(),
-            LoginProgress::Complete(_) => f.debug_tuple("Complete").field(&"...").finish(),
+            Self::Pending(_) => f.debug_tuple("Pending").field(&"...").finish(),
+            Self::Complete(_) => f.debug_tuple("Complete").field(&"...").finish(),
         }
     }
 }
@@ -74,7 +83,7 @@ impl Handshaking {
         let login_cmd = CommandBuilder::login(username, password);
         let tag = conn.send_command(login_cmd)?;
 
-        Ok(Handshaking {
+        Ok(Self {
             inner: conn,
             login_tag: tag,
         })
@@ -152,10 +161,11 @@ impl Authenticated {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::codec;
     use alloc::format;
     use alloc::vec::Vec;
+
+    use super::*;
+    use crate::codec;
 
     fn build_sentence(words: &[&[u8]]) -> Vec<u8> {
         let mut data = Vec::new();

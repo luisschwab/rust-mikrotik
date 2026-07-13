@@ -10,14 +10,20 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::fmt::{self, Display, Formatter};
+use core::fmt::Display;
+use core::fmt::Formatter;
+use core::fmt::{self};
 
 use crate::HashMap;
-
 use crate::codec::RawSentence;
-use crate::error::{MissingWord, ProtocolError, TrapCategoryError, WordType};
+use crate::error::MissingWord;
+use crate::error::ProtocolError;
+use crate::error::TrapCategoryError;
+use crate::error::WordType;
 use crate::tag::Tag;
-use crate::word::{Word, WordAttribute, WordCategory};
+use crate::word::Word;
+use crate::word::WordAttribute;
+use crate::word::WordCategory;
 
 /// Type alias for a fatal response message.
 pub type FatalResponse = String;
@@ -64,9 +70,7 @@ impl CommandResponse {
     pub fn parse(raw: &RawSentence<'_>) -> Result<Self, ProtocolError> {
         let mut words = raw.typed_words();
 
-        let word = words
-            .next()
-            .ok_or::<ProtocolError>(MissingWord::Category.into())??;
+        let word = words.next().ok_or::<ProtocolError>(MissingWord::Category.into())??;
 
         let category = word.category().ok_or(ProtocolError::WordSequence {
             word: word.word_type(),
@@ -75,15 +79,13 @@ impl CommandResponse {
 
         match category {
             WordCategory::Done => {
-                let word = words
-                    .next()
-                    .ok_or::<ProtocolError>(MissingWord::Tag.into())??;
+                let word = words.next().ok_or::<ProtocolError>(MissingWord::Tag.into())??;
 
                 let tag = word.tag().ok_or(ProtocolError::WordSequence {
                     word: word.into(),
                     expected: alloc::vec![WordType::Tag],
                 })?;
-                Ok(CommandResponse::Done(DoneResponse { tag }))
+                Ok(Self::Done(DoneResponse { tag }))
             }
             WordCategory::Reply => {
                 let mut tag = None;
@@ -94,11 +96,7 @@ impl CommandResponse {
                     let word = word?;
                     match word {
                         Word::Tag(t) => tag = Some(t),
-                        Word::Attribute(WordAttribute {
-                            key,
-                            value,
-                            value_raw,
-                        }) => {
+                        Word::Attribute(WordAttribute { key, value, value_raw }) => {
                             attributes.insert(String::from(key), value.map(String::from));
                             attributes_raw.insert(String::from(key), value_raw.map(Vec::from));
                         }
@@ -113,7 +111,7 @@ impl CommandResponse {
 
                 let tag = tag.ok_or::<ProtocolError>(MissingWord::Tag.into())?;
 
-                Ok(CommandResponse::Reply(ReplyResponse {
+                Ok(Self::Reply(ReplyResponse {
                     tag,
                     attributes,
                     attributes_raw,
@@ -159,34 +157,26 @@ impl CommandResponse {
                 let tag = tag.ok_or::<ProtocolError>(MissingWord::Tag.into())?;
                 let message = message.ok_or(TrapCategoryError::MissingMessageAttribute)?;
 
-                Ok(CommandResponse::Trap(TrapResponse {
-                    tag,
-                    category,
-                    message,
-                }))
+                Ok(Self::Trap(TrapResponse { tag, category, message }))
             }
             WordCategory::Fatal => {
-                let word = words
-                    .next()
-                    .ok_or::<ProtocolError>(MissingWord::Message.into())??;
+                let word = words.next().ok_or::<ProtocolError>(MissingWord::Message.into())??;
 
                 let reason = word.generic().ok_or(ProtocolError::WordSequence {
                     word: word.word_type(),
                     expected: alloc::vec![WordType::Message],
                 })?;
 
-                Ok(CommandResponse::Fatal(String::from(reason)))
+                Ok(Self::Fatal(String::from(reason)))
             }
             WordCategory::Empty => {
-                let word = words
-                    .next()
-                    .ok_or::<ProtocolError>(MissingWord::Tag.into())??;
+                let word = words.next().ok_or::<ProtocolError>(MissingWord::Tag.into())??;
 
                 let tag = word.tag().ok_or(ProtocolError::WordSequence {
                     word: word.into(),
                     expected: alloc::vec![WordType::Tag],
                 })?;
-                Ok(CommandResponse::Empty(EmptyResponse { tag }))
+                Ok(Self::Empty(EmptyResponse { tag }))
             }
         }
     }
@@ -292,14 +282,14 @@ impl TryFrom<u8> for TrapCategory {
 
     fn try_from(n: u8) -> Result<Self, Self::Error> {
         match n {
-            0 => Ok(TrapCategory::MissingItemOrCommand),
-            1 => Ok(TrapCategory::ArgumentValueFailure),
-            2 => Ok(TrapCategory::CommandExecutionInterrupted),
-            3 => Ok(TrapCategory::ScriptingFailure),
-            4 => Ok(TrapCategory::GeneralFailure),
-            5 => Ok(TrapCategory::APIFailure),
-            6 => Ok(TrapCategory::TTYFailure),
-            7 => Ok(TrapCategory::ReturnValue),
+            0 => Ok(Self::MissingItemOrCommand),
+            1 => Ok(Self::ArgumentValueFailure),
+            2 => Ok(Self::CommandExecutionInterrupted),
+            3 => Ok(Self::ScriptingFailure),
+            4 => Ok(Self::GeneralFailure),
+            5 => Ok(Self::APIFailure),
+            6 => Ok(Self::TTYFailure),
+            7 => Ok(Self::ReturnValue),
             n => Err(TrapCategoryError::OutOfRange(n)),
         }
     }
@@ -312,7 +302,7 @@ impl TryFrom<&str> for TrapCategory {
         let n = s
             .parse::<u8>()
             .map_err(|e| ProtocolError::TrapCategory(TrapCategoryError::Invalid(e)))?;
-        TrapCategory::try_from(n).map_err(ProtocolError::from)
+        Self::try_from(n).map_err(ProtocolError::from)
     }
 }
 
@@ -347,8 +337,7 @@ mod tests {
     }
 
     const TEST_TAG: Tag = Tag::from_uuid(Uuid::from_bytes([
-        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
-        0xd8,
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
     ]));
 
     #[test]
@@ -373,14 +362,8 @@ mod tests {
         match response {
             CommandResponse::Reply(reply) => {
                 assert_eq!(reply.tag, TEST_TAG);
-                assert_eq!(
-                    reply.attributes.get("name"),
-                    Some(&Some(String::from("ether1")))
-                );
-                assert_eq!(
-                    reply.attributes.get("type"),
-                    Some(&Some(String::from("ether")))
-                );
+                assert_eq!(reply.attributes.get("name"), Some(&Some(String::from("ether1"))));
+                assert_eq!(reply.attributes.get("type"), Some(&Some(String::from("ether"))));
             }
             other => panic!("expected Reply, got {:?}", other),
         }
@@ -388,19 +371,12 @@ mod tests {
 
     #[test]
     fn test_parse_reply_with_tag_after_attributes() {
-        let data = build_sentence(&[
-            b"!re",
-            b"=name=ether1",
-            b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8",
-        ]);
+        let data = build_sentence(&[b"!re", b"=name=ether1", b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8"]);
         let response = parse_response(&data).unwrap();
         match response {
             CommandResponse::Reply(reply) => {
                 assert_eq!(reply.tag, TEST_TAG);
-                assert_eq!(
-                    reply.attributes.get("name"),
-                    Some(&Some(String::from("ether1")))
-                );
+                assert_eq!(reply.attributes.get("name"), Some(&Some(String::from("ether1"))));
             }
             other => panic!("expected Reply, got {:?}", other),
         }

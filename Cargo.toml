@@ -5,6 +5,7 @@ members = [
   "mikrotik-common",
   "mikrotik-crawler",
   "mikrotik-graphviz",
+  "mikrotik-proto2",
   "mikrotik-qemu-runner",
   "mikrotik-types",
 ]

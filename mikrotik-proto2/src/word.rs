@@ -8,10 +8,10 @@
 //! - **Attribute** — key-value pair (`=key=value`)
 //! - **Message** — free-form text (used for `!fatal` reasons)
 
-use core::{
-    fmt::{self, Display, Formatter},
-    str::Utf8Error,
-};
+use core::fmt::Display;
+use core::fmt::Formatter;
+use core::fmt::{self};
+use core::str::Utf8Error;
 
 use thiserror::Error;
 
@@ -166,11 +166,11 @@ impl TryFrom<&str> for WordCategory {
 impl Display for WordCategory {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            WordCategory::Done => write!(f, "!done"),
-            WordCategory::Reply => write!(f, "!re"),
-            WordCategory::Trap => write!(f, "!trap"),
-            WordCategory::Fatal => write!(f, "!fatal"),
-            WordCategory::Empty => write!(f, "!empty"),
+            Self::Done => write!(f, "!done"),
+            Self::Reply => write!(f, "!re"),
+            Self::Trap => write!(f, "!trap"),
+            Self::Fatal => write!(f, "!fatal"),
+            Self::Empty => write!(f, "!empty"),
         }
     }
 }
@@ -211,11 +211,7 @@ impl<'a> TryFrom<&'a [u8]> for WordAttribute<'a> {
         // If we have a non-empty value, try to decode as UTF-8
         let value = value_raw.and_then(|v| core::str::from_utf8(v).ok());
 
-        Ok(Self {
-            key,
-            value,
-            value_raw,
-        })
+        Ok(Self { key, value, value_raw })
     }
 }
 
@@ -250,7 +246,7 @@ mod tests {
             Self {
                 key: value.0,
                 value: value.1,
-                value_raw: value.1.map(|v| v.as_bytes()),
+                value_raw: value.1.map(str::as_bytes),
             }
         }
     }
@@ -265,8 +261,7 @@ mod tests {
         assert_eq!(
             Word::try_from(b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8".as_ref()).unwrap(),
             Word::Tag(Tag::from(Uuid::from_bytes([
-                0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
-                0xd7, 0xd8
+                0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8
             ])))
         );
 
@@ -308,13 +303,9 @@ mod tests {
         assert_eq!(format!("{}", word), "!done");
 
         let word = Word::Tag(Tag::from(Uuid::from_bytes([
-            0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
-            0xd7, 0xd8,
+            0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
         ])));
-        assert_eq!(
-            format!("{}", word),
-            ".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8"
-        );
+        assert_eq!(format!("{}", word), ".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8");
 
         let word = Word::Attribute(("name", Some("ether1")).into());
         assert_eq!(format!("{}", word), "=name=ether1");

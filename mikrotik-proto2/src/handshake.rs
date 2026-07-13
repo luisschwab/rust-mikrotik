@@ -5,15 +5,15 @@
 //! enforces this requirement at compile time using the typestate pattern:
 //!
 //! ```text
-//! Handshaking ──[login success]──▶ Authenticated
-//!     │                                │
-//!     │ .receive(&bytes)               │ .connection() -> &mut Connection
-//!     │ .poll_transmit()               │ .send_command(...)
-//!     │ .advance() -> LoginProgress    │ .receive(&bytes)
-//!     │                                │ ...
+//! Handshaking --[login success]--> Authenticated
+//!     |                                |
+//!     | .receive(&bytes)               | .connection() -> &mut Connection
+//!     | .poll_transmit()               | .send_command(...)
+//!     | .advance() -> LoginProgress    | .receive(&bytes)
+//!     |                                | ...
 //! ```
 //!
-//! You cannot call `send_command` on a `Handshaking` — the method doesn't
+//! You cannot call `send_command` on a `Handshaking`; the method doesn't
 //! exist. The only way to get an `Authenticated` connection is by successfully
 //! completing the login handshake.
 
@@ -105,7 +105,7 @@ impl Handshaking {
 
     /// Check if authentication has completed.
     ///
-    /// **Consumes `self`** — returns either `Pending(self)` to continue
+    /// **Consumes `self`**; returns either `Pending(self)` to continue
     /// waiting or `Complete(Authenticated)` on success.
     ///
     /// # Errors
@@ -126,7 +126,7 @@ impl Handshaking {
                     return Err(LoginError::Fatal(reason));
                 }
                 _ => {
-                    // Unexpected event during login — ignore
+                    // Unexpected events during login are ignored.
                 }
             }
         }
@@ -259,7 +259,7 @@ mod tests {
             LoginProgress::Complete(_) => panic!("should still be pending"),
         };
 
-        // Feed the rest — but we consumed self, need to re-bind
+        // Feed the rest after rebinding the consumed state.
         let mut hs = hs;
         hs.receive(&done_wire[mid..]).unwrap();
 

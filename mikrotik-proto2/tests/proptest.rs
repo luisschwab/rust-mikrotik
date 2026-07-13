@@ -5,15 +5,13 @@
 //! - Decoders never panic on arbitrary byte sequences.
 //! - The connection state machine never panics on arbitrary input.
 
+use mikrotik_proto2::codec;
 use mikrotik_proto2::codec::Decode;
-use mikrotik_proto2::codec::{self};
 use mikrotik_proto2::connection::Connection;
 use proptest::prelude::*;
 
-// ── Codec roundtrip properties ──
-
 proptest! {
-    /// encode_length → decode_length always roundtrips for any u32.
+    /// `encode_length` followed by `decode_length` always roundtrips for any `u32`.
     #[test]
     fn codec_length_roundtrip(len in any::<u32>()) {
         let mut buf = Vec::new();
@@ -31,7 +29,7 @@ proptest! {
         }
     }
 
-    /// encode_word → decode_sentence roundtrips: the decoded word matches the input.
+    /// `encode_word` followed by `decode_sentence` roundtrips.
     /// Words must be non-empty: a zero-length word is the sentence terminator.
     #[test]
     fn codec_word_roundtrip(word in proptest::collection::vec(any::<u8>(), 1..1024)) {
@@ -51,7 +49,7 @@ proptest! {
         }
     }
 
-    /// Multiple words roundtrip through encode → decode.
+    /// Multiple words roundtrip through encode and decode.
     /// Words must be non-empty: a zero-length word is the sentence terminator.
     #[test]
     fn codec_multi_word_roundtrip(
@@ -102,11 +100,9 @@ proptest! {
     }
 }
 
-// ── No-panic properties (arbitrary input) ──
-
 proptest! {
     /// decode_length never panics on arbitrary bytes.
-    /// It may return Ok(Incomplete), Ok(Complete), or Err — but never panics.
+    /// It may return `Ok(Incomplete)`, `Ok(Complete)`, or `Err`, but never panics.
     #[test]
     fn decode_length_no_panic(data in proptest::collection::vec(any::<u8>(), 0..8)) {
         let _ = codec::decode_length(&data);
@@ -123,7 +119,7 @@ proptest! {
     #[test]
     fn connection_receive_no_panic(data in proptest::collection::vec(any::<u8>(), 0..8192)) {
         let mut conn = Connection::new();
-        // Ignore errors — we only care that it doesn't panic
+        // Ignore errors; this only checks that parsing does not panic.
         let _ = conn.receive(&data);
         // Drain any events
         while conn.poll_event().is_some() {}
@@ -149,8 +145,6 @@ proptest! {
         }
     }
 }
-
-// ── Well-formed but semantically random sentences ──
 
 /// Generate a valid wire-format sentence with random attribute-like words.
 fn arb_sentence() -> impl Strategy<Value = Vec<u8>> {

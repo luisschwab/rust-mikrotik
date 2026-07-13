@@ -2,17 +2,16 @@
 //!
 //! The MikroTik RouterOS API produces several types of responses to commands:
 //!
-//! - **Done** — command completed successfully
-//! - **Reply** — a data row (for commands that return tabular data)
-//! - **Trap** — an error or warning
-//! - **Fatal** — a fatal error that kills the connection
-//! - **Empty** — no data to reply with (RouterOS 7.18+)
+//! - **Done**: command completed successfully.
+//! - **Reply**: a data row for commands that return tabular data.
+//! - **Trap**: an error or warning.
+//! - **Fatal**: a fatal error that kills the connection.
+//! - **Empty**: no data to reply with (`RouterOS` 7.18+).
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 use core::fmt::Display;
-use core::fmt::Formatter;
-use core::fmt::{self};
 
 use crate::HashMap;
 use crate::codec::RawSentence;
@@ -190,7 +189,7 @@ pub struct DoneResponse {
 }
 
 impl Display for DoneResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "DoneResponse {{ tag: {} }}", self.tag)
     }
 }
@@ -205,7 +204,7 @@ pub struct EmptyResponse {
 }
 
 impl Display for EmptyResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "EmptyResponse {{ tag: {} }}", self.tag)
     }
 }
@@ -222,7 +221,7 @@ pub struct ReplyResponse {
 }
 
 impl Display for ReplyResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "ReplyResponse {{ tag: {}, attributes: {:?} }}",
@@ -243,7 +242,7 @@ pub struct TrapResponse {
 }
 
 impl Display for TrapResponse {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "TrapResponse {{ tag: {}, category: {:?}, message: \"{}\" }}",
@@ -259,21 +258,21 @@ impl Display for TrapResponse {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TrapCategory {
-    /// 0 — missing item or command
+    /// 0: missing item or command.
     MissingItemOrCommand = 0,
-    /// 1 — argument value failure
+    /// 1: argument value failure.
     ArgumentValueFailure = 1,
-    /// 2 — execution of command interrupted
+    /// 2: execution of command interrupted.
     CommandExecutionInterrupted = 2,
-    /// 3 — scripting related failure
+    /// 3: scripting related failure.
     ScriptingFailure = 3,
-    /// 4 — general failure
+    /// 4: general failure.
     GeneralFailure = 4,
-    /// 5 — API related failure
+    /// 5: API related failure.
     APIFailure = 5,
-    /// 6 — TTY related failure
+    /// 6: TTY related failure.
     TTYFailure = 6,
-    /// 7 — value generated with :return command
+    /// 7: value generated with :return command.
     ReturnValue = 7,
 }
 

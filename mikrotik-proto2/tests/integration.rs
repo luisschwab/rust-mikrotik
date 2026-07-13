@@ -1,7 +1,7 @@
-//! Integration tests for mikrotik-proto.
+//! Integration tests for `mikrotik-proto2`.
 //!
-//! These tests drive the full pipeline: command building → connection state machine
-//! → wire encoding → decoding → response parsing → event polling.
+//! These tests drive the full pipeline: command building, connection state machine,
+//! wire encoding, decoding, response parsing, and event polling.
 //! Unlike unit tests, they exercise multiple modules composed together.
 
 use mikrotik_proto2::codec;
@@ -14,8 +14,6 @@ use mikrotik_proto2::handshake::Handshaking;
 use mikrotik_proto2::handshake::LoginProgress;
 use mikrotik_proto2::response::TrapCategory;
 use mikrotik_proto2::tag::Tag;
-
-// ── Test helpers ──
 
 /// Build a wire-format sentence from raw word byte slices.
 /// This simulates what a `MikroTik` router would send.
@@ -67,8 +65,6 @@ fn drain_events(conn: &mut Connection) -> Vec<Event> {
     }
     events
 }
-
-// ── Full lifecycle tests ──
 
 #[test]
 fn full_command_lifecycle() {
@@ -273,7 +269,7 @@ fn cancel_mid_stream() {
     let cancel_transmit = conn.poll_transmit().unwrap();
     assert!(!cancel_transmit.data.is_empty());
 
-    // Router may still send a done for the cancelled tag — should be silently dropped
+    // A router may still send a done for the cancelled tag; it should be silently dropped.
     conn.receive(&build_done(tag)).unwrap();
     let events = drain_events(&mut conn);
     // Done for unknown tag should produce a Done event anyway (it goes through dispatch)
@@ -316,7 +312,7 @@ fn byte_at_a_time() {
 
     let wire = build_done(tag);
 
-    // Feed one byte at a time — must not panic, must eventually produce event
+    // Feed one byte at a time. This must not panic and must eventually produce an event.
     for &byte in &wire {
         conn.receive(&[byte]).unwrap();
     }

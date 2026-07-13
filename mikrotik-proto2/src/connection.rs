@@ -7,9 +7,9 @@
 //! # Usage pattern (mirrors `quinn-proto`)
 //!
 //! ```rust
-//! use mikrotik_proto::command::CommandBuilder;
-//! use mikrotik_proto::connection::Connection;
-//! use mikrotik_proto::connection::Event;
+//! use mikrotik_proto2::command::CommandBuilder;
+//! use mikrotik_proto2::connection::Connection;
+//! use mikrotik_proto2::connection::Event;
 //!
 //! let mut conn = Connection::new();
 //!
@@ -170,8 +170,6 @@ impl Connection {
         }
     }
 
-    // ── Category B: Handle incoming data ──
-
     /// Feed received bytes into the connection.
     ///
     /// The connection buffers these bytes internally and attempts to decode
@@ -196,7 +194,7 @@ impl Connection {
         // the immutable borrow on `self.recv_buf` is released before we
         // need `&mut self` to dispatch events.
         loop {
-            // Step 1: Try to decode + parse within a scope that borrows recv_buf
+            // Decode and parse within a scope that borrows recv_buf.
             let outcome = {
                 let buf = &self.recv_buf;
                 match codec::decode_sentence(buf)? {
@@ -221,9 +219,7 @@ impl Connection {
                     Decode::Incomplete { .. } => None,
                 }
             };
-            // Borrow on self.recv_buf is now released
-
-            // Step 2: Drain and dispatch with full &mut self access
+            // Drain and dispatch after the recv_buf borrow has ended.
             match outcome {
                 Some((parsed, bytes_consumed)) => {
                     self.recv_buf.drain(..bytes_consumed);
@@ -238,8 +234,6 @@ impl Connection {
 
         Ok(())
     }
-
-    // ── Category C: Application commands ──
 
     /// Submit a command to be sent to the remote device.
     ///
@@ -259,12 +253,12 @@ impl Connection {
 
         let tag = command.tag;
 
-        // Queue the wire-format data for transmission
+        // Queue the wire-format data for transmission.
         self.outbound.push_back(Transmit {
             data: command.into_data(),
         });
 
-        // Track as in-flight
+        // Track the command as in-flight.
         self.in_flight.insert(tag, CommandState { reply_count: 0 });
 
         Ok(tag)
@@ -309,8 +303,6 @@ impl Connection {
         self.in_flight.clear();
     }
 
-    // ── Category D: Poll for outgoing events/data ──
-
     /// Returns the next chunk of data to transmit to the remote device.
     ///
     /// The caller should send these bytes over the transport and call this
@@ -326,8 +318,6 @@ impl Connection {
     pub fn poll_event(&mut self) -> Option<Event> {
         self.events.pop_front()
     }
-
-    // ── Category A: Getters ──
 
     /// Current connection state.
     pub fn state(&self) -> State {
@@ -358,8 +348,6 @@ impl Connection {
     pub fn is_in_flight(&self, tag: Tag) -> bool {
         self.in_flight.contains_key(&tag)
     }
-
-    // ── Internal dispatch logic ──
 
     /// Dispatch a parsed response into command-specific events.
     fn dispatch_response(&mut self, response: CommandResponse) {

@@ -4,17 +4,15 @@
 //! protocol processing: wire-format decoding, word parsing, sentence parsing,
 //! response parsing, connection state, and login.
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt;
 use core::num::ParseIntError;
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use thiserror::Error;
 
 use crate::response::TrapResponse;
 use crate::word::Word;
-
-// ── Wire-format codec errors ──
 
 /// Errors from the wire-format codec (length prefix decoding).
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -23,8 +21,6 @@ pub enum DecodeError {
     #[error("invalid length prefix byte: 0x{0:02x}")]
     InvalidLengthPrefix(u8),
 }
-
-// ── Sentence-level errors ──
 
 /// Errors that can occur while processing a byte sequence into words within a sentence.
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -36,8 +32,6 @@ pub enum SentenceError {
     #[error("Invalid prefix length")]
     PrefixLength,
 }
-
-// ── Protocol-level response parsing errors ──
 
 /// Errors that can occur while parsing a [`CommandResponse`](crate::response::CommandResponse)
 /// from a decoded sentence.
@@ -65,7 +59,7 @@ pub enum ProtocolError {
 /// Types of words that can be missing from a response.
 #[derive(Error, Debug, Clone, Copy)]
 pub enum MissingWord {
-    /// Missing `.tag` — all tagged responses must have a tag.
+    /// Missing `.tag`; all tagged responses must have a tag.
     #[error("missing tag")]
     Tag,
     /// Missing category (`!done`, `!re`, `!trap`, `!fatal`, `!empty`).
@@ -111,8 +105,6 @@ impl From<Word<'_>> for WordType {
     }
 }
 
-// ── Trap category errors ──
-
 /// Errors that can occur while parsing trap categories in response sentences.
 #[derive(Error, Debug, Clone)]
 pub enum TrapCategoryError {
@@ -135,8 +127,6 @@ pub enum TrapCategoryError {
     MissingMessageAttribute,
 }
 
-// ── Connection state machine errors ──
-
 /// Errors from the [`Connection`](crate::connection::Connection) state machine.
 #[derive(Error, Debug, Clone)]
 pub enum ConnectionError {
@@ -150,8 +140,6 @@ pub enum ConnectionError {
     #[error("connection is closed")]
     Closed,
 }
-
-// ── Login handshake errors ──
 
 /// Errors from the login handshake process.
 #[derive(Error, Debug, Clone)]

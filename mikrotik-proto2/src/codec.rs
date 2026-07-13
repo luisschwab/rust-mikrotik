@@ -7,13 +7,13 @@
 //!
 //! # Length encoding scheme
 //!
-//! | Value range            | Prefix bytes | Encoding                                    |
-//! |------------------------|-------------|---------------------------------------------|
-//! | `0x00 ..= 0x7F`       | 1           | `[len]`                                     |
-//! | `0x80 ..= 0x3FFF`     | 2           | `[0x80 \| (len >> 8), len & 0xFF]`          |
-//! | `0x4000 ..= 0x1FFFFF` | 3           | `[0xC0 \| (len >> 16), (len >> 8), len]`    |
-//! | `0x200000 ..= 0xFFFFFFF` | 4        | `[0xE0 \| (len >> 24), (len >> 16), ...]`   |
-//! | `>= 0x10000000`       | 5           | `[0xF0, (len >> 24), (len >> 16), ...]`     |
+//! | Value range              | Prefix bytes | Encoding                                    |
+//! |--------------------------|--------------|---------------------------------------------|
+//! | `0x00 ..= 0x7F`          | 1            | `[len]`                                     |
+//! | `0x80 ..= 0x3FFF`        | 2            | `[0x80 \| (len >> 8), len & 0xFF]`          |
+//! | `0x4000 ..= 0x1FFFFF`    | 3            | `[0xC0 \| (len >> 16), (len >> 8), len]`    |
+//! | `0x200000 ..= 0xFFFFFFF` | 4            | `[0xE0 \| (len >> 24), (len >> 16), ...]`   |
+//! | `>= 0x10000000`          | 5            | `[0xF0, (len >> 24), (len >> 16), ...]`     |
 //!
 //! # Design
 //!
@@ -31,7 +31,7 @@ use crate::word::Word;
 
 /// Result of attempting to decode a frame from a byte buffer.
 ///
-/// This follows the `httparse::Status` pattern — the canonical Rust idiom
+/// This follows the `httparse::Status` pattern, the canonical Rust idiom
 /// for incremental, zero-copy parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decode<T> {
@@ -92,7 +92,7 @@ impl<'a> RawSentence<'a> {
     /// Iterate over parsed [`Word`]s in the sentence.
     ///
     /// Each word byte slice is lazily parsed into a typed [`Word`] on iteration.
-    /// No intermediate allocation — words are parsed directly from the span offsets.
+    /// No intermediate allocation; words are parsed directly from the span offsets.
     pub fn typed_words(&self) -> impl Iterator<Item = Result<Word<'a>, SentenceError>> + '_ {
         self.words.iter().map(|&(offset, len)| {
             let bytes = &self.data[offset..offset + len];
@@ -186,9 +186,9 @@ pub fn decode_length(data: &[u8]) -> Result<Decode<(u32, usize)>, DecodeError> {
 ///
 /// # Returns
 ///
-/// - `Ok(Decode::Complete { value, bytes_consumed })` — a full sentence was decoded. The caller should advance the
+/// - `Ok(Decode::Complete { value, bytes_consumed })`: a full sentence was decoded. The caller should advance the
 ///   buffer by `bytes_consumed`.
-/// - `Ok(Decode::Incomplete { needed })` — more data is needed to complete the sentence.
+/// - `Ok(Decode::Incomplete { needed })`: more data is needed to complete the sentence.
 ///
 /// # Errors
 ///
@@ -222,7 +222,7 @@ pub fn decode_sentence(src: &[u8]) -> Result<Decode<RawSentence<'_>>, DecodeErro
                 }
 
                 let word_start = pos + prefix_len;
-                let word_len = length as usize; // safe: u32→usize on 32+ bit
+                let word_len = length as usize; // Safe: u32 to usize on 32+ bit targets.
                 let word_end = word_start + word_len;
 
                 if word_end > src.len() {
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn test_decode_sentence_incomplete() {
         let data = build_sentence(&[b"!done", b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8"]);
-        // Feed only partial data (cut off the last byte — the terminator)
+        // Feed only partial data by cutting off the terminator.
         let partial = &data[..data.len() - 1];
         let result = decode_sentence(partial).unwrap();
         assert!(result.is_incomplete());
@@ -506,8 +506,6 @@ mod tests {
         let result = decode_sentence(&[]).unwrap();
         assert!(result.is_incomplete());
     }
-
-    // ── typed_words() tests (ported from sentence.rs) ──
 
     use uuid::Uuid;
 

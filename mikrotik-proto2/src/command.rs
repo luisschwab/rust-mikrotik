@@ -7,7 +7,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use mikrotik_proto::command::CommandBuilder;
+//! use mikrotik_proto2::command::CommandBuilder;
 //!
 //! let cmd = CommandBuilder::new()
 //!     .command("/system/resource/print")
@@ -39,8 +39,8 @@ pub struct Cmd;
 ///
 /// # Type states
 ///
-/// - `CommandBuilder<NoCmd>` — initial state, call `.command()` to transition
-/// - `CommandBuilder<Cmd>` — command word set, can add attributes and `.build()`
+/// - `CommandBuilder<NoCmd>`: initial state, call `.command()` to transition.
+/// - `CommandBuilder<Cmd>`: command word set, can add attributes and `.build()`.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct CommandBuilder<State> {
@@ -72,7 +72,7 @@ impl CommandBuilder<NoCmd> {
     ///
     /// # Arguments
     ///
-    /// * `tag` — A [`Tag`] that identifies the command for `RouterOS` correlation. **Must be unique** within a
+    /// * `tag`: A [`Tag`] that identifies the command for `RouterOS` correlation. **Must be unique** within a
     ///   connection.
     pub fn with_tag(tag: Tag) -> Self {
         Self {
@@ -101,14 +101,14 @@ impl CommandBuilder<NoCmd> {
     ///
     /// # Arguments
     ///
-    /// * `command` — The `MikroTik` command path (e.g., `/system/resource/print`).
+    /// * `command`: The `MikroTik` command path, such as `/system/resource/print`.
     pub fn command(self, command: &str) -> CommandBuilder<Cmd> {
         let Self { tag, mut buf, .. } = self;
 
         // Write the command word
         codec::encode_word(command.as_bytes(), &mut buf);
 
-        // Write the tag word — avoid format!() allocation by building directly
+        // Build the tag word directly to avoid format!() allocation.
         // ".tag=" (5 bytes) + UUID hyphenated (36 bytes) = 41 bytes
         let mut tag_buf = [0u8; 41];
         tag_buf[..5].copy_from_slice(b".tag=");
@@ -128,8 +128,8 @@ impl CommandBuilder<Cmd> {
     ///
     /// # Arguments
     ///
-    /// * `key` — The attribute's key.
-    /// * `value` — The attribute's value. If `None`, the attribute is treated as a flag (e.g., `=key=`).
+    /// * `key`: The attribute's key.
+    /// * `value`: The attribute's value. If `None`, the attribute is treated as a flag, such as `=key=`.
     pub fn attribute(self, key: &str, value: Option<&str>) -> Self {
         let Self { tag, mut buf, .. } = self;
 

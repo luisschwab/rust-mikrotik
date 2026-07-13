@@ -1,10 +1,10 @@
-//! Command tag — a unique identifier for correlating commands with responses.
+//! Command tag, a unique identifier for correlating commands with responses.
 //!
 //! Each command sent to a `MikroTik` router is assigned a [`Tag`] that the
 //! router echoes back in all response sentences (`.tag=<value>`). This allows
 //! multiplexing multiple in-flight commands over a single connection.
 //!
-//! `Tag` is a newtype wrapper around [`uuid::Uuid`] that provides type safety —
+//! `Tag` is a newtype wrapper around [`uuid::Uuid`] that provides type safety:
 //! you cannot accidentally pass a random `Uuid` where a command tag is expected.
 
 use core::fmt;
@@ -41,7 +41,7 @@ impl Tag {
 
     /// Parse a tag from ASCII bytes without requiring UTF-8 validation.
     ///
-    /// This is the fast path used by word parsing — the `.tag=<uuid>` value
+    /// This is the fast path used by word parsing. The `.tag=<uuid>` value
     /// on the wire is always ASCII hex digits and hyphens, so we can skip
     /// `from_utf8` entirely and hand the bytes directly to the UUID parser.
     ///
@@ -83,7 +83,7 @@ impl From<Tag> for Uuid {
     }
 }
 
-/// Parse a tag from a hyphenated UUID string (e.g., from `.tag=...` wire data).
+/// Parse a tag from a hyphenated UUID string, such as `.tag=...` wire data.
 impl core::str::FromStr for Tag {
     type Err = uuid::Error;
 

@@ -1,6 +1,6 @@
 //! Compile-time command path validation and `command!` macro.
 //!
-//! The `command!` macro provides a convenient syntax for building MikroTik
+//! The `command!` macro provides a convenient syntax for building `MikroTik`
 //! commands with compile-time validation of the command path.
 
 /// A minimal const validator that enforces basic `MikroTik` command rules:
@@ -57,7 +57,7 @@ pub const fn check_mikrotik_command(cmd: &str) -> &str {
 /// # Examples
 ///
 /// ```rust
-/// use mikrotik_proto::command;
+/// use mikrotik_proto2::command;
 ///
 /// // Simple command
 /// let cmd = command!("/system/resource/print");

@@ -3,14 +3,13 @@
 //! Every MikroTik API sentence is composed of *words*. Each word is a
 //! length-prefixed byte sequence that falls into one of four categories:
 //!
-//! - **Category** — response type identifier (`!done`, `!re`, `!trap`, `!fatal`, `!empty`)
-//! - **Tag** — command correlation tag (`.tag=<uuid>`)
-//! - **Attribute** — key-value pair (`=key=value`)
-//! - **Message** — free-form text (used for `!fatal` reasons)
+//! - **Category**: response type identifier (`!done`, `!re`, `!trap`, `!fatal`, `!empty`).
+//! - **Tag**: command correlation tag (`.tag=<uuid>`).
+//! - **Attribute**: key-value pair (`=key=value`).
+//! - **Message**: free-form text used for `!fatal` reasons.
 
+use core::fmt;
 use core::fmt::Display;
-use core::fmt::Formatter;
-use core::fmt::{self};
 use core::str::Utf8Error;
 
 use thiserror::Error;
@@ -25,10 +24,10 @@ use crate::tag::Tag;
 ///
 /// # Variants
 ///
-/// - `Category` — response type (`!done`, `!re`, `!trap`, `!fatal`, `!empty`)
-/// - `Tag` — command correlation UUID (`.tag=<uuid>`)
-/// - `Attribute` — key-value pair (`=key=value`)
-/// - `Message` — free-form text (typically a `!fatal` reason)
+/// - `Category`: response type (`!done`, `!re`, `!trap`, `!fatal`, `!empty`).
+/// - `Tag`: command correlation UUID (`.tag=<uuid>`).
+/// - `Attribute`: key-value pair (`=key=value`).
+/// - `Message`: free-form text, typically a `!fatal` reason.
 #[derive(Debug, PartialEq)]
 pub enum Word<'a> {
     /// A category word, such as `!done`, `!re`, `!trap`, `!fatal`, or `!empty`.
@@ -79,7 +78,7 @@ impl Word<'_> {
 }
 
 impl Display for Word<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Word::Category(category) => write!(f, "{category}"),
             Word::Tag(tag) => write!(f, ".tag={tag}"),
@@ -113,7 +112,7 @@ impl<'a> TryFrom<&'a [u8]> for Word<'a> {
                 b"!empty" => Ok(Word::Category(WordCategory::Empty)),
                 _ => Ok(Word::Message(core::str::from_utf8(value)?)),
             },
-            // Tag words: ".tag=<uuid>" — parse UUID directly from ASCII bytes
+            // Parse tags directly from ASCII bytes.
             Some(b'.') => {
                 if value.starts_with(b".tag=") {
                     let tag = Tag::try_from_ascii_bytes(&value[5..])?;
@@ -136,15 +135,15 @@ impl<'a> TryFrom<&'a [u8]> for Word<'a> {
 /// Valid types are `!done`, `!re`, `!trap`, `!fatal`, and `!empty`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WordCategory {
-    /// Represents a `!done` response — command completed successfully.
+    /// Represents a `!done` response; command completed successfully.
     Done,
-    /// Represents a `!re` response — a reply with attribute data.
+    /// Represents a `!re` response with attribute data.
     Reply,
-    /// Represents a `!trap` response — an error or warning.
+    /// Represents a `!trap` error or warning response.
     Trap,
-    /// Represents a `!fatal` response — a fatal connection error.
+    /// Represents a `!fatal` connection error response.
     Fatal,
-    /// Represents a `!empty` response (`RouterOS` 7.18+) — no data to reply with.
+    /// Represents a `!empty` response (`RouterOS` 7.18+) with no data to reply with.
     Empty,
 }
 
@@ -164,7 +163,7 @@ impl TryFrom<&str> for WordCategory {
 }
 
 impl Display for WordCategory {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Done => write!(f, "!done"),
             Self::Reply => write!(f, "!re"),

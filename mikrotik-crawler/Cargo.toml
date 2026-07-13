@@ -39,7 +39,5 @@ workspace = true
 lint = { allowed_duplicates = [
   "argh_shared",
   "getrandom",
-  "thiserror",
-  "thiserror-impl",
   "windows-sys",
 ] }

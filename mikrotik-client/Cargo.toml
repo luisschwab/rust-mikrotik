@@ -15,9 +15,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 # Workspace Dependencies
 mikrotik-common = { path = "../mikrotik-common" }
+mikrotik-proto2 = { path = "../mikrotik-proto2", features = ["std"] }
 mikrotik-types = { path = "../mikrotik-types" }
 # External Dependencies
-mikrotik-proto = { version = "0.2.0", features = ["std"] }
 rustls = { version = "0.23.40", default-features = false, features = ["ring", "std"] }
 serde.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "sync", "time"] }
@@ -28,7 +28,6 @@ anyhow = { version = "1.0.103", default-features = false } # blame: uuid@1.23.4 
 bytes = { version = "1.11.1", default-features = false }
 ring = { version = "0.17.12", default-features = false } # blame: rustls-webpki@0.103.13 (RUSTSEC-2025-0009)
 rustls-webpki = { version = "0.103.13", default-features = false }
-uuid = { version = "1.23.4", default-features = false }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

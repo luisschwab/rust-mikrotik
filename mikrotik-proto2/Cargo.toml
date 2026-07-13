@@ -1,0 +1,25 @@
+[package]
+name = "mikrotik-proto2"
+description = "Sans-IO protocol implementation for MikroTik RouterOS API (vendored from the original mikrotik-proto crate)"
+version = "0.2.0"
+authors = ["Alessandro Ferrara", "Luis Schwab <dev@luisschwab.net>"]
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+repository.workspace = true
+
+[features]
+std = ["uuid/std", "uuid/v4"]
+
+[dependencies]
+# External Dependencies
+hashbrown = { version = "0.17.1" }
+uuid = { version = "1.23.4", default-features = false }
+
+[dev-dependencies]
+proptest = { version = "1.11.0" }
+# Transitive dependency pins:
+tempfile = { version = "3.27.0" } # blame: proptest@1.11.0 -> tempfile@3.0.2 -> remove_dir_all@0.5.0 (RUSTSEC-2023-0018)
+
+[lints]
+workspace = true

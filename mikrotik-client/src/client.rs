@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::sync::Once;
 
 use mikrotik_common::row::Row;
-use mikrotik_proto::CommandBuilder;
-use mikrotik_proto::Event;
+use mikrotik_proto2::CommandBuilder;
+use mikrotik_proto2::Event;
 use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -196,7 +196,7 @@ fn next_connect_delay(delay: Duration, max_delay: Duration) -> Duration {
 
 impl Session {
     /// Send one encoded command and collect reply rows for its tag.
-    async fn call(&mut self, command: mikrotik_proto::Command) -> Result<Vec<Row>> {
+    async fn call(&mut self, command: mikrotik_proto2::Command) -> Result<Vec<Row>> {
         let tag = self.connection.send_command(command)?;
         let mut rows = Vec::new();
 
@@ -242,7 +242,7 @@ impl Session {
 }
 
 /// Convert protocol attributes into a `Row`, dropping absent values.
-fn row_from_attributes(attributes: mikrotik_proto::HashMap<String, Option<String>>) -> Row {
+fn row_from_attributes(attributes: mikrotik_proto2::HashMap<String, Option<String>>) -> Row {
     attributes
         .into_iter()
         .filter_map(|(key, value)| value.map(|value| (key, value)))
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn row_conversion_drops_none_values() {
-        let attributes = mikrotik_proto::HashMap::from([
+        let attributes = mikrotik_proto2::HashMap::from([
             ("dst-address".to_owned(), Some("0.0.0.0/0".to_owned())),
             ("comment".to_owned(), None),
         ]);

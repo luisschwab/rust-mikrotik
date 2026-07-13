@@ -13,9 +13,9 @@ pub enum Error {
     /// Error returned by the network transport.
     Io(io::Error),
     /// Error returned by the sans-IO connection state machine.
-    Connection(mikrotik_proto::error::ConnectionError),
+    Connection(mikrotik_proto2::error::ConnectionError),
     /// Error returned by the `RouterOS` login handshake.
-    Login(mikrotik_proto::error::LoginError),
+    Login(mikrotik_proto2::error::LoginError),
     /// The configured service protocol is not supported by this client.
     UnsupportedProtocol(&'static str),
     /// The transport closed before the current operation completed.
@@ -122,14 +122,14 @@ impl From<io::Error> for Error {
     }
 }
 
-impl From<mikrotik_proto::error::ConnectionError> for Error {
-    fn from(error: mikrotik_proto::error::ConnectionError) -> Self {
+impl From<mikrotik_proto2::error::ConnectionError> for Error {
+    fn from(error: mikrotik_proto2::error::ConnectionError) -> Self {
         Self::Connection(error)
     }
 }
 
-impl From<mikrotik_proto::error::LoginError> for Error {
-    fn from(error: mikrotik_proto::error::LoginError) -> Self {
+impl From<mikrotik_proto2::error::LoginError> for Error {
+    fn from(error: mikrotik_proto2::error::LoginError) -> Self {
         Self::Login(error)
     }
 }

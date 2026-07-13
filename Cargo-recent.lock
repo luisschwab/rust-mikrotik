@@ -437,7 +437,6 @@ version = "0.2.0"
 dependencies = [
  "hashbrown",
  "proptest",
- "thiserror 2.0.18",
  "uuid",
 ]
 

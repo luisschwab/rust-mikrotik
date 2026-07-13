@@ -8,11 +8,10 @@
 //! - **Attribute**: key-value pair (`=key=value`).
 //! - **Message**: free-form text used for `!fatal` reasons.
 
+use core::error::Error;
 use core::fmt;
 use core::fmt::Display;
 use core::str::Utf8Error;
-
-use thiserror::Error;
 
 use crate::error::WordType;
 use crate::tag::Tag;
@@ -215,21 +214,42 @@ impl<'a> TryFrom<&'a [u8]> for WordAttribute<'a> {
 }
 
 /// Errors that can occur while parsing a [`Word`].
-#[derive(Error, Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum WordError {
     /// The word is not a valid UTF-8 string.
-    #[error("UTF-8 decoding error: {0}")]
-    Utf8(#[from] Utf8Error),
+    Utf8(Utf8Error),
     /// The word is a tag, but the tag value is invalid.
-    #[error("Tag parsing error: {0}")]
-    Tag(#[from] uuid::Error),
+    Tag(uuid::Error),
     /// The word is an attribute pair, but the format is invalid.
-    #[error("Invalid attribute format")]
     Attribute,
     /// The key part of the attribute pair is not valid UTF-8.
-    #[error("Attribute key is not valid UTF-8")]
     AttributeKeyNotUtf8,
 }
+
+impl Display for WordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Utf8(error) => write!(f, "UTF-8 decoding error: {error}"),
+            Self::Tag(error) => write!(f, "Tag parsing error: {error}"),
+            Self::Attribute => write!(f, "Invalid attribute format"),
+            Self::AttributeKeyNotUtf8 => write!(f, "Attribute key is not valid UTF-8"),
+        }
+    }
+}
+
+impl From<Utf8Error> for WordError {
+    fn from(error: Utf8Error) -> Self {
+        Self::Utf8(error)
+    }
+}
+
+impl From<uuid::Error> for WordError {
+    fn from(error: uuid::Error) -> Self {
+        Self::Tag(error)
+    }
+}
+
+impl Error for WordError {}
 
 #[cfg(test)]
 mod tests {

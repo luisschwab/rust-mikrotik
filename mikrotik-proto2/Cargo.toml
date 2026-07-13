@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-proto2"
-description = "Sans-IO protocol implementation for MikroTik RouterOS API (Vendored from the original mikrotik-proto)"
+description = "Sans-IO protocol implementation for MikroTik RouterOS API (vendored from the original mikrotik-proto crate)"
 version = "0.2.0"
 authors = ["Alessandro Ferrara", "Luis Schwab <dev@luisschwab.net>"]
 edition.workspace = true
@@ -13,12 +13,11 @@ std = ["uuid/std", "uuid/v4"]
 
 [dependencies]
 # External Dependencies
-hashbrown = { version = "0.17" }
-thiserror = { version = "2.0", default-features = false }
-uuid = { version = "1.23.4", default-features = false }
+hashbrown = { version = "=0.17.1" }
+uuid = { version = "=1.23.4", default-features = false }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { version = "=1.11.0" }
 
 [lints]
 workspace = true

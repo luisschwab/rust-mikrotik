@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 //! # mikrotik-proto2
 //!
@@ -46,6 +46,8 @@
 //! ```
 
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 // Re-export the appropriate HashMap type based on feature flags.
 //

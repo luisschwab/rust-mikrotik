@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 /// A unique tag identifying a command for response correlation.
 ///
-/// Tags are generated automatically by [`CommandBuilder`](crate::command::CommandBuilder)
-/// using UUID v4, or can be created explicitly via [`Tag::new`] or [`Tag::from_uuid`].
+/// Tags can be created explicitly via [`Tag::new`].
+/// With the `std` feature enabled, [`Tag::new`] generates UUID v4 tags.
 ///
 /// The router echoes the tag in every response sentence belonging to the command,
 /// allowing the [`Connection`](crate::connection::Connection) to demultiplex responses.
@@ -23,8 +23,15 @@ pub struct Tag(Uuid);
 
 impl Tag {
     /// Generate a new random tag (UUID v4).
+    #[cfg(feature = "std")]
     pub fn new() -> Self {
         Self(Uuid::new_v4())
+    }
+
+    /// Create a tag from a caller-provided [`uuid::Uuid`].
+    #[cfg(not(feature = "std"))]
+    pub const fn new(uuid: Uuid) -> Self {
+        Self(uuid)
     }
 
     /// Create a tag from an existing [`uuid::Uuid`] in a const context.
@@ -53,6 +60,7 @@ impl Tag {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for Tag {
     fn default() -> Self {
         Self::new()

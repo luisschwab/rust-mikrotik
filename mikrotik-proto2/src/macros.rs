@@ -57,6 +57,8 @@ pub const fn check_mikrotik_command(cmd: &str) -> &str {
 /// # Examples
 ///
 /// ```rust
+/// # #[cfg(feature = "std")]
+/// # {
 /// use mikrotik_proto2::command;
 ///
 /// // Simple command
@@ -66,6 +68,7 @@ pub const fn check_mikrotik_command(cmd: &str) -> &str {
 /// // Command with attributes
 /// let cmd = command!("/interface/print", user = "admin", detail);
 /// assert!(!cmd.data().is_empty());
+/// # }
 /// ```
 #[macro_export]
 macro_rules! command {
@@ -92,7 +95,7 @@ macro_rules! command {
     (@opt) => { None };
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use alloc::string::String;
     use alloc::vec::Vec;

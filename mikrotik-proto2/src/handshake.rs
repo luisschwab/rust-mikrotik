@@ -78,10 +78,35 @@ impl Handshaking {
     ///
     /// Returns [`ConnectionError`] if the internal connection could not
     /// accept the login command.
+    #[cfg(feature = "std")]
     pub fn new(username: &str, password: Option<&str>) -> Result<Self, ConnectionError> {
         let mut conn = Connection::new();
         let login_cmd = CommandBuilder::login(username, password);
         let tag = conn.send_command(login_cmd)?;
+
+        Ok(Self {
+            inner: conn,
+            login_tag: tag,
+        })
+    }
+
+    /// Create a new connection and initiate the login sequence with an explicit tag.
+    ///
+    /// The login command is immediately queued for transmission.
+    /// Call [`poll_transmit()`](Self::poll_transmit) to get the bytes to send.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConnectionError`] if the internal connection could not
+    /// accept the login command.
+    pub fn with_tag(tag: Tag, username: &str, password: Option<&str>) -> Result<Self, ConnectionError> {
+        let mut conn = Connection::new();
+        let login_cmd = CommandBuilder::with_tag(tag)
+            .command("/login")
+            .attribute("name", Some(username))
+            .attribute("password", password)
+            .build();
+        conn.send_command(login_cmd)?;
 
         Ok(Self {
             inner: conn,
@@ -159,7 +184,7 @@ impl Authenticated {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use alloc::format;
     use alloc::vec::Vec;

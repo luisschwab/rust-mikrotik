@@ -7,6 +7,8 @@
 //! # Examples
 //!
 //! ```rust
+//! # #[cfg(feature = "std")]
+//! # {
 //! use mikrotik_proto2::command::CommandBuilder;
 //!
 //! let cmd = CommandBuilder::new()
@@ -16,6 +18,7 @@
 //!
 //! // The command has wire-format data ready to send
 //! assert!(!cmd.data().is_empty());
+//! # }
 //! ```
 
 use alloc::vec::Vec;
@@ -52,6 +55,7 @@ pub struct CommandBuilder<State> {
     state: PhantomData<State>,
 }
 
+#[cfg(feature = "std")]
 impl Default for CommandBuilder<NoCmd> {
     fn default() -> Self {
         Self::new()
@@ -60,6 +64,7 @@ impl Default for CommandBuilder<NoCmd> {
 
 impl CommandBuilder<NoCmd> {
     /// Begin building a new [`Command`] with a randomly generated tag.
+    #[cfg(feature = "std")]
     pub fn new() -> Self {
         Self {
             tag: Tag::new(),
@@ -83,6 +88,7 @@ impl CommandBuilder<NoCmd> {
     }
 
     /// Builds a login command with the provided username and optional password.
+    #[cfg(feature = "std")]
     pub fn login(username: &str, password: Option<&str>) -> Command {
         Self::new()
             .command("/login")
@@ -337,7 +343,7 @@ impl QueryOperator {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use alloc::string::String;
 

@@ -7,6 +7,8 @@
 //! # Usage pattern (mirrors `quinn-proto`)
 //!
 //! ```rust
+//! # #[cfg(feature = "std")]
+//! # {
 //! use mikrotik_proto2::command::CommandBuilder;
 //! use mikrotik_proto2::connection::Connection;
 //! use mikrotik_proto2::connection::Event;
@@ -39,6 +41,7 @@
 //!         Event::Empty { tag } => { /* empty response */ }
 //!     }
 //! }
+//! # }
 //! ```
 
 use alloc::collections::VecDeque;
@@ -414,7 +417,7 @@ impl Default for Connection {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use alloc::format;
     use alloc::string::String;

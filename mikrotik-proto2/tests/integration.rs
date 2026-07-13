@@ -5,15 +5,29 @@
 //! Unlike unit tests, they exercise multiple modules composed together.
 
 use mikrotik_proto2::codec;
+#[cfg(feature = "std")]
 use mikrotik_proto2::command;
 use mikrotik_proto2::command::CommandBuilder;
 use mikrotik_proto2::connection::Connection;
 use mikrotik_proto2::connection::Event;
+#[cfg(feature = "std")]
 use mikrotik_proto2::connection::State;
 use mikrotik_proto2::handshake::Handshaking;
 use mikrotik_proto2::handshake::LoginProgress;
+#[cfg(feature = "std")]
 use mikrotik_proto2::response::TrapCategory;
 use mikrotik_proto2::tag::Tag;
+#[cfg(not(feature = "std"))]
+use uuid::Uuid;
+
+#[cfg(not(feature = "std"))]
+const TAG_A: Tag = Tag::new(Uuid::from_bytes([
+    0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
+]));
+#[cfg(not(feature = "std"))]
+const TAG_B: Tag = Tag::new(Uuid::from_bytes([
+    0xb1, 0xb2, 0xb3, 0xb4, 0xc1, 0xc2, 0xd1, 0xd2, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8,
+]));
 
 /// Build a wire-format sentence from raw word byte slices.
 /// This simulates what a `MikroTik` router would send.
@@ -31,6 +45,7 @@ fn build_done(tag: Tag) -> Vec<u8> {
     build_sentence(&[b"!done", tag_word.as_bytes()])
 }
 
+#[cfg(feature = "std")]
 fn build_reply(tag: Tag, attrs: &[(&str, &str)]) -> Vec<u8> {
     let tag_word = format!(".tag={tag}");
     let attr_words: Vec<String> = attrs.iter().map(|(k, v)| format!("={k}={v}")).collect();
@@ -41,6 +56,7 @@ fn build_reply(tag: Tag, attrs: &[(&str, &str)]) -> Vec<u8> {
     build_sentence(&words)
 }
 
+#[cfg(feature = "std")]
 fn build_trap_with_category(tag: Tag, category: u8, message: &str) -> Vec<u8> {
     let tag_word = format!(".tag={tag}");
     let cat_word = format!("=category={category}");
@@ -48,6 +64,7 @@ fn build_trap_with_category(tag: Tag, category: u8, message: &str) -> Vec<u8> {
     build_sentence(&[b"!trap", tag_word.as_bytes(), cat_word.as_bytes(), msg_word.as_bytes()])
 }
 
+#[cfg(feature = "std")]
 fn build_fatal(message: &str) -> Vec<u8> {
     build_sentence(&[b"!fatal", message.as_bytes()])
 }
@@ -58,6 +75,7 @@ fn drain_transmits(conn: &mut Connection) {
 }
 
 /// Collect all pending events from a connection.
+#[cfg(feature = "std")]
 fn drain_events(conn: &mut Connection) -> Vec<Event> {
     let mut events = Vec::new();
     while let Some(event) = conn.poll_event() {
@@ -67,6 +85,7 @@ fn drain_events(conn: &mut Connection) -> Vec<Event> {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn full_command_lifecycle() {
     // Build a command using the builder
     let cmd = CommandBuilder::new()
@@ -121,6 +140,7 @@ fn full_command_lifecycle() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn handshake_then_commands() {
     // Start the login handshake
     let mut hs = Handshaking::new("admin", Some("secret")).unwrap();
@@ -173,6 +193,7 @@ fn handshake_then_commands() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn concurrent_multiplexing() {
     let mut conn = Connection::new();
 
@@ -243,6 +264,7 @@ fn concurrent_multiplexing() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn cancel_mid_stream() {
     let mut conn = Connection::new();
     let cmd = CommandBuilder::new()
@@ -278,6 +300,7 @@ fn cancel_mid_stream() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn command_macro_roundtrip() {
     let cmd = command!("/interface/print", name = "ether1");
     let tag = cmd.tag;
@@ -304,6 +327,7 @@ fn command_macro_roundtrip() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn byte_at_a_time() {
     let mut conn = Connection::new();
     let cmd = CommandBuilder::new().command("/test").build();
@@ -326,6 +350,7 @@ fn byte_at_a_time() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn back_to_back_streaming_replies() {
     let mut conn = Connection::new();
     let cmd = CommandBuilder::new().command("/interface/print").build();
@@ -364,6 +389,7 @@ fn back_to_back_streaming_replies() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn trap_with_all_categories() {
     let categories = [
         (0u8, TrapCategory::MissingItemOrCommand),
@@ -399,6 +425,7 @@ fn trap_with_all_categories() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn fatal_kills_connection() {
     let mut conn = Connection::new();
 
@@ -437,6 +464,7 @@ fn fatal_kills_connection() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn empty_password_login() {
     // Login with no password
     let mut hs = Handshaking::new("admin", None).unwrap();
@@ -470,6 +498,7 @@ fn empty_password_login() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn reply_for_cancelled_command_is_ignored() {
     let mut conn = Connection::new();
     let cmd = CommandBuilder::new().command("/tool/torch").build();
@@ -496,6 +525,7 @@ fn reply_for_cancelled_command_is_ignored() {
 }
 
 #[test]
+#[cfg(feature = "std")]
 fn multiple_receive_chunks_split_across_sentence_boundary() {
     let mut conn = Connection::new();
     let cmd = CommandBuilder::new().command("/test").build();
@@ -521,4 +551,50 @@ fn multiple_receive_chunks_split_across_sentence_boundary() {
     assert_eq!(events.len(), 2);
     assert!(matches!(&events[0], Event::Reply { .. }));
     assert!(matches!(&events[1], Event::Done { .. }));
+}
+
+#[test]
+#[cfg(not(feature = "std"))]
+fn command_builder_accepts_manual_uuid_tag() {
+    let command = CommandBuilder::with_tag(TAG_A)
+        .command("/system/resource/print")
+        .attribute("detail", None)
+        .build();
+
+    assert_eq!(command.tag, TAG_A);
+    assert!(command.data().starts_with(b"\x16/system/resource/print"));
+}
+
+#[test]
+#[cfg(not(feature = "std"))]
+fn connection_roundtrip_with_manual_uuid_tag() {
+    let command = CommandBuilder::with_tag(TAG_B).command("/interface/print").build();
+    let mut connection = Connection::new();
+    let tag = connection.send_command(command).unwrap();
+    assert_eq!(tag, TAG_B);
+
+    drain_transmits(&mut connection);
+
+    connection.receive(&build_done(tag)).unwrap();
+    match connection.poll_event().unwrap() {
+        Event::Done { tag } => assert_eq!(tag, TAG_B),
+        event => panic!("expected done event, got {event:?}"),
+    }
+}
+
+#[test]
+#[cfg(not(feature = "std"))]
+fn handshake_accepts_manual_uuid_tag() {
+    let mut handshaking = Handshaking::with_tag(TAG_B, "admin", None).unwrap();
+    assert_eq!(handshaking.login_tag(), TAG_B);
+
+    while handshaking.poll_transmit().is_some() {}
+
+    handshaking.receive(&build_done(TAG_B)).unwrap();
+    match handshaking.advance().unwrap() {
+        LoginProgress::Complete(mut authenticated) => {
+            assert!(authenticated.connection().is_active());
+        }
+        LoginProgress::Pending(_) => panic!("expected login to complete"),
+    }
 }

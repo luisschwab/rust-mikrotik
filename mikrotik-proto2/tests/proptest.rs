@@ -5,6 +5,8 @@
 //! - Decoders never panic on arbitrary byte sequences.
 //! - The connection state machine never panics on arbitrary input.
 
+#![cfg(feature = "std")]
+
 use mikrotik_proto2::codec;
 use mikrotik_proto2::codec::Decode;
 use mikrotik_proto2::connection::Connection;

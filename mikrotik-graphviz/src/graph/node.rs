@@ -1,6 +1,7 @@
-use mikrotik_types::device::DeviceKey;
+use core::net::SocketAddr;
+
 use mikrotik_types::device::DeviceRole;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::topology::InferredDevice;
 use mikrotik_types::topology::InferredDeviceFailure;
 use mikrotik_types::topology::NetworkNode;
@@ -84,12 +85,12 @@ pub(super) fn push_graphviz_node(
 }
 
 /// Return whether one node key is a configured seed.
-pub(super) fn graphviz_key_is_seed(node: &DeviceKey, options: &DotExportOptions) -> bool {
+pub(super) fn graphviz_key_is_seed(node: &TopologyNodeKey, options: &DotExportOptions) -> bool {
     options.root_node.as_deref() == Some(node.as_str()) || options.seed_nodes.iter().any(|seed| seed == node.as_str())
 }
 
 /// Return a collected device role for one node.
-pub(super) fn graphviz_node_role(node: &DeviceKey, graph: &NetworkGraph) -> Option<DeviceRole> {
+pub(super) fn graphviz_node_role(node: &TopologyNodeKey, graph: &NetworkGraph) -> Option<DeviceRole> {
     graph
         .nodes
         .iter()
@@ -98,7 +99,7 @@ pub(super) fn graphviz_node_role(node: &DeviceKey, graph: &NetworkGraph) -> Opti
 }
 
 /// Return the rendered label for one graph node.
-pub(super) fn graphviz_node_label(node: &DeviceKey, graph: &NetworkGraph) -> Option<String> {
+pub(super) fn graphviz_node_label(node: &TopologyNodeKey, graph: &NetworkGraph) -> Option<String> {
     graph
         .nodes
         .iter()
@@ -143,21 +144,24 @@ fn graphviz_node_is_seed(node: &NetworkNode, options: &DotExportOptions) -> bool
 /// Build SVG tooltip text for one graph node.
 fn graphviz_node_tooltip(node: &NetworkNode) -> Option<String> {
     if let Some(snapshot) = &node.snapshot {
-        return Some(collected_node_tooltip(snapshot));
+        return Some(collected_node_tooltip(snapshot, node.target_address));
     }
     node.inferred.as_ref().map(inferred_node_tooltip)
 }
 
 /// Build tooltip text for a collected router.
-fn collected_node_tooltip(snapshot: &DeviceSnapshot) -> String {
-    let routerboard = &snapshot.routerboard;
+fn collected_node_tooltip(
+    snapshot: &mikrotik_types::device::RouterOsSnapshot,
+    target_address: Option<SocketAddr>,
+) -> String {
+    let routerboard = &snapshot.system.routerboard;
     let mut tooltip = String::new();
     push_tooltip_line(
         &mut tooltip,
         "NAME",
-        snapshot.identity.name.as_deref().unwrap_or("UNKNOWN"),
+        snapshot.system.identity.name.as_deref().unwrap_or("UNKNOWN"),
     );
-    let target_address = snapshot.target_address.to_string();
+    let target_address = target_address.map_or_else(|| "UNKNOWN".to_owned(), |address| address.to_string());
     push_tooltip_line(&mut tooltip, "MANAGEMENT IP", &target_address);
     push_tooltip_optional(&mut tooltip, "SERIAL", routerboard.serial_number.as_ref());
     tooltip

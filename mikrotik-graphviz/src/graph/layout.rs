@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::collections::VecDeque;
 
 use mikrotik_types::abstractions::LinkKind;
-use mikrotik_types::device::DeviceKey;
+use mikrotik_types::device::TopologyNodeKey;
 
 use super::GRAPHVIZ_RANK_CORE_OSPF;
 use super::GRAPHVIZ_RANK_CUSTOMER;
@@ -44,9 +44,9 @@ use crate::options::DotExportOptions;
 pub(super) fn typed_radial_positions(
     graph: &NetworkGraph,
     edges: &[GraphvizEdge],
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     root_node: Option<&str>,
-) -> BTreeMap<DeviceKey, (f64, f64)> {
+) -> BTreeMap<TopologyNodeKey, (f64, f64)> {
     let root = root_node
         .and_then(|root| visible_nodes.iter().find(|node| node.as_str() == root).cloned())
         .or_else(|| {
@@ -61,8 +61,8 @@ pub(super) fn typed_radial_positions(
     };
 
     let typed_nodes = typed_radial_tree(edges, visible_nodes, &root);
-    let mut root_sectors = BTreeMap::<LinkKind, Vec<DeviceKey>>::new();
-    let mut children = BTreeMap::<DeviceKey, Vec<DeviceKey>>::new();
+    let mut root_sectors = BTreeMap::<LinkKind, Vec<TopologyNodeKey>>::new();
+    let mut children = BTreeMap::<TopologyNodeKey, Vec<TopologyNodeKey>>::new();
     let mut positions = BTreeMap::new();
     positions.insert(root.clone(), (0.0, 0.0));
 
@@ -124,16 +124,16 @@ struct TypedRadialPlacement {
     /// Link kind that reached this node.
     link_kind: LinkKind,
     /// Parent node in the BFS tree.
-    parent: Option<DeviceKey>,
+    parent: Option<TopologyNodeKey>,
 }
 
 /// Return BFS tree placement data for nodes reachable from the root.
 fn typed_radial_tree(
     edges: &[GraphvizEdge],
-    visible_nodes: &BTreeSet<DeviceKey>,
-    root: &DeviceKey,
-) -> BTreeMap<DeviceKey, TypedRadialPlacement> {
-    let mut adjacency = BTreeMap::<DeviceKey, Vec<(DeviceKey, LinkKind)>>::new();
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
+    root: &TopologyNodeKey,
+) -> BTreeMap<TopologyNodeKey, TypedRadialPlacement> {
+    let mut adjacency = BTreeMap::<TopologyNodeKey, Vec<(TopologyNodeKey, LinkKind)>>::new();
     for edge in edges {
         if !visible_nodes.contains(&edge.local_node) || !visible_nodes.contains(&edge.remote_node) {
             continue;
@@ -179,9 +179,9 @@ fn typed_radial_tree(
 
 /// Return a fallback placement for disconnected visible nodes.
 fn fallback_typed_radial_placement(
-    node: &DeviceKey,
+    node: &TopologyNodeKey,
     edges: &[GraphvizEdge],
-    placements: &BTreeMap<DeviceKey, TypedRadialPlacement>,
+    placements: &BTreeMap<TopologyNodeKey, TypedRadialPlacement>,
 ) -> TypedRadialPlacement {
     let max_depth = placements.values().map(|placement| placement.depth).max().unwrap_or(0);
     let link_kind = edges
@@ -283,9 +283,9 @@ fn typed_radial_child_position(
 pub(super) fn recursive_radial_positions(
     graph: &NetworkGraph,
     edges: &[GraphvizEdge],
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     options: &DotExportOptions,
-) -> BTreeMap<DeviceKey, (f64, f64)> {
+) -> BTreeMap<TopologyNodeKey, (f64, f64)> {
     let root = options
         .root_node
         .as_deref()
@@ -365,12 +365,12 @@ pub(super) fn recursive_radial_positions(
 
 /// Align recursive radial nodes into top-to-bottom semantic horizontal sections.
 fn recursive_apply_horizontal_sections(
-    positions: &mut BTreeMap<DeviceKey, (f64, f64)>,
+    positions: &mut BTreeMap<TopologyNodeKey, (f64, f64)>,
     graph: &NetworkGraph,
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     options: &DotExportOptions,
 ) {
-    let mut sections = BTreeMap::<u8, Vec<DeviceKey>>::new();
+    let mut sections = BTreeMap::<u8, Vec<TopologyNodeKey>>::new();
     for node in visible_nodes {
         if positions.contains_key(node) {
             sections
@@ -386,7 +386,11 @@ fn recursive_apply_horizontal_sections(
 }
 
 /// Place one semantic section as one or more horizontal rows while preserving topology-derived X positions.
-fn recursive_place_section_rows(positions: &mut BTreeMap<DeviceKey, (f64, f64)>, rank: u8, mut nodes: Vec<DeviceKey>) {
+fn recursive_place_section_rows(
+    positions: &mut BTreeMap<TopologyNodeKey, (f64, f64)>,
+    rank: u8,
+    mut nodes: Vec<TopologyNodeKey>,
+) {
     nodes.sort_by(|left, right| {
         let left_position = positions.get(left).copied().unwrap_or_default();
         let right_position = positions.get(right).copied().unwrap_or_default();
@@ -396,7 +400,7 @@ fn recursive_place_section_rows(positions: &mut BTreeMap<DeviceKey, (f64, f64)>,
             .then_with(|| left.as_str().cmp(right.as_str()))
     });
 
-    let mut rows = Vec::<Vec<DeviceKey>>::new();
+    let mut rows = Vec::<Vec<TopologyNodeKey>>::new();
     for node in nodes {
         let x = positions.get(&node).map_or(0.0, |position| position.0);
         let should_start_row = rows.last().is_some_and(|row| {
@@ -424,7 +428,10 @@ fn recursive_place_section_rows(positions: &mut BTreeMap<DeviceKey, (f64, f64)>,
 }
 
 /// Return row X positions with at least the configured minimum spacing.
-fn recursive_spaced_section_x_positions(positions: &BTreeMap<DeviceKey, (f64, f64)>, row: &[DeviceKey]) -> Vec<f64> {
+fn recursive_spaced_section_x_positions(
+    positions: &BTreeMap<TopologyNodeKey, (f64, f64)>,
+    row: &[TopologyNodeKey],
+) -> Vec<f64> {
     let mut xs = row
         .iter()
         .map(|node| positions.get(node).map_or(0.0, |position| position.0))
@@ -470,9 +477,9 @@ pub(super) fn recursive_section_y(rank: u8) -> f64 {
 /// Return owned BGP nodes from explicit seed context.
 fn recursive_owned_bgp_nodes(
     graph: &NetworkGraph,
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     options: &DotExportOptions,
-) -> Vec<DeviceKey> {
+) -> Vec<TopologyNodeKey> {
     let mut nodes = options
         .owned_bgp_nodes
         .iter()
@@ -487,15 +494,15 @@ fn recursive_owned_bgp_nodes(
 /// Return non-BGP adjacency used for downstream recursive radial placement.
 fn recursive_downstream_adjacency(
     edges: &[GraphvizEdge],
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     options: &DotExportOptions,
-) -> BTreeMap<DeviceKey, Vec<DeviceKey>> {
+) -> BTreeMap<TopologyNodeKey, Vec<TopologyNodeKey>> {
     let owned_bgp = options
         .owned_bgp_nodes
         .iter()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
-    let mut adjacency = BTreeMap::<DeviceKey, Vec<DeviceKey>>::new();
+    let mut adjacency = BTreeMap::<TopologyNodeKey, Vec<TopologyNodeKey>>::new();
     for edge in edges {
         if edge.link_kind == LinkKind::Bgp
             || !visible_nodes.contains(&edge.local_node)
@@ -525,11 +532,11 @@ fn recursive_downstream_adjacency(
 
 /// Return a BFS tree from recursive radial adjacency.
 fn recursive_radial_children(
-    root: &DeviceKey,
-    adjacency: &BTreeMap<DeviceKey, Vec<DeviceKey>>,
-) -> BTreeMap<DeviceKey, Vec<DeviceKey>> {
+    root: &TopologyNodeKey,
+    adjacency: &BTreeMap<TopologyNodeKey, Vec<TopologyNodeKey>>,
+) -> BTreeMap<TopologyNodeKey, Vec<TopologyNodeKey>> {
     let mut visited = BTreeSet::from([root.clone()]);
-    let mut children = BTreeMap::<DeviceKey, Vec<DeviceKey>>::new();
+    let mut children = BTreeMap::<TopologyNodeKey, Vec<TopologyNodeKey>>::new();
     let mut queue = VecDeque::from([root.clone()]);
     while let Some(parent) = queue.pop_front() {
         let Some(neighbors) = adjacency.get(&parent) else {
@@ -547,12 +554,12 @@ fn recursive_radial_children(
 
 /// Place nodes over one or more arc rows and return the angle used for each node.
 fn recursive_place_arc_rows(
-    positions: &mut BTreeMap<DeviceKey, (f64, f64)>,
+    positions: &mut BTreeMap<TopologyNodeKey, (f64, f64)>,
     parent_position: (f64, f64),
     start: f64,
     end: f64,
     first_radius: f64,
-    nodes: &[DeviceKey],
+    nodes: &[TopologyNodeKey],
 ) -> Vec<f64> {
     let mut angles_by_node = Vec::with_capacity(nodes.len());
     for (row, chunk) in nodes.chunks(GRAPHVIZ_RECURSIVE_RADIAL_MAX_ROW_CHILDREN).enumerate() {
@@ -573,7 +580,7 @@ fn recursive_place_arc_rows(
 }
 
 /// Place disconnected nodes in two stable rows below the recursive topology.
-fn recursive_place_disconnected_rows(positions: &mut BTreeMap<DeviceKey, (f64, f64)>, nodes: &[DeviceKey]) {
+fn recursive_place_disconnected_rows(positions: &mut BTreeMap<TopologyNodeKey, (f64, f64)>, nodes: &[TopologyNodeKey]) {
     if nodes.is_empty() {
         return;
     }

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
 
-use mikrotik_types::device::DeviceKey;
 use mikrotik_types::device::DeviceRole;
+use mikrotik_types::device::TopologyNodeKey;
 
 use super::GRAPHVIZ_RANK_CORE_OSPF;
 use super::GRAPHVIZ_RANK_CUSTOMER;
@@ -18,7 +18,7 @@ use super::node::graphviz_node_role;
 use crate::options::DotExportOptions;
 
 /// Return the top-to-bottom visual rank for one node.
-pub(super) fn graphviz_rank(node: &DeviceKey, graph: &NetworkGraph, options: &DotExportOptions) -> u8 {
+pub(super) fn graphviz_rank(node: &TopologyNodeKey, graph: &NetworkGraph, options: &DotExportOptions) -> u8 {
     if node.as_str().starts_with("bgp:") {
         return GRAPHVIZ_RANK_UPSTREAM;
     }
@@ -67,19 +67,25 @@ pub(super) fn graphviz_rank(node: &DeviceKey, graph: &NetworkGraph, options: &Do
 }
 
 /// Return true when a collected node has BGP control-plane state.
-pub(super) fn graphviz_node_has_bgp_state(node: &DeviceKey, graph: &NetworkGraph) -> bool {
+pub(super) fn graphviz_node_has_bgp_state(node: &TopologyNodeKey, graph: &NetworkGraph) -> bool {
     graph
         .nodes
         .iter()
         .find(|candidate| &candidate.key == node)
         .and_then(|candidate| candidate.snapshot.as_ref())
         .is_some_and(|snapshot| {
-            !snapshot.bgp_sessions.is_empty() || !snapshot.bgp_connections.is_empty() || !snapshot.bgp_peers.is_empty()
+            !snapshot.routing.bgp_sessions.is_empty()
+                || !snapshot.routing.bgp_connections.is_empty()
+                || !snapshot.routing.bgp_peers.is_empty()
         })
 }
 
 /// Return the uncapped downstream depth from the edge router, when the graph has one.
-fn graphviz_downstream_rank_exact(node: &DeviceKey, graph: &NetworkGraph, options: &DotExportOptions) -> Option<u8> {
+fn graphviz_downstream_rank_exact(
+    node: &TopologyNodeKey,
+    graph: &NetworkGraph,
+    options: &DotExportOptions,
+) -> Option<u8> {
     let edge = options
         .root_node
         .as_deref()
@@ -91,7 +97,7 @@ fn graphviz_downstream_rank_exact(node: &DeviceKey, graph: &NetworkGraph, option
                 .find(|candidate| graphviz_node_role(&candidate.key, graph) == Some(DeviceRole::CoreRouter))
                 .map(|candidate| candidate.key.clone())
         })?;
-    let mut ranks = BTreeMap::<DeviceKey, u8>::new();
+    let mut ranks = BTreeMap::<TopologyNodeKey, u8>::new();
     let mut queue = VecDeque::from([(edge, GRAPHVIZ_RANK_EDGE_BORDER)]);
 
     while let Some((current, rank)) = queue.pop_front() {
@@ -111,7 +117,7 @@ fn graphviz_downstream_rank_exact(node: &DeviceKey, graph: &NetworkGraph, option
 }
 
 /// Return whether one node sits downstream from a radio-like node.
-fn graphviz_has_radio_ancestor(node: &DeviceKey, graph: &NetworkGraph, options: &DotExportOptions) -> bool {
+fn graphviz_has_radio_ancestor(node: &TopologyNodeKey, graph: &NetworkGraph, options: &DotExportOptions) -> bool {
     let Some(root) = options
         .root_node
         .as_deref()
@@ -146,7 +152,7 @@ fn graphviz_has_radio_ancestor(node: &DeviceKey, graph: &NetworkGraph, options: 
 }
 
 /// Return true for radio/backhaul device names that follow `<src>-<dst>`.
-fn graphviz_is_radio_node(node: &DeviceKey, graph: &NetworkGraph) -> bool {
+fn graphviz_is_radio_node(node: &TopologyNodeKey, graph: &NetworkGraph) -> bool {
     graphviz_node_label(node, graph).is_some_and(|label| is_radio_name(&label))
 }
 
@@ -173,7 +179,7 @@ pub(super) fn radio_name_parts(label: &str) -> Option<(&str, &str)> {
 }
 
 /// Return non-BGP visual neighbors used for downstream rank discovery.
-fn graphviz_downstream_neighbors(node: &DeviceKey, graph: &NetworkGraph) -> Vec<DeviceKey> {
+fn graphviz_downstream_neighbors(node: &TopologyNodeKey, graph: &NetworkGraph) -> Vec<TopologyNodeKey> {
     graph
         .edges
         .iter()

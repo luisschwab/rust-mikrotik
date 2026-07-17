@@ -3,8 +3,7 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use mikrotik_types::api::ip::Neighbor;
-use mikrotik_types::device::DeviceKey;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
 use mikrotik_types::primitives::ip::MacAddress;
@@ -16,12 +15,13 @@ use mikrotik_types::topology::NetworkNodeStatus;
 use mikrotik_types::topology::TopologyLink;
 
 use super::super::rank::radio_name_parts;
+use crate::snapshot::GraphSnapshot;
 
 /// Build real wireless/backhaul topology edges from neighbor evidence between collected radios.
 pub(super) fn wireless_neighbor_edges(
-    nodes: &BTreeMap<DeviceKey, NetworkNode>,
+    nodes: &BTreeMap<TopologyNodeKey, NetworkNode>,
     neighbor_evidence: &[InferredNeighborEvidence],
-    target_keys: &HashMap<String, DeviceKey>,
+    target_keys: &HashMap<String, TopologyNodeKey>,
 ) -> Vec<TopologyLink> {
     neighbor_evidence
         .iter()
@@ -54,10 +54,10 @@ pub(super) fn wireless_neighbor_edges(
 
 /// Build low-confidence neighbor fallback edges for collected nodes that would otherwise float.
 pub(super) fn unconnected_neighbor_fallback_edges(
-    nodes: &BTreeMap<DeviceKey, NetworkNode>,
+    nodes: &BTreeMap<TopologyNodeKey, NetworkNode>,
     edges: &[TopologyLink],
     neighbor_evidence: &[InferredNeighborEvidence],
-    target_keys: &HashMap<String, DeviceKey>,
+    target_keys: &HashMap<String, TopologyNodeKey>,
 ) -> Vec<TopologyLink> {
     let connected_nodes = edges
         .iter()
@@ -93,10 +93,10 @@ pub(super) fn unconnected_neighbor_fallback_edges(
 
 /// Build low-confidence fallback edges for failed discovered nodes that would otherwise float.
 pub(super) fn unconnected_failed_neighbor_fallback_edges(
-    nodes: &BTreeMap<DeviceKey, NetworkNode>,
+    nodes: &BTreeMap<TopologyNodeKey, NetworkNode>,
     edges: &[TopologyLink],
     failed_neighbors: &[FailedNeighborCrawl],
-    target_keys: &HashMap<String, DeviceKey>,
+    target_keys: &HashMap<String, TopologyNodeKey>,
 ) -> Vec<TopologyLink> {
     let connected_nodes = edges
         .iter()
@@ -132,13 +132,13 @@ pub(super) fn unconnected_failed_neighbor_fallback_edges(
 
 /// Build inferred L3 edges to failed neighbor targets when local prefixes prove reachability.
 pub(super) fn failed_neighbor_l3_edges(
-    snapshots: &[DeviceSnapshot],
+    snapshots: &[GraphSnapshot],
     failed_neighbors: &[FailedNeighborCrawl],
-    target_keys: &HashMap<String, DeviceKey>,
+    target_keys: &HashMap<String, TopologyNodeKey>,
 ) -> Vec<TopologyLink> {
     let snapshots_by_key = snapshots
         .iter()
-        .map(|snapshot| (snapshot.stable_key(), snapshot))
+        .map(|snapshot| (snapshot.topology_node_key(), snapshot))
         .collect::<HashMap<_, _>>();
     failed_neighbors
         .iter()
@@ -164,7 +164,7 @@ pub(super) fn failed_neighbor_l3_edges(
 }
 
 /// Return a remote graph key from neighbor evidence.
-pub(super) fn remote_key(neighbor: &Neighbor, target_keys: &HashMap<String, DeviceKey>) -> DeviceKey {
+pub(super) fn remote_key(neighbor: &Neighbor, target_keys: &HashMap<String, TopologyNodeKey>) -> TopologyNodeKey {
     if let Some(address) = neighbor.management_address() {
         if let Some(key) = target_keys.get(&address.to_string()) {
             return key.clone();
@@ -182,10 +182,13 @@ pub(super) fn remote_key(neighbor: &Neighbor, target_keys: &HashMap<String, Devi
 }
 
 /// Build an inferred node from neighbor evidence.
-pub(super) fn inferred_node(key: DeviceKey, neighbor: &Neighbor) -> NetworkNode {
+pub(super) fn inferred_node(key: TopologyNodeKey, neighbor: &Neighbor) -> NetworkNode {
     NetworkNode {
         key,
         status: NetworkNodeStatus::Inferred,
+        role: None,
+        target_address: None,
+        management_addresses: Vec::new(),
         snapshot: None,
         inferred: Some(InferredDevice {
             management_address: neighbor.management_address(),
@@ -255,6 +258,6 @@ fn normalized_endpoint_name(value: &str) -> String {
 }
 
 /// Build a stable provisional key from a MAC address.
-fn mac_key(mac_address: MacAddress) -> DeviceKey {
+fn mac_key(mac_address: MacAddress) -> TopologyNodeKey {
     format!("mac:{mac_address}").into()
 }

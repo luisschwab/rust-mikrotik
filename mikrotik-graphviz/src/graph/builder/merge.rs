@@ -1,6 +1,8 @@
+use core::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
-use mikrotik_types::device::DeviceKey;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::topology::TopologyLink;
 
@@ -29,7 +31,7 @@ pub(super) fn mark_reciprocal_edges(edges: &mut [TopologyLink]) {
     let pairs = edges
         .iter()
         .map(|edge| (edge.local_node.clone(), edge.remote_node.clone()))
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<BTreeSet<_>>();
 
     for edge in edges {
         if pairs.contains(&(edge.remote_node.clone(), edge.local_node.clone())) {
@@ -39,7 +41,7 @@ pub(super) fn mark_reciprocal_edges(edges: &mut [TopologyLink]) {
 }
 
 /// Sort edges deterministically.
-pub(super) fn edge_order(left: &TopologyLink, right: &TopologyLink) -> core::cmp::Ordering {
+pub(super) fn edge_order(left: &TopologyLink, right: &TopologyLink) -> Ordering {
     left.local_node
         .cmp(&right.local_node)
         .then_with(|| left.remote_node.cmp(&right.remote_node))
@@ -51,11 +53,11 @@ pub(super) fn edge_order(left: &TopologyLink, right: &TopologyLink) -> core::cmp
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct EdgeMergeKey {
     /// Canonically ordered left node.
-    left_node: DeviceKey,
+    left_node: TopologyNodeKey,
     /// Interface on the canonically ordered left node.
     left_interface: Option<InterfaceName>,
     /// Canonically ordered right node.
-    right_node: DeviceKey,
+    right_node: TopologyNodeKey,
     /// Interface on the canonically ordered right node.
     right_interface: Option<InterfaceName>,
 }

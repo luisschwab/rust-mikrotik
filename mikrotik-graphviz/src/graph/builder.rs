@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use mikrotik_types::device::DeviceSnapshot;
 use mikrotik_types::topology::FailedNeighborCrawl;
 use mikrotik_types::topology::InferredNeighborEvidence;
 use mikrotik_types::topology::NetworkNode;
 use mikrotik_types::topology::NetworkNodeStatus;
 
 use super::model::NetworkGraph;
+use crate::snapshot::GraphSnapshot;
 
 /// BGP-based graph edge inference.
 mod bgp;
@@ -34,23 +34,27 @@ use self::neighbor::unconnected_neighbor_fallback_edges;
 use self::neighbor::wireless_neighbor_edges;
 
 /// Build a graph from collected snapshots and failed neighbor crawl evidence.
-pub fn build_graph<I>(snapshots: &[DeviceSnapshot], failed_neighbors: I) -> NetworkGraph
+pub fn build_graph<S, I>(snapshots: &[S], failed_neighbors: I) -> NetworkGraph
 where
+    for<'a> GraphSnapshot: From<&'a S>,
     I: IntoIterator<Item = FailedNeighborCrawl>,
 {
     build_graph_with_neighbor_evidence(snapshots, [], failed_neighbors)
 }
 
 /// Build a graph from collected snapshots plus successful and failed neighbor crawl evidence.
-pub fn build_graph_with_neighbor_evidence<I, J>(
-    snapshots: &[DeviceSnapshot],
+pub fn build_graph_with_neighbor_evidence<S, I, J>(
+    snapshots: &[S],
     neighbor_evidence: I,
     failed_neighbors: J,
 ) -> NetworkGraph
 where
+    for<'a> GraphSnapshot: From<&'a S>,
     I: IntoIterator<Item = InferredNeighborEvidence>,
     J: IntoIterator<Item = FailedNeighborCrawl>,
 {
+    let snapshots = snapshots.iter().map(GraphSnapshot::from).collect::<Vec<_>>();
+    let snapshots = snapshots.as_slice();
     let mut nodes = BTreeMap::new();
     let mut target_keys = HashMap::new();
     let mut address_interfaces = HashMap::new();
@@ -59,13 +63,13 @@ where
     let failed_neighbors = failed_neighbors.into_iter().collect::<Vec<_>>();
 
     for snapshot in snapshots {
-        let key = snapshot.stable_key();
+        let key = snapshot.topology_node_key();
         target_keys.insert(snapshot.target_address.to_string(), key.clone());
         target_keys.insert(snapshot.target_address.ip().to_string(), key.clone());
         for address in &snapshot.management_addresses {
             target_keys.insert(address.to_string(), key.clone());
         }
-        for address in &snapshot.addresses {
+        for address in &snapshot.ip.addresses.data {
             let Some(prefix) = address.address.as_ref() else {
                 continue;
             };
@@ -79,7 +83,10 @@ where
         nodes.entry(key.clone()).or_insert_with(|| NetworkNode {
             key,
             status: NetworkNodeStatus::Collected,
-            snapshot: Some(snapshot.clone()),
+            role: Some(snapshot.role),
+            target_address: Some(snapshot.target_address),
+            management_addresses: snapshot.management_addresses.clone(),
+            snapshot: Some(snapshot.snapshot.clone()),
             inferred: None,
         });
     }

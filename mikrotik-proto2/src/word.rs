@@ -12,6 +12,7 @@ use core::error::Error;
 use core::fmt;
 use core::fmt::Display;
 use core::str::Utf8Error;
+use core::str::from_utf8;
 
 use crate::error::WordType;
 use crate::tag::Tag;
@@ -109,7 +110,7 @@ impl<'a> TryFrom<&'a [u8]> for Word<'a> {
                 b"!trap" => Ok(Word::Category(WordCategory::Trap)),
                 b"!fatal" => Ok(Word::Category(WordCategory::Fatal)),
                 b"!empty" => Ok(Word::Category(WordCategory::Empty)),
-                _ => Ok(Word::Message(core::str::from_utf8(value)?)),
+                _ => Ok(Word::Message(from_utf8(value)?)),
             },
             // Parse tags directly from ASCII bytes.
             Some(b'.') => {
@@ -117,13 +118,13 @@ impl<'a> TryFrom<&'a [u8]> for Word<'a> {
                     let tag = Tag::try_from_ascii_bytes(&value[5..])?;
                     Ok(Word::Tag(tag))
                 } else {
-                    Ok(Word::Message(core::str::from_utf8(value)?))
+                    Ok(Word::Message(from_utf8(value)?))
                 }
             }
             // Attribute words: "=key=value"
             Some(b'=') => Ok(Word::Attribute(WordAttribute::try_from(value)?)),
             // Everything else is a message (must be valid UTF-8)
-            _ => Ok(Word::Message(core::str::from_utf8(value)?)),
+            _ => Ok(Word::Message(from_utf8(value)?)),
         }
     }
 }
@@ -201,13 +202,13 @@ impl<'a> TryFrom<&'a [u8]> for WordAttribute<'a> {
 
         // Key part must exist and be valid UTF-8
         let key_bytes = parts.next().ok_or(WordError::Attribute)?;
-        let key = core::str::from_utf8(key_bytes).map_err(|_| WordError::AttributeKeyNotUtf8)?;
+        let key = from_utf8(key_bytes).map_err(|_| WordError::AttributeKeyNotUtf8)?;
 
         // Value part is optional; treat an empty value as None.
         let value_raw = parts.next().filter(|value| !value.is_empty());
 
         // If we have a non-empty value, try to decode as UTF-8
-        let value = value_raw.and_then(|v| core::str::from_utf8(v).ok());
+        let value = value_raw.and_then(|v| from_utf8(v).ok());
 
         Ok(Self { key, value, value_raw })
     }

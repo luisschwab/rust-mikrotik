@@ -1,6 +1,8 @@
 //! `RouterOS` CHR version catalog and image URL helpers.
 
+use core::result::Result as CoreResult;
 use core::str::FromStr;
+use std::env;
 
 use serde::Deserialize;
 use serde::Deserializer;
@@ -27,7 +29,7 @@ impl ChrArch {
         } else {
             Err(Error::Tool(format!(
                 "unsupported host architecture `{}` for CHR QEMU runner",
-                std::env::consts::ARCH
+                env::consts::ARCH
             )))
         }
     }
@@ -146,7 +148,7 @@ impl FromStr for RouterOsVersion {
 }
 
 impl<'de> Deserialize<'de> for RouterOsVersion {
-    fn deserialize<D>(deserializer: D) -> core::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> CoreResult<Self, D::Error>
     where
         D: Deserializer<'de>,
     {

@@ -49,7 +49,7 @@ async fn discover_once(
         let Some(source_target) = state_snapshot.targets.get(&snapshot.target_address) else {
             continue;
         };
-        for neighbor in &snapshot.neighbors {
+        for neighbor in &snapshot.ip.neighbors.data {
             if !neighbor.is_mikrotik() {
                 continue;
             }

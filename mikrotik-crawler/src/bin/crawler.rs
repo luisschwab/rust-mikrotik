@@ -6,8 +6,13 @@ use core::net::SocketAddr;
 use core::str::FromStr;
 use core::time::Duration;
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+#[cfg(windows)]
+use std::os::windows::fs::symlink_dir;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -66,7 +71,7 @@ const LATEST_RUN_SYMLINK: &str = "latest";
 const TOKIO_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
 
 /// CLI entrypoint.
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(TOKIO_WORKER_STACK_SIZE)
@@ -75,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Run a crawl and export artifacts from parsed CLI arguments.
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let run_dir = args
         .outdir
         .clone()
@@ -99,7 +104,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Spawn a QEMU runner scenario when requested.
-async fn maybe_spawn_scenario(args: &Args) -> Result<Option<Scenario>, Box<dyn std::error::Error>> {
+async fn maybe_spawn_scenario(args: &Args) -> Result<Option<Scenario>, Box<dyn Error>> {
     let Some(scenario_path) = &args.scenario else {
         return Ok(None);
     };
@@ -113,7 +118,7 @@ async fn maybe_spawn_scenario(args: &Args) -> Result<Option<Scenario>, Box<dyn s
 }
 
 /// Run one recursive crawl to completion.
-async fn run_one_shot(args: &Args, seeds: Vec<DeviceTarget>) -> Result<NetworkGraph, Box<dyn std::error::Error>> {
+async fn run_one_shot(args: &Args, seeds: Vec<DeviceTarget>) -> Result<NetworkGraph, Box<dyn Error>> {
     let factory = BinaryApiFactory::new(args.protocol)
         .with_api_fallback()
         .with_connect_timeout(Duration::from_secs(args.connect_timeout_seconds))
@@ -135,12 +140,14 @@ async fn run_one_shot(args: &Args, seeds: Vec<DeviceTarget>) -> Result<NetworkGr
 }
 
 /// Start the long-running crawler and export current state after Ctrl-C.
-async fn run_continuous(args: &Args, seeds: Vec<DeviceTarget>) -> Result<NetworkGraph, Box<dyn std::error::Error>> {
+async fn run_continuous(args: &Args, seeds: Vec<DeviceTarget>) -> Result<NetworkGraph, Box<dyn Error>> {
     let config = CrawlerServiceConfig {
         seeds,
         snapshot_concurrency: args.max_concurrency,
         discovery_interval: Duration::from_secs(args.discovery_interval_seconds),
         snapshot_interval: Duration::from_secs(args.snapshot_interval_seconds),
+        connect_timeout: Duration::from_secs(args.connect_timeout_seconds),
+        command_timeout: Duration::from_secs(args.command_timeout_seconds),
         address_family: args.address_family,
         protocol: args.protocol,
     };
@@ -169,7 +176,13 @@ async fn run_continuous(args: &Args, seeds: Vec<DeviceTarget>) -> Result<Network
 
 /// Build a graph from continuous crawler state and failed target markers.
 fn graph_from_state(state: &CrawlerStateSnapshot) -> NetworkGraph {
-    let mut graph = NetworkGraph::from_snapshots(state.snapshots.values().cloned().collect());
+    let mut graph = NetworkGraph::from_snapshots(
+        state
+            .snapshots
+            .values()
+            .map(mikrotik_graphviz::snapshot::GraphSnapshot::from)
+            .collect(),
+    );
     add_failed_targets_to_graph(&mut graph, state);
     graph
 }
@@ -188,6 +201,9 @@ fn add_failed_targets_to_graph(graph: &mut NetworkGraph, state: &CrawlerStateSna
         graph.nodes.push(NetworkNode {
             key: address.to_string().into(),
             status: NetworkNodeStatus::Inferred,
+            role: None,
+            target_address: None,
+            management_addresses: Vec::new(),
             snapshot: None,
             inferred: Some(InferredDevice {
                 management_address: Some(address.ip()),
@@ -209,7 +225,7 @@ fn add_failed_targets_to_graph(graph: &mut NetworkGraph, state: &CrawlerStateSna
 fn failure_names_from_state(state: &CrawlerStateSnapshot) -> BTreeMap<String, String> {
     let mut names = BTreeMap::new();
     for snapshot in state.snapshots.values() {
-        for neighbor in &snapshot.neighbors {
+        for neighbor in &snapshot.ip.neighbors.data {
             let Some(address) = neighbor.management_address() else {
                 continue;
             };
@@ -289,18 +305,14 @@ fn write_crawl_artifacts(
     paths: &ArtifactPaths,
     png: bool,
     png_dpi: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     fs::write(&paths.dot, graph.to_graphviz_dot_with_options(export_options))?;
     render_graphviz_outputs(paths, png, png_dpi)?;
     Ok(())
 }
 
 /// Render Graphviz-derived SVG, interactive HTML, and optional PNG artifacts.
-fn render_graphviz_outputs(
-    paths: &ArtifactPaths,
-    png: bool,
-    png_dpi: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn render_graphviz_outputs(paths: &ArtifactPaths, png: bool, png_dpi: Option<&str>) -> Result<(), Box<dyn Error>> {
     if !has_graphviz_dot() {
         return Err("Graphviz 'dot' executable is required to export interactive HTML".into());
     }
@@ -683,11 +695,11 @@ fn replace_symlink(link_path: &Path, target: &Path) -> io::Result<()> {
 /// Create a directory symlink.
 #[cfg(unix)]
 fn create_dir_symlink(target: &Path, link_path: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, link_path)
+    symlink(target, link_path)
 }
 
 /// Create a directory symlink.
 #[cfg(windows)]
 fn create_dir_symlink(target: &Path, link_path: &Path) -> io::Result<()> {
-    std::os::windows::fs::symlink_dir(target, link_path)
+    symlink_dir(target, link_path)
 }

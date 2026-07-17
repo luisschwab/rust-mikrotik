@@ -8,12 +8,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::target::DeviceTarget;
 use tokio::sync::RwLock;
 use tokio::sync::broadcast;
 
-use crate::config::DEFAULT_COMMAND_TIMEOUT;
+use crate::CollectedSnapshot;
 use crate::config::DEFAULT_CONNECT_TIMEOUT;
 use crate::error::FailureKind;
 use crate::error::Result;
@@ -32,12 +32,23 @@ const MAX_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct CrawlerStateSnapshot {
     /// Current target registry keyed by connectable target address.
     pub targets: BTreeMap<SocketAddr, DeviceTarget>,
-    /// Latest successful snapshot per stable device serial.
-    pub snapshots: BTreeMap<String, DeviceSnapshot>,
+    /// Latest successful snapshot per stable topology identity.
+    pub snapshots: BTreeMap<TopologyNodeKey, CollectedSnapshot>,
     /// Latest failure text per target address.
     pub failures: BTreeMap<SocketAddr, String>,
     /// Internal retry state keyed by connectable target address.
     pub(crate) retry: BTreeMap<SocketAddr, TargetRetryState>,
+}
+
+/// Lightweight operational projection that excludes full device snapshots.
+#[derive(Debug, Clone, Default)]
+pub struct CrawlerStateProjection {
+    /// Number of registered targets.
+    pub targets: usize,
+    /// Number of devices with a successful snapshot.
+    pub snapshots: usize,
+    /// Latest failure text per target address.
+    pub failures: BTreeMap<SocketAddr, String>,
 }
 
 /// Internal retry state for one failed target.
@@ -76,10 +87,10 @@ pub enum SnapshotEvent {
     },
     /// A device snapshot was refreshed.
     SnapshotUpdated {
-        /// Stable device serial.
-        device_serial: String,
+        /// Stable topology identity.
+        topology_node_key: TopologyNodeKey,
         /// Refreshed snapshot.
-        snapshot: Box<DeviceSnapshot>,
+        snapshot: Box<CollectedSnapshot>,
     },
     /// A target collection failed.
     SnapshotFailed {
@@ -91,7 +102,12 @@ pub enum SnapshotEvent {
 }
 
 /// Return retry-eligible snapshot targets with currently failed targets first.
-pub(crate) fn snapshot_targets_by_retry_priority(state: &CrawlerStateSnapshot, now: Instant) -> Vec<SnapshotTargetJob> {
+pub(crate) fn snapshot_targets_by_retry_priority(
+    state: &CrawlerStateSnapshot,
+    now: Instant,
+    default_connect_timeout: Duration,
+    default_command_timeout: Duration,
+) -> Vec<SnapshotTargetJob> {
     let mut targets = state
         .targets
         .values()
@@ -102,8 +118,8 @@ pub(crate) fn snapshot_targets_by_retry_priority(state: &CrawlerStateSnapshot, n
             }
             Some(SnapshotTargetJob {
                 target: target.clone(),
-                connect_timeout: retry.map_or(DEFAULT_CONNECT_TIMEOUT, |retry| retry.connect_timeout),
-                command_timeout: retry.map_or(DEFAULT_COMMAND_TIMEOUT, |retry| retry.command_timeout),
+                connect_timeout: retry.map_or(default_connect_timeout, |retry| retry.connect_timeout),
+                command_timeout: retry.map_or(default_command_timeout, |retry| retry.command_timeout),
             })
         })
         .collect::<Vec<_>>();
@@ -122,11 +138,11 @@ pub(crate) async fn record_snapshot_result(
     state: &Arc<RwLock<CrawlerStateSnapshot>>,
     events: &broadcast::Sender<SnapshotEvent>,
     target: &DeviceTarget,
-    result: Result<DeviceSnapshot>,
+    result: Result<CollectedSnapshot>,
 ) {
     match result {
         Ok(snapshot) => {
-            let device_serial = snapshot.stable_key().to_string();
+            let topology_node_key = snapshot.topology_node_key();
             let target_aliases = snapshot_target_aliases(&snapshot);
             let event_snapshot = snapshot.clone();
             let mut state = state.write().await;
@@ -134,10 +150,10 @@ pub(crate) async fn record_snapshot_result(
                 .failures
                 .retain(|address, _| !target_aliases.contains(&address.ip()));
             state.retry.retain(|address, _| !target_aliases.contains(&address.ip()));
-            state.snapshots.insert(device_serial.clone(), snapshot);
+            state.snapshots.insert(topology_node_key.clone(), snapshot);
             drop(state);
             let _ = events.send(SnapshotEvent::SnapshotUpdated {
-                device_serial,
+                topology_node_key,
                 snapshot: Box::new(event_snapshot),
             });
         }
@@ -158,12 +174,10 @@ pub(crate) async fn record_snapshot_result(
 }
 
 /// Return all address strings that should collapse onto one successful device.
-fn snapshot_target_aliases(snapshot: &DeviceSnapshot) -> BTreeSet<IpAddr> {
+fn snapshot_target_aliases(snapshot: &CollectedSnapshot) -> BTreeSet<IpAddr> {
     let mut aliases = BTreeSet::new();
     aliases.insert(snapshot.target_address.ip());
-    for address in &snapshot.management_addresses {
-        aliases.insert(*address);
-    }
+    aliases.extend(snapshot.management_addresses());
     aliases
 }
 
@@ -217,6 +231,7 @@ mod tests {
     use mikrotik_types::target::DeviceTarget;
 
     use super::*;
+    use crate::config::DEFAULT_COMMAND_TIMEOUT;
 
     #[test]
     fn retry_selector_skips_targets_before_next_retry() {
@@ -235,7 +250,15 @@ mod tests {
             },
         );
 
-        assert!(snapshot_targets_by_retry_priority(&state, Instant::now()).is_empty());
+        assert!(
+            snapshot_targets_by_retry_priority(
+                &state,
+                Instant::now(),
+                DEFAULT_CONNECT_TIMEOUT,
+                DEFAULT_COMMAND_TIMEOUT
+            )
+            .is_empty()
+        );
     }
 
     #[test]

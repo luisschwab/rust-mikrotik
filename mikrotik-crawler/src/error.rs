@@ -2,6 +2,9 @@
 
 use core::error;
 use core::fmt;
+use std::io;
+use std::io::ErrorKind;
+use std::process::ExitStatus;
 
 /// Errors returned by ISP tools operations.
 #[derive(Debug)]
@@ -9,15 +12,23 @@ pub enum Error {
     /// A lower-level `RouterOS` client operation failed.
     Client(mikrotik_client::error::Error),
 
+    /// A non-optional `RouterOS` command returned a trap response.
+    CommandTrap {
+        /// Exact `RouterOS` API command path.
+        command: String,
+        /// Trap message returned by the device.
+        message: String,
+    },
+
     /// A filesystem or process I/O operation failed.
-    Io(std::io::Error),
+    Io(io::Error),
 
     /// Graphviz exited unsuccessfully while rendering an artifact.
     Graphviz {
         /// Requested output format.
         format: String,
         /// Process exit status.
-        status: std::process::ExitStatus,
+        status: ExitStatus,
     },
 
     /// A target address from the input or a neighbor row could not be used.
@@ -60,6 +71,9 @@ impl fmt::Display for Error {
                 FailureKind::ConnectionReset => f.write_str("Connection Reset"),
                 FailureKind::Other => match self {
                     Self::Client(error) => write!(f, "{error}"),
+                    Self::CommandTrap { command, message } => {
+                        write!(f, "RouterOS trap while running {command}: {message}")
+                    }
                     Self::Io(error) => write!(f, "{error}"),
                     Self::Graphviz { format, status } => {
                         write!(f, "Graphviz failed while rendering {format}: {status}")
@@ -74,6 +88,9 @@ impl fmt::Display for Error {
 
         match self {
             Self::Client(error) => write!(f, "{error}"),
+            Self::CommandTrap { command, message } => {
+                write!(f, "RouterOS trap while running {command}: {message}")
+            }
             Self::Io(error) => write!(f, "{error}"),
             Self::Graphviz { format, status } => {
                 write!(f, "Graphviz failed while rendering {format}: {status}")
@@ -91,7 +108,7 @@ impl error::Error for Error {
         match self {
             Self::Client(error) => Some(error),
             Self::Io(error) => Some(error),
-            Self::Graphviz { .. } | Self::InvalidTarget { .. } | Self::Target(_) => None,
+            Self::CommandTrap { .. } | Self::Graphviz { .. } | Self::InvalidTarget { .. } | Self::Target(_) => None,
         }
     }
 }
@@ -108,8 +125,8 @@ impl From<mikrotik_types::target::ObserverError> for Error {
     }
 }
 
-impl From<std::io::Error> for Error {
-    fn from(error: std::io::Error) -> Self {
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
         Self::Io(error)
     }
 }
@@ -140,9 +157,12 @@ impl Error {
             Self::Client(mikrotik_client::error::Error::Login(error)) => {
                 error.to_string().starts_with("authentication failed:")
             }
-            Self::Client(_) | Self::Io(_) | Self::Graphviz { .. } | Self::InvalidTarget { .. } | Self::Target(_) => {
-                false
-            }
+            Self::Client(_)
+            | Self::CommandTrap { .. }
+            | Self::Io(_)
+            | Self::Graphviz { .. }
+            | Self::InvalidTarget { .. }
+            | Self::Target(_) => false,
         }
     }
 
@@ -150,9 +170,13 @@ impl Error {
     #[must_use]
     pub fn is_timeout_failure(&self) -> bool {
         match self {
-            Self::Client(mikrotik_client::error::Error::Io(error)) => error.kind() == std::io::ErrorKind::TimedOut,
-            Self::Io(error) => error.kind() == std::io::ErrorKind::TimedOut,
-            Self::Client(_) | Self::Graphviz { .. } | Self::InvalidTarget { .. } | Self::Target(_) => false,
+            Self::Client(mikrotik_client::error::Error::Io(error)) => error.kind() == ErrorKind::TimedOut,
+            Self::Io(error) => error.kind() == ErrorKind::TimedOut,
+            Self::Client(_)
+            | Self::CommandTrap { .. }
+            | Self::Graphviz { .. }
+            | Self::InvalidTarget { .. }
+            | Self::Target(_) => false,
         }
     }
 
@@ -160,21 +184,21 @@ impl Error {
     #[must_use]
     pub fn is_connection_refused(&self) -> bool {
         self.io_error()
-            .is_some_and(|error| error.kind() == std::io::ErrorKind::ConnectionRefused)
+            .is_some_and(|error| error.kind() == ErrorKind::ConnectionRefused)
     }
 
     /// Return true when the target network cannot be reached.
     #[must_use]
     pub fn is_network_unreachable(&self) -> bool {
         self.io_error()
-            .is_some_and(|error| error.kind() == std::io::ErrorKind::NetworkUnreachable)
+            .is_some_and(|error| error.kind() == ErrorKind::NetworkUnreachable)
     }
 
     /// Return true when the peer reset the connection.
     #[must_use]
     pub fn is_connection_reset(&self) -> bool {
         self.io_error()
-            .is_some_and(|error| error.kind() == std::io::ErrorKind::ConnectionReset)
+            .is_some_and(|error| error.kind() == ErrorKind::ConnectionReset)
     }
 
     /// Return the configured timeout duration in seconds when it is embedded in the error text.
@@ -187,10 +211,14 @@ impl Error {
     }
 
     /// Return the wrapped I/O error, if any.
-    fn io_error(&self) -> Option<&std::io::Error> {
+    fn io_error(&self) -> Option<&io::Error> {
         match self {
             Self::Client(mikrotik_client::error::Error::Io(error)) | Self::Io(error) => Some(error),
-            Self::Client(_) | Self::Graphviz { .. } | Self::InvalidTarget { .. } | Self::Target(_) => None,
+            Self::Client(_)
+            | Self::CommandTrap { .. }
+            | Self::Graphviz { .. }
+            | Self::InvalidTarget { .. }
+            | Self::Target(_) => None,
         }
     }
 }
@@ -204,18 +232,28 @@ mod tests {
 
     #[test]
     fn alternate_display_formats_compact_timeout_reason() {
-        let error = Error::Io(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "connect attempt exceeded 5s",
-        ));
+        let error = Error::Io(io::Error::new(ErrorKind::TimedOut, "connect attempt exceeded 5s"));
 
         assert_eq!(format!("{error:#}"), "Timed Out After 5 seconds");
     }
 
     #[test]
     fn alternate_display_formats_compact_connection_reason() {
-        let error = Error::Io(std::io::Error::from(std::io::ErrorKind::ConnectionRefused));
+        let error = Error::Io(io::Error::from(ErrorKind::ConnectionRefused));
 
         assert_eq!(format!("{error:#}"), "API Refused Connection");
+    }
+
+    #[test]
+    fn command_trap_display_includes_the_exact_command() {
+        let error = Error::CommandTrap {
+            command: "/ip/firewall/filter/print".to_owned(),
+            message: "not allowed".to_owned(),
+        };
+
+        assert_eq!(
+            format!("{error:#}"),
+            "RouterOS trap while running /ip/firewall/filter/print: not allowed"
+        );
     }
 }

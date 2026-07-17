@@ -6,14 +6,15 @@ use core::net::Ipv6Addr;
 use core::pin::Pin;
 use core::time::Duration;
 use std::sync::Arc;
+use std::time::Instant;
 
 use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
 use mikrotik_client::client::Client;
 use mikrotik_common::warn_with_label;
-use mikrotik_types::device::DeviceSnapshot;
 use mikrotik_types::target::DeviceTarget;
 
+use crate::CollectedSnapshot;
 use crate::config::DEFAULT_COMMAND_TIMEOUT;
 use crate::config::DEFAULT_CONNECT_TIMEOUT;
 use crate::error::Error;
@@ -26,7 +27,24 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Connected read-only discovery client.
 pub trait DiscoveryClient: Send + Sync {
     /// Collect one read-only discovery snapshot.
-    fn snapshot<'a>(&'a self, target_address: &'a str) -> BoxFuture<'a, Result<DeviceSnapshot>>;
+    fn snapshot<'a>(&'a self, target_address: &'a str) -> BoxFuture<'a, Result<CollectedSnapshot>>;
+
+    /// Collect the small, frequently sampled telemetry subset.
+    fn telemetry<'a>(&'a self, target_address: &'a str) -> BoxFuture<'a, Result<crate::telemetry::TelemetrySnapshot>> {
+        Box::pin(async move {
+            let started = Instant::now();
+            let snapshot = self.snapshot(target_address).await?;
+
+            Ok(crate::telemetry::TelemetrySnapshot {
+                target_address: snapshot.target_address,
+                collected_at: snapshot.collected_at,
+                collection_duration: started.elapsed(),
+                resource: snapshot.snapshot.system.resource.data,
+                health: snapshot.snapshot.system.health.data,
+                interfaces: snapshot.snapshot.interface.interfaces.data,
+            })
+        })
+    }
 }
 
 /// Connector for read-only snapshot clients.

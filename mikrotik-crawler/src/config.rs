@@ -3,6 +3,7 @@
 use core::net::IpAddr;
 use core::time::Duration;
 
+use mikrotik_client::builder::Protocol;
 use mikrotik_types::target::DeviceTarget;
 use serde::Deserialize;
 use serde::Serialize;
@@ -76,10 +77,14 @@ pub struct CrawlerServiceConfig {
     pub discovery_interval: Duration,
     /// Interval between snapshot refresh passes.
     pub snapshot_interval: Duration,
+    /// Initial TCP connection timeout for a target.
+    pub connect_timeout: Duration,
+    /// Initial response timeout for one `RouterOS` command.
+    pub command_timeout: Duration,
     /// Address family allowed for recursively discovered neighbor targets.
     pub address_family: AddressFamily,
     /// `RouterOS` API transport protocol.
-    pub protocol: mikrotik_client::builder::Protocol,
+    pub protocol: Protocol,
 }
 
 impl CrawlerServiceConfig {
@@ -91,8 +96,10 @@ impl CrawlerServiceConfig {
             snapshot_concurrency: 4,
             discovery_interval: Duration::from_secs(30),
             snapshot_interval: Duration::from_secs(60),
+            connect_timeout: DEFAULT_CONNECT_TIMEOUT,
+            command_timeout: DEFAULT_COMMAND_TIMEOUT,
             address_family: AddressFamily::Any,
-            protocol: mikrotik_client::builder::Protocol::Api,
+            protocol: Protocol::Api,
         }
     }
 }

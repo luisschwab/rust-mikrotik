@@ -5,6 +5,7 @@ use core::net::IpAddr;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::io::Error as IoError;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -14,8 +15,8 @@ use mikrotik_common::info_with_label;
 use mikrotik_common::warn_with_label;
 use mikrotik_graphviz::graph::build_graph_with_neighbor_evidence;
 use mikrotik_graphviz::graph::model::NetworkGraph;
+use mikrotik_graphviz::snapshot::GraphSnapshot;
 use mikrotik_types::api::ip::Neighbor;
-use mikrotik_types::device::DeviceSnapshot;
 use mikrotik_types::target::DeviceTarget;
 use mikrotik_types::topology::FailedNeighborCrawl;
 use mikrotik_types::topology::InferredDeviceFailure;
@@ -24,6 +25,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use tokio::task::JoinSet;
 
+use crate::CollectedSnapshot;
 use crate::config::CrawlConfig;
 use crate::connector::BinaryApiFactory;
 use crate::connector::SnapshotClientConnector;
@@ -75,7 +77,7 @@ struct CrawlState {
     /// Neighbor evidence used to infer graph nodes.
     neighbor_evidence: Vec<InferredNeighborEvidence>,
     /// Successfully collected snapshots.
-    snapshots: Vec<DeviceSnapshot>,
+    snapshots: Vec<CollectedSnapshot>,
     /// Neighbor targets that could not be collected.
     failed_targets: Vec<CrawlFailure>,
     /// Failed neighbor evidence used by graph construction.
@@ -103,8 +105,9 @@ impl CrawlState {
 
     /// Convert accumulated state into a crawl report.
     fn into_report(self) -> CrawlReport {
+        let graph_snapshots = self.snapshots.iter().map(GraphSnapshot::from).collect::<Vec<_>>();
         CrawlReport {
-            graph: build_graph_with_neighbor_evidence(&self.snapshots, self.neighbor_evidence, self.failed_neighbors),
+            graph: build_graph_with_neighbor_evidence(&graph_snapshots, self.neighbor_evidence, self.failed_neighbors),
             failed_targets: self.failed_targets,
         }
     }
@@ -218,9 +221,7 @@ impl Crawler {
             let (target, depth, attempt, result) = match joined {
                 Ok(result) => result,
                 Err(error) => {
-                    return Err(Error::Io(std::io::Error::other(format!(
-                        "crawler task failed: {error}"
-                    ))));
+                    return Err(Error::Io(IoError::other(format!("crawler task failed: {error}"))));
                 }
             };
 
@@ -234,7 +235,7 @@ impl Crawler {
                 info_with_label!(
                     target.address,
                     "not following {} neighbor(s): max depth {} reached",
-                    snapshot.neighbors.len(),
+                    snapshot.ip.neighbors.len(),
                     self.config.max_depth
                 );
             }
@@ -260,8 +261,8 @@ impl Crawler {
         target: &DeviceTarget,
         depth: usize,
         attempt: usize,
-        result: Result<DeviceSnapshot>,
-    ) -> Option<DeviceSnapshot> {
+        result: Result<CollectedSnapshot>,
+    ) -> Option<CollectedSnapshot> {
         match result {
             Ok(snapshot) => Some(snapshot),
             Err(error) if error.is_timeout_failure() && attempt < self.config.connect_retries => {
@@ -295,7 +296,7 @@ impl Crawler {
     /// Spawn one device snapshot job.
     fn spawn_snapshot_task(
         &self,
-        in_flight: &mut JoinSet<(DeviceTarget, usize, usize, Result<DeviceSnapshot>)>,
+        in_flight: &mut JoinSet<(DeviceTarget, usize, usize, Result<CollectedSnapshot>)>,
         item: CrawlQueueItem,
     ) {
         let factory = Arc::clone(&self.factory);
@@ -317,10 +318,10 @@ impl Crawler {
         &self,
         target: &DeviceTarget,
         depth: usize,
-        snapshot: &DeviceSnapshot,
+        snapshot: &CollectedSnapshot,
         state: &mut CrawlState,
     ) {
-        for neighbor in &snapshot.neighbors {
+        for neighbor in &snapshot.ip.neighbors.data {
             if !neighbor.is_mikrotik() {
                 debug_with_label!(
                     target.address,
@@ -350,7 +351,7 @@ impl Crawler {
 
             let evidence = InferredNeighborEvidence {
                 neighbor: neighbor.clone(),
-                local_node: snapshot.stable_key(),
+                local_node: snapshot.topology_node_key(),
                 local_interface: neighbor.interface.clone(),
             };
             state
@@ -388,7 +389,7 @@ impl Crawler {
     fn resolve_neighbor_target(
         &self,
         target: &DeviceTarget,
-        snapshot: &DeviceSnapshot,
+        snapshot: &CollectedSnapshot,
         neighbor: &Neighbor,
         address: IpAddr,
     ) -> Option<DeviceTarget> {

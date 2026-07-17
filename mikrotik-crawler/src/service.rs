@@ -1,6 +1,7 @@
 //! Long-running crawler service orchestration.
 
 use core::time::Duration;
+use std::collections::btree_map::Entry;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -21,6 +22,7 @@ use crate::discovery::discovery_loop;
 use crate::resolver::DirectTargetResolver;
 use crate::resolver::TargetResolver;
 use crate::snapshot::collect_target_snapshot_with_timeouts;
+use crate::state::CrawlerStateProjection;
 use crate::state::CrawlerStateSnapshot;
 use crate::state::SnapshotEvent;
 use crate::state::record_snapshot_result;
@@ -33,6 +35,8 @@ pub struct CrawlerHandle {
     state: Arc<RwLock<CrawlerStateSnapshot>>,
     /// Snapshot/event broadcaster.
     events: broadcast::Sender<SnapshotEvent>,
+    /// Wake-up signal for target or credential changes.
+    snapshot_requested: Arc<Notify>,
 }
 
 impl CrawlerHandle {
@@ -41,10 +45,28 @@ impl CrawlerHandle {
         self.state.read().await.clone()
     }
 
+    /// Return counts and failures without cloning full device snapshots.
+    pub async fn projection(&self) -> CrawlerStateProjection {
+        let state = self.state.read().await;
+        CrawlerStateProjection {
+            targets: state.targets.len(),
+            snapshots: state.snapshots.len(),
+            failures: state.failures.clone(),
+        }
+    }
+
     /// Subscribe to crawler state changes.
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<SnapshotEvent> {
         self.events.subscribe()
+    }
+
+    /// Insert or replace a target and request an immediate collection pass.
+    pub async fn upsert_target(&self, target: DeviceTarget) {
+        let address = target.address;
+        self.state.write().await.targets.insert(address, target);
+        let _ = self.events.send(SnapshotEvent::TargetDiscovered { address });
+        self.snapshot_requested.notify_one();
     }
 }
 
@@ -75,21 +97,20 @@ impl CrawlerService {
     ) -> Self {
         let (events, _) = broadcast::channel(256);
         let state = Arc::new(RwLock::new(CrawlerStateSnapshot::default()));
+        let snapshot_requested = Arc::new(Notify::new());
         let handle = CrawlerHandle {
             state: Arc::clone(&state),
             events: events.clone(),
+            snapshot_requested: Arc::clone(&snapshot_requested),
         };
-        let snapshot_requested = Arc::new(Notify::new());
 
-        let seeds = config.seeds.clone();
+        let snapshot_config = config.clone();
         let snapshot_task = tokio::spawn(snapshot_loop(
             Arc::clone(&state),
             events.clone(),
             Arc::clone(factory),
             Arc::clone(&snapshot_requested),
-            seeds,
-            config.snapshot_concurrency,
-            config.snapshot_interval,
+            snapshot_config,
         ));
         let discovery_task = tokio::spawn(discovery_loop(
             Arc::clone(&state),
@@ -127,16 +148,22 @@ async fn snapshot_loop(
     events: broadcast::Sender<SnapshotEvent>,
     factory: Arc<dyn SnapshotClientConnector>,
     snapshot_requested: Arc<Notify>,
-    seeds: Vec<DeviceTarget>,
-    snapshot_concurrency: usize,
-    snapshot_interval: Duration,
+    config: CrawlerServiceConfig,
 ) {
-    register_seed_targets(&state, &events, seeds).await;
-    let mut timer = interval(snapshot_interval);
+    register_seed_targets(&state, &events, config.seeds).await;
+    let mut timer = interval(config.snapshot_interval);
     timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
-        snapshot_once(&state, &events, Arc::clone(&factory), snapshot_concurrency).await;
+        Box::pin(snapshot_once(
+            &state,
+            &events,
+            Arc::clone(&factory),
+            config.snapshot_concurrency,
+            config.connect_timeout,
+            config.command_timeout,
+        ))
+        .await;
         tokio::select! {
             _ = timer.tick() => {}
             () = snapshot_requested.notified() => {}
@@ -153,7 +180,8 @@ async fn register_seed_targets(
     let mut state = state.write().await;
     for seed in seeds {
         let address = seed.address;
-        if state.targets.insert(address, seed).is_none() {
+        if let Entry::Vacant(entry) = state.targets.entry(address) {
+            entry.insert(seed);
             let _ = events.send(SnapshotEvent::TargetDiscovered { address });
         }
     }
@@ -165,10 +193,12 @@ async fn snapshot_once(
     events: &broadcast::Sender<SnapshotEvent>,
     factory: Arc<dyn SnapshotClientConnector>,
     snapshot_concurrency: usize,
+    connect_timeout: Duration,
+    command_timeout: Duration,
 ) {
     let targets = {
         let state = state.read().await;
-        snapshot_targets_by_retry_priority(&state, Instant::now())
+        snapshot_targets_by_retry_priority(&state, Instant::now(), connect_timeout, command_timeout)
     };
     let mut in_flight = JoinSet::new();
     let mut targets = targets.into_iter();
@@ -196,7 +226,7 @@ async fn snapshot_once(
             break;
         };
         match joined {
-            Ok((target, result)) => record_snapshot_result(state, events, &target, result).await,
+            Ok((target, result)) => Box::pin(record_snapshot_result(state, events, &target, result)).await,
             Err(error) => error_with_label!("crawler", "snapshot task failed: {error}"),
         }
     }

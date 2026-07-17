@@ -1,7 +1,7 @@
 //! Recursive read-only discovery crawler.
 //!
 //! This module owns the crawler orchestration: connecting to seed targets,
-//! collecting [`mikrotik_types::device::DeviceSnapshot`] values, resolving
+//! collecting [`mikrotik_types::device::RouterOsSnapshot`] values, resolving
 //! discovered neighbor addresses, and returning a [`CrawlReport`] with the
 //! resulting [`mikrotik_graphviz::graph::model::NetworkGraph`].
 //!
@@ -25,6 +25,7 @@
 pub mod error;
 pub mod resolver;
 
+mod collected;
 mod config;
 mod connector;
 mod discovery;
@@ -32,7 +33,9 @@ mod oneshot;
 mod service;
 mod snapshot;
 mod state;
+mod telemetry;
 
+pub use collected::CollectedSnapshot;
 pub use config::AddressFamily;
 pub use config::CrawlConfig;
 pub use config::CrawlerServiceConfig;
@@ -50,18 +53,31 @@ pub use oneshot::CrawlReport;
 pub use oneshot::Crawler;
 pub use service::CrawlerHandle;
 pub use service::CrawlerService;
+pub use state::CrawlerStateProjection;
 pub use state::CrawlerStateSnapshot;
 pub use state::SnapshotEvent;
+pub use telemetry::TelemetrySnapshot;
+pub use telemetry::collect_target_telemetry;
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::large_stack_arrays,
+        reason = "snapshot fixtures intentionally exercise complete typed endpoint payloads"
+    )]
+
+    use core::net::SocketAddr;
+    use core::time::Duration;
     use std::collections::BTreeMap;
     use std::collections::BTreeSet;
+    use std::io::Error as IoError;
+    use std::io::ErrorKind;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Instant;
 
     use mikrotik_client::builder::Protocol;
+    use mikrotik_client::error::Error as ClientError;
     use mikrotik_graphviz::constants::GRAPHVIZ_LAYERED_LAYOUT;
     use mikrotik_graphviz::constants::GRAPHVIZ_TYPED_RADIAL_LAYOUT;
     use mikrotik_graphviz::graph::build_graph;
@@ -80,8 +96,7 @@ mod tests {
     use mikrotik_types::api::system::Resource;
     use mikrotik_types::api::system::Routerboard;
     use mikrotik_types::device::DeviceRole;
-    use mikrotik_types::device::DeviceSnapshot;
-    use mikrotik_types::device::DeviceStatus;
+    use mikrotik_types::device::RouterOsSnapshot;
     use mikrotik_types::primitives::interface::InterfaceType;
     use mikrotik_types::primitives::ip::IpPrefix;
     use mikrotik_types::target::Credentials;
@@ -110,10 +125,15 @@ mod tests {
             .failures
             .insert(socket("10.0.0.3"), "authentication failed".to_owned());
 
-        let targets = snapshot_targets_by_retry_priority(&state, Instant::now())
-            .into_iter()
-            .map(|target| target.target.address.to_string())
-            .collect::<Vec<_>>();
+        let targets = snapshot_targets_by_retry_priority(
+            &state,
+            Instant::now(),
+            DEFAULT_CONNECT_TIMEOUT,
+            DEFAULT_COMMAND_TIMEOUT,
+        )
+        .into_iter()
+        .map(|target| target.target.address.to_string())
+        .collect::<Vec<_>>();
 
         assert_eq!(targets, ["10.0.0.2:8728", "10.0.0.3:8728", "10.0.0.1:8728"]);
     }
@@ -361,10 +381,10 @@ mod tests {
     #[test]
     fn graphviz_dot_contains_nodes_and_edges() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]);
-        r1.addresses = vec![address("10.0.0.1/30", "ether1")];
+        r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether1")];
         let mut r2 = snapshot("10.0.0.2", "r2", "s2", [neighbor("ether2", "10.0.0.1", "r1")]);
-        r2.addresses = vec![address("10.0.0.2/30", "ether2")];
-        let local_node = r2.stable_key();
+        r2.ip.addresses.data = vec![address("10.0.0.2/30", "ether2")];
+        let local_node = r2.topology_node_key();
         let graph = build_graph_with_neighbor_evidence(
             &[r1, r2],
             [InferredNeighborEvidence {
@@ -435,15 +455,17 @@ mod tests {
     #[test]
     fn graphviz_link_table_uses_extra_address_rows() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]);
-        r1.addresses = vec![
+        r1.ip.addresses.data = vec![
             address("10.0.0.1/30", "ether1"),
             address("203.0.114.10/32", "ether1"),
             address("203.0.114.11/32", "ether1"),
         ];
         let mut r2 = snapshot("10.0.0.2", "r2", "s2", [neighbor("ether2", "10.0.0.1", "r1")]);
+        r2.ip.addresses.data = vec![address("10.0.0.2/30", "ether2")];
+        let local_node = r2.topology_node_key();
+        let r1 = mikrotik_graphviz::snapshot::GraphSnapshot::from(&r1);
+        let mut r2 = mikrotik_graphviz::snapshot::GraphSnapshot::from(&r2);
         r2.role = DeviceRole::CustomerRouter;
-        r2.addresses = vec![address("10.0.0.2/30", "ether2")];
-        let local_node = r2.stable_key();
         let graph = build_graph_with_neighbor_evidence(
             &[r1, r2],
             [InferredNeighborEvidence {
@@ -470,8 +492,8 @@ mod tests {
     #[test]
     fn graph_connects_failed_neighbor_when_address_matches_local_l3_prefix() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", []);
-        r1.addresses = vec![address("10.0.0.1/30", "ether1")];
-        let local_node = r1.stable_key();
+        r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether1")];
+        let local_node = r1.topology_node_key();
         let graph = build_graph(
             &[r1],
             [FailedNeighborCrawl {
@@ -501,9 +523,9 @@ mod tests {
     #[test]
     fn graph_does_not_infer_l3_topology_from_broad_management_prefixes() {
         let mut customer = snapshot("10.100.0.220", "customer", "customer-serial", []);
-        customer.addresses = vec![address("10.100.0.220/24", "ether1")];
+        customer.ip.addresses.data = vec![address("10.100.0.220/24", "ether1")];
         let mut core = snapshot("10.100.0.155", "core", "core-serial", []);
-        core.addresses = vec![address("10.100.0.155/24", "sfp1")];
+        core.ip.addresses.data = vec![address("10.100.0.155/24", "sfp1")];
 
         let graph = build_graph(&[customer, core], []);
 
@@ -514,10 +536,10 @@ mod tests {
     #[test]
     fn graph_uses_neighbor_fallback_for_otherwise_unconnected_collected_nodes() {
         let mut customer = snapshot("10.100.0.220", "customer", "customer-serial", []);
-        customer.addresses = vec![address("10.100.0.220/24", "ether1")];
+        customer.ip.addresses.data = vec![address("10.100.0.220/24", "ether1")];
         let mut core = snapshot("10.100.0.155", "core", "core-serial", []);
-        core.addresses = vec![address("10.100.0.155/24", "sfp1")];
-        let local_node = core.stable_key();
+        core.ip.addresses.data = vec![address("10.100.0.155/24", "sfp1")];
+        let local_node = core.topology_node_key();
 
         let graph = build_graph_with_neighbor_evidence(
             &[customer, core],
@@ -544,10 +566,10 @@ mod tests {
     #[test]
     fn graph_does_not_add_neighbor_fallback_for_already_connected_nodes() {
         let mut customer = snapshot("10.100.0.220", "customer", "customer-serial", []);
-        customer.addresses = vec![address("10.100.0.220/30", "ether1")];
+        customer.ip.addresses.data = vec![address("10.100.0.220/30", "ether1")];
         let mut core = snapshot("10.100.0.221", "core", "core-serial", []);
-        core.addresses = vec![address("10.100.0.221/30", "sfp1")];
-        let local_node = core.stable_key();
+        core.ip.addresses.data = vec![address("10.100.0.221/30", "sfp1")];
+        let local_node = core.topology_node_key();
 
         let graph = build_graph_with_neighbor_evidence(
             &[customer, core],
@@ -567,10 +589,10 @@ mod tests {
     #[test]
     fn graph_adds_fallback_for_failed_neighbor_nodes() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", []);
-        r1.interfaces = vec![interface("bridge", InterfaceType::Bridge)];
-        r1.addresses = vec![address("10.0.0.1/24", "bridge")];
+        r1.interface.interfaces.data = vec![interface("bridge", InterfaceType::Bridge)];
+        r1.ip.addresses.data = vec![address("10.0.0.1/24", "bridge")];
 
-        let local_node = r1.stable_key();
+        let local_node = r1.topology_node_key();
         let graph = build_graph_with_neighbor_evidence(
             &[r1],
             [InferredNeighborEvidence {
@@ -598,10 +620,10 @@ mod tests {
     #[test]
     fn graph_keeps_unreachable_neighbor_nodes_connected_with_fallback_edges() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", []);
-        r1.interfaces = vec![interface("bridge", InterfaceType::Bridge)];
-        r1.addresses = vec![address("10.0.0.1/24", "bridge")];
+        r1.interface.interfaces.data = vec![interface("bridge", InterfaceType::Bridge)];
+        r1.ip.addresses.data = vec![address("10.0.0.1/24", "bridge")];
 
-        let local_node = r1.stable_key();
+        let local_node = r1.topology_node_key();
         let graph = build_graph_with_neighbor_evidence(
             &[r1],
             [InferredNeighborEvidence {
@@ -630,10 +652,10 @@ mod tests {
     #[test]
     fn graph_labels_refused_api_neighbor_as_api_refused() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", []);
-        r1.interfaces = vec![interface("bridge", InterfaceType::Bridge)];
-        r1.addresses = vec![address("10.0.0.1/24", "bridge")];
+        r1.interface.interfaces.data = vec![interface("bridge", InterfaceType::Bridge)];
+        r1.ip.addresses.data = vec![address("10.0.0.1/24", "bridge")];
 
-        let local_node = r1.stable_key();
+        let local_node = r1.topology_node_key();
         let graph = build_graph_with_neighbor_evidence(
             &[r1],
             [InferredNeighborEvidence {
@@ -661,14 +683,14 @@ mod tests {
     #[test]
     fn graph_adds_bgp_edges_from_collected_sessions() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
-        r1.addresses = vec![address("10.0.0.1/30", "ether2")];
-        r1.bgp_sessions = vec![BgpSession {
+        r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether2")];
+        r1.routing.bgp_sessions.data = vec![BgpSession {
             remote_address: Some("10.0.0.2".parse().unwrap()),
             established: Some(true),
             ..BgpSession::default()
         }];
         let mut r2 = snapshot("127.0.0.1:5002", "r2", "s2", []);
-        r2.addresses = vec![address("10.0.0.2/30", "ether3")];
+        r2.ip.addresses.data = vec![address("10.0.0.2/30", "ether3")];
 
         let graph = build_graph(&[r1, r2], []);
 
@@ -681,14 +703,14 @@ mod tests {
     #[test]
     fn graph_adds_bgp_edges_from_configured_connections() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
-        r1.addresses = vec![address("10.0.0.1/30", "ether2")];
-        r1.bgp_connections = vec![BgpConnection {
+        r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether2")];
+        r1.routing.bgp_connections.data = vec![BgpConnection {
             remote_address: Some("10.0.0.2/32".parse().unwrap()),
             disabled: Some(false),
             ..BgpConnection::default()
         }];
         let mut r2 = snapshot("127.0.0.1:5002", "r2", "s2", []);
-        r2.addresses = vec![address("10.0.0.2/30", "ether3")];
+        r2.ip.addresses.data = vec![address("10.0.0.2/30", "ether3")];
 
         let graph = build_graph(&[r1, r2], []);
 
@@ -702,8 +724,8 @@ mod tests {
     #[test]
     fn graph_ignores_disabled_bgp_connections() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
-        r1.addresses = vec![address("10.0.0.1/30", "ether2")];
-        r1.bgp_connections = vec![BgpConnection {
+        r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether2")];
+        r1.routing.bgp_connections.data = vec![BgpConnection {
             remote_address: Some("198.51.100.1/32".parse().unwrap()),
             disabled: Some(true),
             ..BgpConnection::default()
@@ -718,8 +740,8 @@ mod tests {
     #[test]
     fn graph_adds_bgp_edges_from_enabled_v6_peers() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
-        r1.addresses = vec![address("10.100.0.155/24", "ether2")];
-        r1.bgp_peers = vec![BgpPeer {
+        r1.ip.addresses.data = vec![address("10.100.0.155/24", "ether2")];
+        r1.routing.bgp_peers.data = vec![BgpPeer {
             name: Some("Rt_BORDERv1".to_owned()),
             remote_address: Some("10.100.0.157".parse().unwrap()),
             remote_as: Some(65001),
@@ -755,8 +777,8 @@ mod tests {
     #[test]
     fn graph_ignores_disabled_v6_bgp_peers() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
-        r1.addresses = vec![address("10.100.0.155/24", "ether2")];
-        r1.bgp_peers = vec![BgpPeer {
+        r1.ip.addresses.data = vec![address("10.100.0.155/24", "ether2")];
+        r1.routing.bgp_peers.data = vec![BgpPeer {
             name: Some("Rt_BORDERv1".to_owned()),
             remote_address: Some("10.100.0.157".parse().unwrap()),
             remote_as: Some(65001),
@@ -774,8 +796,8 @@ mod tests {
     #[test]
     fn graph_adds_route_next_hop_edges_to_collected_routers() {
         let mut core = snapshot("10.100.0.208", "core", "core-serial", []);
-        core.addresses = vec![address("10.100.0.208/24", "mgmt")];
-        core.routes = vec![Route {
+        core.ip.addresses.data = vec![address("10.100.0.208/24", "mgmt")];
+        core.ip.routes.data = vec![Route {
             dst_address: Some("10.10.10.0/24".parse().unwrap()),
             immediate_gw: Some("10.100.0.147%mgmt".parse().unwrap()),
             active: Some(true),
@@ -784,7 +806,7 @@ mod tests {
             ..Route::default()
         }];
         let mut customer = snapshot("10.100.0.147", "customer", "customer-serial", []);
-        customer.addresses = vec![
+        customer.ip.addresses.data = vec![
             address("10.100.0.147/24", "ether4_WAN"),
             address("10.10.10.254/24", "lan"),
         ];
@@ -802,8 +824,8 @@ mod tests {
     #[test]
     fn graph_ignores_routes_that_are_not_explicitly_active() {
         let mut core = snapshot("10.100.0.208", "core", "core-serial", []);
-        core.addresses = vec![address("10.100.0.208/24", "mgmt")];
-        core.routes = vec![
+        core.ip.addresses.data = vec![address("10.100.0.208/24", "mgmt")];
+        core.ip.routes.data = vec![
             Route {
                 dst_address: Some("10.10.10.0/24".parse().unwrap()),
                 immediate_gw: Some("10.100.0.147%mgmt".parse().unwrap()),
@@ -895,12 +917,12 @@ mod tests {
 
     #[derive(Debug)]
     struct FakeFactory {
-        snapshots: BTreeMap<core::net::SocketAddr, DeviceSnapshot>,
+        snapshots: BTreeMap<SocketAddr, CollectedSnapshot>,
         connects: Mutex<Vec<String>>,
     }
 
     impl FakeFactory {
-        fn new<const N: usize>(snapshots: [DeviceSnapshot; N]) -> Self {
+        fn new<const N: usize>(snapshots: [CollectedSnapshot; N]) -> Self {
             Self {
                 snapshots: snapshots
                     .into_iter()
@@ -935,24 +957,24 @@ mod tests {
 
     #[derive(Debug)]
     struct FakeClient {
-        snapshot: DeviceSnapshot,
+        snapshot: CollectedSnapshot,
     }
 
     impl DiscoveryClient for FakeClient {
-        fn snapshot<'a>(&'a self, _target_address: &'a str) -> BoxFuture<'a, Result<DeviceSnapshot>> {
+        fn snapshot<'a>(&'a self, _target_address: &'a str) -> BoxFuture<'a, Result<CollectedSnapshot>> {
             Box::pin(async move { Ok(self.snapshot.clone()) })
         }
     }
 
     #[derive(Debug)]
     struct TimeoutOnceFactory {
-        snapshots: BTreeMap<core::net::SocketAddr, DeviceSnapshot>,
+        snapshots: BTreeMap<SocketAddr, CollectedSnapshot>,
         connects: Mutex<Vec<String>>,
-        timed_out: Mutex<BTreeSet<core::net::SocketAddr>>,
+        timed_out: Mutex<BTreeSet<SocketAddr>>,
     }
 
     impl TimeoutOnceFactory {
-        fn new<const N: usize>(snapshots: [DeviceSnapshot; N]) -> Self {
+        fn new<const N: usize>(snapshots: [CollectedSnapshot; N]) -> Self {
             Self {
                 snapshots: snapshots
                     .into_iter()
@@ -973,8 +995,8 @@ mod tests {
             Box::pin(async move {
                 self.connects.lock().unwrap().push(target.address.to_string());
                 if target.address != socket("10.0.0.1") && self.timed_out.lock().unwrap().insert(target.address) {
-                    return Err(Error::Client(mikrotik_client::error::Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
+                    return Err(Error::Client(ClientError::Io(IoError::new(
+                        ErrorKind::TimedOut,
                         "test timeout",
                     ))));
                 }
@@ -1008,34 +1030,42 @@ mod tests {
         identity: &str,
         serial: &str,
         neighbors: [Neighbor; N],
-    ) -> DeviceSnapshot {
+    ) -> CollectedSnapshot {
         let (host, _port) = split_host_port(target_address).unwrap();
-        DeviceSnapshot {
+        CollectedSnapshot {
             target_address: socket(target_address),
             collected_at: time::OffsetDateTime::UNIX_EPOCH,
-            status: DeviceStatus::Reachable,
-            role: DeviceRole::Unknown,
-            fw_update_pending: false,
-            management_addresses: vec![host.parse().unwrap()],
-            identity: Identity {
-                name: Some(identity.to_owned()),
+            snapshot_duration: Duration::ZERO,
+            snapshot: RouterOsSnapshot {
+                system: mikrotik_types::device::SystemSnapshot {
+                    identity: Identity {
+                        name: Some(identity.to_owned()),
+                    }
+                    .into(),
+                    routerboard: Routerboard {
+                        serial_number: Some(serial.to_owned()),
+                        ..Routerboard::default()
+                    }
+                    .into(),
+                    resource: Resource::default().into(),
+                    ..mikrotik_types::device::SystemSnapshot::default()
+                },
+                ip: mikrotik_types::device::IpSnapshot {
+                    addresses: vec![Address {
+                        address: Some(format!("{host}/32").parse::<IpPrefix>().unwrap()),
+                        interface: Some("ether1".parse().unwrap()),
+                        ..Address::default()
+                    }]
+                    .into(),
+                    neighbors: Vec::from(neighbors).into(),
+                    ..mikrotik_types::device::IpSnapshot::default()
+                },
+                ..RouterOsSnapshot::default()
             },
-            routerboard: Routerboard {
-                serial_number: Some(serial.to_owned()),
-                ..Routerboard::default()
-            },
-            resource: Resource::default(),
-            addresses: vec![Address {
-                address: Some(format!("{host}/32").parse::<IpPrefix>().unwrap()),
-                interface: Some("ether1".parse().unwrap()),
-                ..Address::default()
-            }],
-            neighbors: neighbors.into(),
-            ..DeviceSnapshot::default()
         }
     }
 
-    fn socket(address: &str) -> core::net::SocketAddr {
+    fn socket(address: &str) -> SocketAddr {
         if let Ok(address) = address.parse() {
             return address;
         }

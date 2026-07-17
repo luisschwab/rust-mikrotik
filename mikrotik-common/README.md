@@ -4,7 +4,6 @@
     <a href="https://crates.io/crates/mikrotik-common"><img src="https://img.shields.io/crates/v/mikrotik-common.svg"/></a>
     <a href="https://docs.rs/mikrotik-common"><img src="https://img.shields.io/badge/docs.rs-mikrotik--common-blue"/></a>
     <a href="https://github.com/luisschwab/rust-mikrotik/blob/master/LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT%2FApache--2.0-red.svg"/></a>
-    <a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml"><img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg"></a>
 </p>
 
 Shared internals for the `rust-mikrotik` workspace.
@@ -16,14 +15,3 @@ fields. It stays independent from higher-level client and endpoint-model APIs.
 ## no_std
 
 `mikrotik-common` is `no_std` with `alloc`.
-
-## Development
-
-From the workspace root:
-
-```text
-cargo rbmt fmt
-cargo rbmt lint
-cargo rbmt docs
-cargo rbmt test
-```

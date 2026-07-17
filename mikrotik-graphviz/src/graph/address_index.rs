@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use mikrotik_types::device::DeviceKey;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::RouterOsSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 
 use super::model::NetworkGraph;
 
@@ -9,7 +9,7 @@ use super::model::NetworkGraph;
 #[derive(Debug, Default)]
 pub(super) struct GraphAddressIndex {
     /// `node -> interface -> prefixes` map.
-    addresses: BTreeMap<DeviceKey, BTreeMap<String, Vec<String>>>,
+    addresses: BTreeMap<TopologyNodeKey, BTreeMap<String, Vec<String>>>,
 }
 
 impl GraphAddressIndex {
@@ -26,7 +26,7 @@ impl GraphAddressIndex {
     }
 
     /// Return addresses for one node/interface.
-    pub(super) fn addresses(&self, node: &DeviceKey, interface: &str) -> &[String] {
+    pub(super) fn addresses(&self, node: &TopologyNodeKey, interface: &str) -> &[String] {
         self.addresses
             .get(node)
             .and_then(|interfaces| interfaces.get(interface))
@@ -35,9 +35,9 @@ impl GraphAddressIndex {
 }
 
 /// Return configured address values grouped by interface name.
-fn interface_addresses(snapshot: &DeviceSnapshot) -> BTreeMap<String, Vec<String>> {
+fn interface_addresses(snapshot: &RouterOsSnapshot) -> BTreeMap<String, Vec<String>> {
     let mut addresses = BTreeMap::<String, Vec<String>>::new();
-    for address in &snapshot.addresses {
+    for address in &snapshot.ip.addresses.data {
         let Some(prefix) = &address.address else {
             continue;
         };

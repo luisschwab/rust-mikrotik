@@ -7,6 +7,9 @@ use std::io;
 use mikrotik_common::redaction::redact_row;
 use mikrotik_common::row::Row;
 
+/// Result type used by the [`crate::client::Client`].
+pub type Result<T> = core::result::Result<T, Error>;
+
 /// Errors returned by the `MikroTik` client.
 #[derive(Debug)]
 pub enum Error {
@@ -133,9 +136,6 @@ impl From<mikrotik_proto2::error::LoginError> for Error {
         Self::Login(error)
     }
 }
-
-/// Result type used by the `MikroTik` client.
-pub type Result<T> = core::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {

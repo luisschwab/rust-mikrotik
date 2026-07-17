@@ -4,7 +4,6 @@
     <a href="https://crates.io/crates/mikrotik-client"><img src="https://img.shields.io/crates/v/mikrotik-client.svg"/></a>
     <a href="https://docs.rs/mikrotik-client"><img src="https://img.shields.io/badge/docs.rs-mikrotik--client-blue"/></a>
     <a href="https://github.com/luisschwab/rust-mikrotik/blob/master/LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT%2FApache--2.0-red.svg"/></a>
-    <a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml"><img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg"></a>
 </p>
 
 Tokio client for the RouterOS binary API.
@@ -87,17 +86,6 @@ wrapper.
 Connection retries are logged with an optional label from
 `ClientBuilder::with_log_label`. The default retry timings are conservative for real
 devices. The QEMU runner uses local port-forwarded RouterOS boots.
-
-## Development
-
-From the workspace root:
-
-```text
-cargo rbmt fmt
-cargo rbmt lint
-cargo rbmt docs
-cargo rbmt test
-```
 
 The integration-heavy behavior is exercised by `mikrotik-qemu-runner`, which runs
 real RouterOS CHR images under QEMU.

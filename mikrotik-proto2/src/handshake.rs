@@ -5,6 +5,7 @@
 //! enforces this requirement at compile time using the typestate pattern:
 //!
 //! ```text
+//!     |                                |
 //! Handshaking --[login success]--> Authenticated
 //!     |                                |
 //!     | .receive(&bytes)               | .connection() -> &mut Connection
@@ -16,6 +17,8 @@
 //! You cannot call `send_command` on a `Handshaking`; the method doesn't
 //! exist. The only way to get an `Authenticated` connection is by successfully
 //! completing the login handshake.
+
+use core::fmt;
 
 use crate::command::CommandBuilder;
 use crate::connection::Connection;
@@ -59,8 +62,8 @@ pub enum LoginProgress {
     Complete(Authenticated),
 }
 
-impl core::fmt::Debug for LoginProgress {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for LoginProgress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Pending(_) => f.debug_tuple("Pending").field(&"...").finish(),
             Self::Complete(_) => f.debug_tuple("Complete").field(&"...").finish(),

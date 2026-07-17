@@ -75,6 +75,8 @@ pub enum ParseError {
     IpEndpointAddress,
     /// Invalid device status.
     DeviceStatus,
+    /// Invalid device kind.
+    DeviceKind,
     /// Invalid device role.
     DeviceRole,
     /// Invalid LAN host source.
@@ -99,6 +101,7 @@ impl fmt::Display for ParseError {
             Self::ScopedIpAddress => f.write_str("invalid scoped IP address"),
             Self::IpEndpointAddress => f.write_str("invalid IP endpoint address"),
             Self::DeviceStatus => f.write_str("invalid device status"),
+            Self::DeviceKind => f.write_str("invalid device kind"),
             Self::DeviceRole => f.write_str("invalid device role"),
             Self::LanHostSource => f.write_str("invalid LAN host source"),
         }

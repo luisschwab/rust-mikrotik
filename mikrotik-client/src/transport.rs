@@ -1,6 +1,7 @@
 //! Tokio transport for the sans-IO `RouterOS` protocol state machines.
 
 use core::fmt;
+use core::result;
 use std::sync::Arc;
 
 use mikrotik_proto2::Connection;
@@ -131,7 +132,7 @@ impl ServerCertVerifier for NoVerifier {
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
         _now: UnixTime,
-    ) -> core::result::Result<ServerCertVerified, RustlsError> {
+    ) -> result::Result<ServerCertVerified, RustlsError> {
         Ok(ServerCertVerified::assertion())
     }
 
@@ -140,7 +141,7 @@ impl ServerCertVerifier for NoVerifier {
         message: &[u8],
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
-    ) -> core::result::Result<HandshakeSignatureValid, RustlsError> {
+    ) -> result::Result<HandshakeSignatureValid, RustlsError> {
         rustls::crypto::verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
     }
 
@@ -149,7 +150,7 @@ impl ServerCertVerifier for NoVerifier {
         message: &[u8],
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
-    ) -> core::result::Result<HandshakeSignatureValid, RustlsError> {
+    ) -> result::Result<HandshakeSignatureValid, RustlsError> {
         rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
     }
 

@@ -9,7 +9,7 @@ use core::net::SocketAddr;
 use std::collections::BTreeMap;
 
 use mikrotik_types::api::ip::Neighbor;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::RouterOsSnapshot;
 use mikrotik_types::target::Credentials;
 use mikrotik_types::target::DeviceTarget;
 
@@ -20,7 +20,7 @@ pub trait TargetResolver: Send + Sync {
         &self,
         address: IpAddr,
         credentials: &Credentials,
-        source: &DeviceSnapshot,
+        source: &RouterOsSnapshot,
         neighbor: &Neighbor,
     ) -> Option<DeviceTarget>;
 }
@@ -34,7 +34,7 @@ impl TargetResolver for DirectTargetResolver {
         &self,
         address: IpAddr,
         credentials: &Credentials,
-        _source: &DeviceSnapshot,
+        _source: &RouterOsSnapshot,
         _neighbor: &Neighbor,
     ) -> Option<DeviceTarget> {
         Some(DeviceTarget {
@@ -85,7 +85,7 @@ impl TargetResolver for StaticTargetResolver {
         &self,
         address: IpAddr,
         credentials: &Credentials,
-        _source: &DeviceSnapshot,
+        _source: &RouterOsSnapshot,
         _neighbor: &Neighbor,
     ) -> Option<DeviceTarget> {
         self.targets.get(&address).map(|target_address| DeviceTarget {

@@ -1,5 +1,6 @@
 //! Running `MikrotikD` device lifecycle.
 
+use core::slice;
 use core::time::Duration;
 use std::fs;
 use std::net::Ipv4Addr;
@@ -200,7 +201,7 @@ impl MikrotikD {
         } = spawn_mikrotikds(
             &config.name,
             config.allow_software_emulation,
-            core::slice::from_ref(config),
+            slice::from_ref(config),
             &[],
         )
         .await?;

@@ -3,10 +3,14 @@
 //! Usage:
 //!
 //! ```text
-//! cargo run -p mikrotik-client --example raw_call -- 10.10.10.77 api <user> <password> /export
-//! cargo run -p mikrotik-client --example raw_call -- 10.10.10.77 api <user> <password> /system/resource/print
-//! cargo run -p mikrotik-client --example raw_call -- 10.10.10.77 api <user> <password> /export terse
+//! cargo run -p mikrotik-client --example raw_call -- <device_address> <protocol> <user> <password> <command>
+//!
+//! cargo run -p mikrotik-client --example raw_call -- <device_address> <protocol> <user> <password> /system/resource/print
+//! cargo run -p mikrotik-client --example raw_call -- <device_address> <protocol> <user> <password> /export terse
 //! ```
+
+use std::env;
+use std::process;
 
 use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
@@ -33,7 +37,7 @@ struct Args {
 impl Args {
     /// Parse command-line arguments.
     fn parse() -> Self {
-        let mut args = std::env::args().skip(1);
+        let mut args = env::args().skip(1);
         let host = args.next().unwrap_or_else(|| usage());
         let protocol = parse_protocol(&args.next().unwrap_or_else(|| usage()));
         let username = args.next().unwrap_or_else(|| usage());
@@ -50,6 +54,21 @@ impl Args {
             attributes,
         }
     }
+}
+
+/// Parse the protocol argument.
+fn parse_protocol(protocol: &str) -> Protocol {
+    match protocol {
+        "api" => Protocol::Api,
+        "api-ssl" => Protocol::ApiSsl,
+        _ => usage(),
+    }
+}
+
+/// Print usage and exit.
+fn usage() -> ! {
+    eprintln!("usage: raw_call <host> <api|api-ssl> <username> <password> <command> [attribute[=value] ...]");
+    process::exit(2);
 }
 
 /// Example entry point.
@@ -79,19 +98,4 @@ async fn main() -> mikrotik_client::error::Result<()> {
         println!("{row:#?}");
     }
     Ok(())
-}
-
-/// Parse the protocol argument.
-fn parse_protocol(protocol: &str) -> Protocol {
-    match protocol {
-        "api" => Protocol::Api,
-        "api-ssl" => Protocol::ApiSsl,
-        _ => usage(),
-    }
-}
-
-/// Print usage and exit.
-fn usage() -> ! {
-    eprintln!("usage: raw_call <host> <api|api-ssl> <username> <password> <command> [attribute[=value] ...]");
-    std::process::exit(2);
 }

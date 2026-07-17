@@ -1,5 +1,11 @@
 # mikrotik-proto2
 
+<p>
+    <a href="https://crates.io/crates/mikrotik-proto2"><img src="https://img.shields.io/crates/v/mikrotik-proto2.svg"/></a>
+    <a href="https://docs.rs/mikrotik-proto2"><img src="https://img.shields.io/badge/docs.rs-mikrotik--proto2-blue"/></a>
+    <a href="https://github.com/luisschwab/rust-mikrotik/blob/master/mikrotik-proto2/Cargo.toml"><img src="https://img.shields.io/badge/License-AGPL--3.0--only-yellow.svg"/></a>
+</p>
+
 Sans-IO protocol implementation for the [MikroTik RouterOS API](https://help.mikrotik.com/docs/spaces/ROS/pages/47579160/API).
 
 This crate provides a runtime-agnostic, `#![no_std]`-compatible implementation of the MikroTik wire protocol. It handles encoding, decoding, command building, response parsing, and connection state management.

@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use mikrotik_types::api::routing::BgpConnection;
 use mikrotik_types::api::routing::BgpPeer;
 use mikrotik_types::api::routing::BgpSession;
-use mikrotik_types::device::DeviceKey;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
 use mikrotik_types::topology::InferredDevice;
@@ -13,15 +12,18 @@ use mikrotik_types::topology::NetworkNode;
 use mikrotik_types::topology::NetworkNodeStatus;
 use mikrotik_types::topology::TopologyLink;
 
+use crate::snapshot::GraphSnapshot;
+
 /// Build graph edges from BGP sessions reported by one collected device.
 pub(super) fn bgp_session_edges(
-    snapshot: &DeviceSnapshot,
-    target_keys: &HashMap<String, DeviceKey>,
-    address_interfaces: &HashMap<String, (DeviceKey, InterfaceName)>,
-    inferred_nodes: &mut HashMap<DeviceKey, NetworkNode>,
+    snapshot: &GraphSnapshot,
+    target_keys: &HashMap<String, TopologyNodeKey>,
+    address_interfaces: &HashMap<String, (TopologyNodeKey, InterfaceName)>,
+    inferred_nodes: &mut HashMap<TopologyNodeKey, NetworkNode>,
 ) -> Vec<TopologyLink> {
-    let local_key = snapshot.stable_key();
+    let local_key = snapshot.topology_node_key();
     snapshot
+        .routing
         .bgp_sessions
         .iter()
         .filter_map(|session| {
@@ -52,13 +54,14 @@ pub(super) fn bgp_session_edges(
 
 /// Build graph edges from configured BGP connections reported by one collected device.
 pub(super) fn bgp_connection_edges(
-    snapshot: &DeviceSnapshot,
-    target_keys: &HashMap<String, DeviceKey>,
-    address_interfaces: &HashMap<String, (DeviceKey, InterfaceName)>,
-    inferred_nodes: &mut HashMap<DeviceKey, NetworkNode>,
+    snapshot: &GraphSnapshot,
+    target_keys: &HashMap<String, TopologyNodeKey>,
+    address_interfaces: &HashMap<String, (TopologyNodeKey, InterfaceName)>,
+    inferred_nodes: &mut HashMap<TopologyNodeKey, NetworkNode>,
 ) -> Vec<TopologyLink> {
-    let local_key = snapshot.stable_key();
+    let local_key = snapshot.topology_node_key();
     snapshot
+        .routing
         .bgp_connections
         .iter()
         .filter_map(|connection| {
@@ -92,13 +95,14 @@ pub(super) fn bgp_connection_edges(
 
 /// Build graph edges from `RouterOS` v6 configured BGP peers reported by one collected device.
 pub(super) fn bgp_peer_edges(
-    snapshot: &DeviceSnapshot,
-    target_keys: &HashMap<String, DeviceKey>,
-    address_interfaces: &HashMap<String, (DeviceKey, InterfaceName)>,
-    inferred_nodes: &mut HashMap<DeviceKey, NetworkNode>,
+    snapshot: &GraphSnapshot,
+    target_keys: &HashMap<String, TopologyNodeKey>,
+    address_interfaces: &HashMap<String, (TopologyNodeKey, InterfaceName)>,
+    inferred_nodes: &mut HashMap<TopologyNodeKey, NetworkNode>,
 ) -> Vec<TopologyLink> {
-    let local_key = snapshot.stable_key();
+    let local_key = snapshot.topology_node_key();
     snapshot
+        .routing
         .bgp_peers
         .iter()
         .filter_map(|peer| {
@@ -135,10 +139,10 @@ fn bgp_remote_endpoint(
     remote_address: IpAddr,
     remote_name: Option<&str>,
     remote_as: Option<u32>,
-    target_keys: &HashMap<String, DeviceKey>,
-    address_interfaces: &HashMap<String, (DeviceKey, InterfaceName)>,
-    inferred_nodes: &mut HashMap<DeviceKey, NetworkNode>,
-) -> (DeviceKey, Option<InterfaceName>) {
+    target_keys: &HashMap<String, TopologyNodeKey>,
+    address_interfaces: &HashMap<String, (TopologyNodeKey, InterfaceName)>,
+    inferred_nodes: &mut HashMap<TopologyNodeKey, NetworkNode>,
+) -> (TopologyNodeKey, Option<InterfaceName>) {
     if let Some(remote_key) = target_keys.get(&remote_address.to_string()) {
         return (
             remote_key.clone(),
@@ -154,13 +158,13 @@ fn bgp_remote_endpoint(
 }
 
 /// Return a stable key for an opaque external BGP peer.
-fn bgp_peer_key(remote_address: IpAddr) -> DeviceKey {
+fn bgp_peer_key(remote_address: IpAddr) -> TopologyNodeKey {
     format!("bgp:{remote_address}").into()
 }
 
 /// Build an inferred node for an opaque external BGP peer.
 fn inferred_bgp_peer_node(
-    key: DeviceKey,
+    key: TopologyNodeKey,
     remote_address: IpAddr,
     remote_name: Option<&str>,
     remote_as: Option<u32>,
@@ -177,6 +181,9 @@ fn inferred_bgp_peer_node(
     NetworkNode {
         key,
         status: NetworkNodeStatus::Inferred,
+        role: None,
+        target_address: None,
+        management_addresses: Vec::new(),
         snapshot: None,
         inferred: Some(InferredDevice {
             management_address: Some(remote_address),

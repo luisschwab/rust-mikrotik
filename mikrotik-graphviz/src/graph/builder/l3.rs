@@ -6,18 +6,19 @@ use std::collections::HashMap;
 use mikrotik_types::abstractions::Subnet;
 use mikrotik_types::abstractions::SubnetEndpoint;
 use mikrotik_types::api::ip::Route;
-use mikrotik_types::device::DeviceKey;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::primitives::interface::InterfaceType;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
 use mikrotik_types::topology::TopologyLink;
 
+use crate::snapshot::GraphSnapshot;
+
 /// Build graph edges from shared configured L3 interface networks.
-pub(super) fn l3_link_edges(snapshots: &[DeviceSnapshot]) -> Vec<TopologyLink> {
+pub(super) fn l3_link_edges(snapshots: &[GraphSnapshot]) -> Vec<TopologyLink> {
     let mut endpoints_by_network = BTreeMap::<Subnet, BTreeSet<SubnetEndpoint>>::new();
     for snapshot in snapshots {
-        let node = snapshot.stable_key();
+        let node = snapshot.topology_node_key();
         for endpoint in l3_endpoints(snapshot) {
             if endpoint.is_bridge {
                 continue;
@@ -56,14 +57,14 @@ pub(super) fn l3_link_edges(snapshots: &[DeviceSnapshot]) -> Vec<TopologyLink> {
 
 /// Build graph edges from active route next-hop evidence.
 pub(super) fn route_next_hop_edges(
-    snapshots: &[DeviceSnapshot],
-    target_keys: &HashMap<String, DeviceKey>,
-    address_interfaces: &HashMap<String, (DeviceKey, InterfaceName)>,
+    snapshots: &[GraphSnapshot],
+    target_keys: &HashMap<String, TopologyNodeKey>,
+    address_interfaces: &HashMap<String, (TopologyNodeKey, InterfaceName)>,
 ) -> Vec<TopologyLink> {
     let mut edges = Vec::new();
     for snapshot in snapshots {
-        let local_node = snapshot.stable_key();
-        for route in &snapshot.routes {
+        let local_node = snapshot.topology_node_key();
+        for route in &snapshot.ip.routes.data {
             let Some((remote_address, scoped_interface)) = route_next_hop(route) else {
                 continue;
             };
@@ -93,13 +94,13 @@ pub(super) fn route_next_hop_edges(
 }
 
 /// Return the local interface whose configured prefix contains the BGP peer address.
-pub(super) fn interface_for_remote_address(snapshot: &DeviceSnapshot, remote_address: IpAddr) -> Option<InterfaceName> {
+pub(super) fn interface_for_remote_address(snapshot: &GraphSnapshot, remote_address: IpAddr) -> Option<InterfaceName> {
     interface_for_reachable_address(snapshot, remote_address, None)
 }
 
 /// Return the local interface whose configured link prefix contains an address.
 pub(super) fn interface_for_l3_link_address(
-    snapshot: &DeviceSnapshot,
+    snapshot: &GraphSnapshot,
     remote_address: IpAddr,
     preferred_interface: Option<&InterfaceName>,
 ) -> Option<InterfaceName> {
@@ -110,9 +111,9 @@ pub(super) fn interface_for_l3_link_address(
 
 /// Return the interface whose configured address matches the requested node and address.
 pub(super) fn interface_for_address(
-    remote_key: &DeviceKey,
+    remote_key: &TopologyNodeKey,
     remote_address: IpAddr,
-    address_interfaces: &HashMap<String, (DeviceKey, InterfaceName)>,
+    address_interfaces: &HashMap<String, (TopologyNodeKey, InterfaceName)>,
 ) -> Option<InterfaceName> {
     address_interfaces
         .get(&remote_address.to_string())
@@ -159,8 +160,9 @@ fn route_edge_confidence(route: &Route) -> u8 {
 }
 
 /// Return configured L3 endpoints for one snapshot.
-fn l3_endpoints(snapshot: &DeviceSnapshot) -> Vec<SubnetInterfaceAddress> {
+fn l3_endpoints(snapshot: &GraphSnapshot) -> Vec<SubnetInterfaceAddress> {
     snapshot
+        .ip
         .addresses
         .iter()
         .filter_map(|address| {
@@ -195,7 +197,7 @@ struct SubnetInterfaceAddress {
 
 /// Return the local interface whose configured prefix contains an address.
 fn interface_for_reachable_address(
-    snapshot: &DeviceSnapshot,
+    snapshot: &GraphSnapshot,
     remote_address: IpAddr,
     preferred_interface: Option<&InterfaceName>,
 ) -> Option<InterfaceName> {
@@ -204,12 +206,12 @@ fn interface_for_reachable_address(
 
 /// Return the local interface whose configured prefix contains an address and passes a network predicate.
 fn interface_for_reachable_address_with(
-    snapshot: &DeviceSnapshot,
+    snapshot: &GraphSnapshot,
     remote_address: IpAddr,
     preferred_interface: Option<&InterfaceName>,
     include_network: impl Fn(&Subnet) -> bool,
 ) -> Option<InterfaceName> {
-    snapshot.addresses.iter().find_map(|address| {
+    snapshot.ip.addresses.iter().find_map(|address| {
         if address.disabled == Some(true) || address.invalid == Some(true) {
             return None;
         }
@@ -233,8 +235,8 @@ fn interface_for_reachable_address_with(
 }
 
 /// Return whether an interface is explicitly a bridge interface in the snapshot.
-fn is_bridge_interface(snapshot: &DeviceSnapshot, interface: &InterfaceName) -> bool {
-    snapshot.interfaces.iter().any(|candidate| {
+fn is_bridge_interface(snapshot: &GraphSnapshot, interface: &InterfaceName) -> bool {
+    snapshot.interface.interfaces.iter().any(|candidate| {
         candidate
             .name
             .as_ref()

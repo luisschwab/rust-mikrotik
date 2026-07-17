@@ -1,3 +1,8 @@
+#![allow(
+    clippy::large_stack_arrays,
+    reason = "snapshot fixtures intentionally exercise complete typed endpoint payloads"
+)]
+
 use core::net::SocketAddr;
 use std::collections::BTreeSet;
 
@@ -5,6 +10,7 @@ use mikrotik_types::abstractions::LinkKind;
 use mikrotik_types::api::ip::Neighbor;
 use mikrotik_types::api::routing::BgpConnection;
 use mikrotik_types::device::DeviceRole;
+use mikrotik_types::device::RouterOsSnapshot;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
 use mikrotik_types::topology::InferredNeighborEvidence;
 use mikrotik_types::topology::NetworkNode;
@@ -22,6 +28,7 @@ use crate::constants::GRAPHVIZ_SECTION_NODE_SPACING;
 use crate::constants::GRAPHVIZ_SECTION_OWNED_BGP_Y;
 use crate::constants::GRAPHVIZ_SECTION_UPSTREAM_Y;
 use crate::constants::GRAPHVIZ_SFDP_LAYOUT;
+use crate::snapshot::GraphSnapshot;
 
 #[test]
 fn layered_rank_uses_seed_context_and_bgp_state_not_names() {
@@ -191,17 +198,14 @@ fn sfdp_output_adds_invisible_radio_chain_constraints() {
 fn graph_adds_wireless_edge_from_collected_radio_neighbor_evidence() {
     let router = key("serial-router");
     let radio = key("serial-radio");
-    let mut snapshot_router = collected_named_node(&router, "Rt_Sonata", DeviceRole::CustomerRouter)
-        .snapshot
-        .unwrap();
-    let mut snapshot_radio = collected_named_node(&radio, "Sonata-Orbitel", DeviceRole::Unknown)
-        .snapshot
-        .unwrap();
+    let mut snapshot_router = graph_snapshot(&router, "Rt_Sonata", DeviceRole::CustomerRouter);
+    let mut snapshot_radio = graph_snapshot(&radio, "Sonata-Orbitel", DeviceRole::Unknown);
     snapshot_router.target_address = SocketAddr::new("10.100.0.220".parse().unwrap(), 8728);
     snapshot_radio.target_address = SocketAddr::new("10.100.0.230".parse().unwrap(), 8728);
 
+    let snapshots = vec![snapshot_router, snapshot_radio].into_boxed_slice();
     let graph = build_graph_with_neighbor_evidence(
-        &[snapshot_router, snapshot_radio],
+        snapshots.as_ref(),
         [InferredNeighborEvidence {
             neighbor: graph_neighbor("ether1", "bridge", "10.100.0.230", "Sonata-Orbitel"),
             local_node: router,
@@ -219,17 +223,14 @@ fn graph_adds_wireless_edge_from_collected_radio_neighbor_evidence() {
 fn graph_does_not_add_wireless_edge_from_plain_neighbor_evidence() {
     let router_a = key("serial-router-a");
     let router_b = key("serial-router-b");
-    let mut snapshot_a = collected_named_node(&router_a, "Rt_A", DeviceRole::CoreRouter)
-        .snapshot
-        .unwrap();
-    let mut snapshot_b = collected_named_node(&router_b, "Rt_B", DeviceRole::CustomerRouter)
-        .snapshot
-        .unwrap();
+    let mut snapshot_a = graph_snapshot(&router_a, "Rt_A", DeviceRole::CoreRouter);
+    let mut snapshot_b = graph_snapshot(&router_b, "Rt_B", DeviceRole::CustomerRouter);
     snapshot_a.target_address = SocketAddr::new("10.0.0.1".parse().unwrap(), 8728);
     snapshot_b.target_address = SocketAddr::new("10.0.0.2".parse().unwrap(), 8728);
 
+    let snapshots = vec![snapshot_a, snapshot_b].into_boxed_slice();
     let graph = build_graph_with_neighbor_evidence(
-        &[snapshot_a, snapshot_b],
+        snapshots.as_ref(),
         [InferredNeighborEvidence {
             neighbor: graph_neighbor("ether1", "ether2", "10.0.0.2", "Rt_B"),
             local_node: router_a,
@@ -245,17 +246,14 @@ fn graph_does_not_add_wireless_edge_from_plain_neighbor_evidence() {
 fn graph_does_not_turn_shared_location_tokens_into_wireless_cliques() {
     let radio_a = key("serial-radio-a");
     let radio_b = key("serial-radio-b");
-    let mut snapshot_a = collected_named_node(&radio_a, "Unicred-Patio", DeviceRole::Unknown)
-        .snapshot
-        .unwrap();
-    let mut snapshot_b = collected_named_node(&radio_b, "CTC_INFRAERO-PATIO", DeviceRole::Unknown)
-        .snapshot
-        .unwrap();
+    let mut snapshot_a = graph_snapshot(&radio_a, "Unicred-Patio", DeviceRole::Unknown);
+    let mut snapshot_b = graph_snapshot(&radio_b, "CTC_INFRAERO-PATIO", DeviceRole::Unknown);
     snapshot_a.target_address = SocketAddr::new("10.100.0.77".parse().unwrap(), 8728);
     snapshot_b.target_address = SocketAddr::new("10.100.0.149".parse().unwrap(), 8728);
 
+    let snapshots = vec![snapshot_a, snapshot_b].into_boxed_slice();
     let graph = build_graph_with_neighbor_evidence(
-        &[snapshot_a, snapshot_b],
+        snapshots.as_ref(),
         [InferredNeighborEvidence {
             neighbor: graph_neighbor("bridge", "wlan1", "10.100.0.149", "CTC_INFRAERO-PATIO"),
             local_node: radio_a,
@@ -358,20 +356,23 @@ fn graphviz_seed_nodes_use_seed_colors() {
     );
 }
 
-fn key(value: &str) -> DeviceKey {
-    DeviceKey::from(value.to_owned())
+fn key(value: &str) -> TopologyNodeKey {
+    TopologyNodeKey::from(value.to_owned())
 }
 
-fn node(key: &DeviceKey) -> NetworkNode {
+fn node(key: &TopologyNodeKey) -> NetworkNode {
     NetworkNode {
         key: key.clone(),
         status: NetworkNodeStatus::Inferred,
+        role: None,
+        target_address: None,
+        management_addresses: Vec::new(),
         snapshot: None,
         inferred: None,
     }
 }
 
-fn collected_node(key: &DeviceKey, has_bgp_state: bool) -> NetworkNode {
+fn collected_node(key: &TopologyNodeKey, has_bgp_state: bool) -> NetworkNode {
     let bgp_connections = if has_bgp_state {
         vec![BgpConnection::default()]
     } else {
@@ -380,45 +381,63 @@ fn collected_node(key: &DeviceKey, has_bgp_state: bool) -> NetworkNode {
     NetworkNode {
         key: key.clone(),
         status: NetworkNodeStatus::Collected,
-        snapshot: Some(DeviceSnapshot {
-            target_address: SocketAddr::new("192.0.2.1".parse().unwrap(), 8728),
-            collected_at: time::OffsetDateTime::UNIX_EPOCH,
-            status: mikrotik_types::device::DeviceStatus::Reachable,
-            role: DeviceRole::Unknown,
-            identity: mikrotik_types::api::system::Identity::default(),
-            resource: mikrotik_types::api::system::Resource::default(),
-            routerboard: mikrotik_types::api::system::Routerboard::default(),
-            bgp_connections,
-            ..DeviceSnapshot::default()
+        role: Some(DeviceRole::Unknown),
+        target_address: Some(SocketAddr::new("192.0.2.1".parse().unwrap(), 8728)),
+        management_addresses: Vec::new(),
+        snapshot: Some(RouterOsSnapshot {
+            system: mikrotik_types::device::SystemSnapshot {
+                identity: mikrotik_types::api::system::Identity::default().into(),
+                resource: mikrotik_types::api::system::Resource::default().into(),
+                routerboard: mikrotik_types::api::system::Routerboard::default().into(),
+                ..mikrotik_types::device::SystemSnapshot::default()
+            },
+            routing: mikrotik_types::device::RoutingSnapshot {
+                bgp_connections: bgp_connections.into(),
+                ..mikrotik_types::device::RoutingSnapshot::default()
+            },
+            ..RouterOsSnapshot::default()
         }),
         inferred: None,
     }
 }
 
-fn collected_named_node(key: &DeviceKey, name: &str, role: DeviceRole) -> NetworkNode {
+fn collected_named_node(key: &TopologyNodeKey, name: &str, role: DeviceRole) -> NetworkNode {
     NetworkNode {
         key: key.clone(),
         status: NetworkNodeStatus::Collected,
-        snapshot: Some(DeviceSnapshot {
-            target_address: SocketAddr::new("192.0.2.1".parse().unwrap(), 8728),
-            collected_at: time::OffsetDateTime::UNIX_EPOCH,
-            status: mikrotik_types::device::DeviceStatus::Reachable,
-            role,
-            identity: mikrotik_types::api::system::Identity {
-                name: Some(name.to_owned()),
+        role: Some(role),
+        target_address: Some(SocketAddr::new("192.0.2.1".parse().unwrap(), 8728)),
+        management_addresses: Vec::new(),
+        snapshot: Some(RouterOsSnapshot {
+            system: mikrotik_types::device::SystemSnapshot {
+                identity: mikrotik_types::api::system::Identity {
+                    name: Some(name.to_owned()),
+                }
+                .into(),
+                resource: mikrotik_types::api::system::Resource::default().into(),
+                routerboard: mikrotik_types::api::system::Routerboard {
+                    serial_number: Some(key.to_string()),
+                    ..mikrotik_types::api::system::Routerboard::default()
+                }
+                .into(),
+                ..mikrotik_types::device::SystemSnapshot::default()
             },
-            resource: mikrotik_types::api::system::Resource::default(),
-            routerboard: mikrotik_types::api::system::Routerboard {
-                serial_number: Some(key.to_string()),
-                ..mikrotik_types::api::system::Routerboard::default()
-            },
-            ..DeviceSnapshot::default()
+            ..RouterOsSnapshot::default()
         }),
         inferred: None,
     }
 }
 
-fn edge(local_node: &DeviceKey, remote_node: &DeviceKey) -> TopologyLink {
+fn graph_snapshot(key: &TopologyNodeKey, name: &str, role: DeviceRole) -> GraphSnapshot {
+    GraphSnapshot {
+        target_address: SocketAddr::new("192.0.2.1".parse().unwrap(), 8728),
+        management_addresses: Vec::new(),
+        role,
+        snapshot: collected_named_node(key, name, role).snapshot.unwrap(),
+    }
+}
+
+fn edge(local_node: &TopologyNodeKey, remote_node: &TopologyNodeKey) -> TopologyLink {
     TopologyLink {
         local_node: local_node.clone(),
         local_interface: None,

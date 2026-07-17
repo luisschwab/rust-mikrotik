@@ -8,6 +8,7 @@
 //! you cannot accidentally pass a random `Uuid` where a command tag is expected.
 
 use core::fmt;
+use core::str::FromStr;
 
 use uuid::Uuid;
 
@@ -92,7 +93,7 @@ impl From<Tag> for Uuid {
 }
 
 /// Parse a tag from a hyphenated UUID string, such as `.tag=...` wire data.
-impl core::str::FromStr for Tag {
+impl FromStr for Tag {
     type Err = uuid::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

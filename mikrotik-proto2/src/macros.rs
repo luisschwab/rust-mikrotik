@@ -76,7 +76,10 @@ macro_rules! command {
     ($cmd:literal $(, $key:ident $(= $value:expr)? )* $(,)?) => {{
         const VALIDATED: &str = $crate::macros::check_mikrotik_command($cmd);
 
-        #[allow(unused_mut)]
+        #[allow(
+            unused_mut,
+            reason = "the generated builder supports commands with and without query fields"
+        )]
         let mut builder = $crate::command::CommandBuilder::new()
             .command(VALIDATED);
 

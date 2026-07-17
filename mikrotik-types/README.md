@@ -4,7 +4,6 @@
     <a href="https://crates.io/crates/mikrotik-types"><img src="https://img.shields.io/crates/v/mikrotik-types.svg"/></a>
     <a href="https://docs.rs/mikrotik-types"><img src="https://img.shields.io/badge/docs.rs-mikrotik--types-blue"/></a>
     <a href="https://github.com/luisschwab/rust-mikrotik/blob/master/LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT%2FApache--2.0-red.svg"/></a>
-    <a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml"><img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg"></a>
 </p>
 
 Versionless data models for MikroTik RouterOS API responses.
@@ -77,14 +76,3 @@ that are version-, platform-, package-, or configuration-dependent.
 
 Fixture tests cover captured live rows, and `mikrotik-qemu-runner` exercises typed
 deserialization against real CHR images across the cataloged RouterOS versions.
-
-## Development
-
-From the workspace root:
-
-```text
-cargo rbmt fmt
-cargo rbmt lint
-cargo rbmt docs
-cargo rbmt test
-```

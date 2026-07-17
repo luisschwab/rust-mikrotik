@@ -3,6 +3,7 @@
 use core::error;
 use core::fmt;
 use std::io;
+use std::process::ExitStatus;
 
 /// Errors returned by ISP tools operations.
 #[derive(Debug)]
@@ -18,7 +19,7 @@ pub enum Error {
         /// Requested output format.
         format: String,
         /// Process exit status.
-        status: std::process::ExitStatus,
+        status: ExitStatus,
     },
 
     /// A target address from the input or a neighbor row could not be used.

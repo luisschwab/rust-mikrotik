@@ -1,16 +1,17 @@
 //! Device graph types and Graphviz export.
 //!
 //! The graph is built from collected
-//! [`mikrotik_types::device::DeviceSnapshot`] values plus neighbor evidence for
+//! [`crate::snapshot::GraphSnapshot`] values plus neighbor evidence for
 //! devices that were seen but not crawled. It can be serialized as structured
 //! data or rendered to DOT for external Graphviz tools.
 
 use std::collections::BTreeMap;
 
 use mikrotik_types::abstractions::LinkKind;
-use mikrotik_types::device::DeviceKey;
-use mikrotik_types::device::DeviceSnapshot;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::topology::TopologyLink;
+
+use crate::snapshot::GraphSnapshot;
 
 /// Interface address indexing for link labels.
 mod address_index;
@@ -88,14 +89,17 @@ pub const GRAPHVIZ_RANK_UNKNOWN: u8 = 5;
 impl NetworkGraph {
     /// Build a graph from collected device snapshots.
     #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn from_snapshots(snapshots: Vec<DeviceSnapshot>) -> Self {
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "the owned snapshot keeps the public constructor consistent with the other graph constructors"
+    )]
+    pub fn from_snapshots(snapshots: Vec<GraphSnapshot>) -> Self {
         build_graph(&snapshots, [])
     }
 
     /// Build a graph from borrowed collected device snapshots.
     #[must_use]
-    pub fn from_snapshot_refs(snapshots: &[DeviceSnapshot]) -> Self {
+    pub fn from_snapshot_refs(snapshots: &[GraphSnapshot]) -> Self {
         build_graph(snapshots, [])
     }
 
@@ -191,12 +195,12 @@ impl NetworkGraph {
 
     /// Return the node key collected from one target address.
     #[must_use]
-    pub fn node_key_for_target_address(&self, target_address: &str) -> Option<&DeviceKey> {
+    pub fn node_key_for_target_address(&self, target_address: &str) -> Option<&TopologyNodeKey> {
         let host = target_address_host(target_address).unwrap_or(target_address);
         self.nodes.iter().find_map(|node| {
-            let snapshot = node.snapshot.as_ref()?;
-            (snapshot.target_address.to_string() == target_address
-                || snapshot
+            let target = node.target_address?;
+            (target.to_string() == target_address
+                || node
                     .management_addresses
                     .iter()
                     .any(|address| address.to_string() == host))

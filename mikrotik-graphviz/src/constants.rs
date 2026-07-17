@@ -59,7 +59,7 @@ pub const GRAPHVIZ_FONT: &str = "Berkeley Mono";
 /// Graphviz font used for device nodes.
 pub const GRAPHVIZ_DEVICE_FONT: &str = "Berkeley Mono Bold";
 /// Directory containing the bundled Graphviz fonts.
-pub const GRAPHVIZ_FONT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../mikrotik-observer/assets/font");
+pub const GRAPHVIZ_FONT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/font");
 /// Graphviz DPI used for raster PNG exports.
 pub const GRAPHVIZ_PNG_DPI: &str = "300";
 /// Graphviz output format used for raster PNG exports.

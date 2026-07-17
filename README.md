@@ -3,7 +3,7 @@
 <h1>Rust MikroTik</h1>
 
 <p>
-    A suite of Rust crates for simulating and interacting with MikroTik devices
+    A suite of Rust crates for simulating, interacting and managing MikroTik™ devices
 </p>
 
 <p>
@@ -27,7 +27,8 @@ TBD
 
 ## Minimum Supported Rust Version
 
-This set of libraries should compile with any combination of features on Rust 1.85.0.
+This set of libraries should compile with any combination of features on 
+[Rust 1.85.0](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0/).
 
 To build with the MSRV toolchain, copy `Cargo-minimal.lock` to `Cargo.lock`.
 

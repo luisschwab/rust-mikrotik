@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use mikrotik_types::device::DeviceKey;
+use mikrotik_types::device::TopologyNodeKey;
 
 use super::edge::GraphvizEdge;
 use super::escape::push_dot_escaped;
@@ -13,7 +13,7 @@ pub(super) fn graphviz_visible_nodes(
     graph: &NetworkGraph,
     edges: &[GraphvizEdge],
     options: &DotExportOptions,
-) -> BTreeSet<DeviceKey> {
+) -> BTreeSet<TopologyNodeKey> {
     let mut visible = graph.nodes.iter().map(|node| node.key.clone()).collect::<BTreeSet<_>>();
     for edge in edges {
         visible.insert(edge.local_node.clone());

@@ -346,6 +346,7 @@ impl QueryOperator {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use alloc::string::String;
+    use core::str;
 
     use uuid::Uuid;
 
@@ -417,7 +418,7 @@ mod tests {
     #[test]
     fn test_command_builder_login() {
         let command = CommandBuilder::<NoCmd>::login("admin", Some("password"));
-        let s = core::str::from_utf8(&command.data).unwrap();
+        let s = str::from_utf8(&command.data).unwrap();
         assert!(s.contains("/login"));
         assert!(s.contains("name=admin"));
         assert!(s.contains("password=password"));
@@ -426,7 +427,7 @@ mod tests {
     #[test]
     fn test_command_builder_cancel() {
         let command = CommandBuilder::<NoCmd>::cancel(TEST_TAG);
-        let s = core::str::from_utf8(&command.data).unwrap();
+        let s = str::from_utf8(&command.data).unwrap();
         assert!(s.contains("/cancel"));
         assert!(s.contains("tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8"));
     }

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use mikrotik_types::device::DeviceKey;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::topology::NetworkNode;
 
 use super::escape::push_dot_escaped;
@@ -19,7 +19,7 @@ use crate::options::DotExportOptions;
 pub(super) fn push_graphviz_ranks(
     dot: &mut String,
     graph: &NetworkGraph,
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     options: &DotExportOptions,
 ) {
     let max_rank = graph
@@ -54,7 +54,7 @@ pub(super) fn push_graphviz_ranks(
 pub(super) fn push_graphviz_sfdp_rank_anchors(
     dot: &mut String,
     graph: &NetworkGraph,
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
     options: &DotExportOptions,
 ) {
     let mut ranks = BTreeMap::<u8, Vec<&NetworkNode>>::new();
@@ -92,7 +92,7 @@ pub(super) fn push_graphviz_sfdp_rank_anchors(
 pub(super) fn push_graphviz_sfdp_radio_chain_constraints(
     dot: &mut String,
     graph: &NetworkGraph,
-    visible_nodes: &BTreeSet<DeviceKey>,
+    visible_nodes: &BTreeSet<TopologyNodeKey>,
 ) {
     let radios = graph
         .nodes
@@ -132,7 +132,7 @@ pub(super) fn push_graphviz_sfdp_radio_chain_constraints(
 }
 
 /// Return a deterministic unordered device pair key.
-fn ordered_pair(left: &DeviceKey, right: &DeviceKey) -> (DeviceKey, DeviceKey) {
+fn ordered_pair(left: &TopologyNodeKey, right: &TopologyNodeKey) -> (TopologyNodeKey, TopologyNodeKey) {
     if left <= right {
         (left.clone(), right.clone())
     } else {

@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use mikrotik_types::abstractions::LinkKind;
-use mikrotik_types::device::DeviceKey;
 use mikrotik_types::device::DeviceRole;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::topology::TopologyLink;
 
@@ -29,11 +29,11 @@ use crate::options::DotExportOptions;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct GraphvizEdge {
     /// Local visual endpoint.
-    pub(super) local_node: DeviceKey,
+    pub(super) local_node: TopologyNodeKey,
     /// Local visual interface.
     pub(super) local_interface: Option<InterfaceName>,
     /// Remote visual endpoint.
-    pub(super) remote_node: DeviceKey,
+    pub(super) remote_node: TopologyNodeKey,
     /// Remote visual interface.
     pub(super) remote_interface: Option<InterfaceName>,
     /// Visual link kind.
@@ -338,12 +338,12 @@ fn push_graphviz_cell_value(dot: &mut String, value: &str) {
 }
 
 /// Return true for core/internal routers that are not the edge hub.
-fn is_internal_node(node: &DeviceKey, role: Option<DeviceRole>) -> bool {
+fn is_internal_node(node: &TopologyNodeKey, role: Option<DeviceRole>) -> bool {
     role == Some(DeviceRole::CoreRouter) && !node.as_str().contains("EDGE")
 }
 
 /// Return a deterministic unordered device pair key.
-fn ordered_pair(left: &DeviceKey, right: &DeviceKey) -> (DeviceKey, DeviceKey) {
+fn ordered_pair(left: &TopologyNodeKey, right: &TopologyNodeKey) -> (TopologyNodeKey, TopologyNodeKey) {
     if left <= right {
         (left.clone(), right.clone())
     } else {
@@ -355,7 +355,7 @@ fn ordered_pair(left: &DeviceKey, right: &DeviceKey) -> (DeviceKey, DeviceKey) {
 fn graph_link_kind_from_edge(
     edge: &TopologyLink,
     graph: &NetworkGraph,
-    bgp_evidence: &BTreeSet<(DeviceKey, DeviceKey)>,
+    bgp_evidence: &BTreeSet<(TopologyNodeKey, TopologyNodeKey)>,
 ) -> LinkKind {
     if bgp_evidence.contains(&ordered_pair(&edge.local_node, &edge.remote_node)) {
         LinkKind::Bgp

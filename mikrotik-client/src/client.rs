@@ -1,6 +1,7 @@
 //! Connected client and raw command execution.
 
 use core::time::Duration;
+use std::io;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::Once;
@@ -27,7 +28,7 @@ use crate::transport::Session;
 /// Default maximum time spent retrying transient connection failures.
 const CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(120);
 /// Maximum time allowed for one TCP/login attempt before retry backoff.
-const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// First delay used after a transient connection failure.
 const CONNECT_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(250);
 /// Maximum delay used by exponential connection backoff.
@@ -67,17 +68,17 @@ impl Client {
                     let sleep_for = delay.min(deadline.saturating_duration_since(Instant::now()));
                     if let Some(label) = &config.log_label {
                         debug!(
-                            "{}: RouterOS API at {} is not ready yet after {:?}: {error}. Retrying in {:?}",
+                            "{}: RouterOS API at socket={} not ready after {} seconds: {error}. Retrying in {:?}...",
                             label,
                             config.socket_address(),
-                            attempt_elapsed,
+                            attempt_elapsed.as_secs(),
                             sleep_for
                         );
                     } else {
                         debug!(
-                            "RouterOS API at {} is not ready yet after {:?}: {error}. Retrying in {:?}",
+                            "RouterOS API at socket={} is not ready after {} seconds: {error}. Retrying in {:?}...",
                             config.socket_address(),
-                            attempt_elapsed,
+                            attempt_elapsed.as_secs(),
                             sleep_for
                         );
                     }
@@ -160,7 +161,7 @@ async fn connect_attempt(config: &ClientBuilder, deadline: Instant, attempt_time
     let timeout_for = attempt_timeout.min(deadline.saturating_duration_since(Instant::now()));
     match timeout(timeout_for, Session::connect(config)).await {
         Ok(result) => result,
-        Err(_) => Err(Error::Io(std::io::Error::new(
+        Err(_) => Err(Error::Io(io::Error::new(
             ErrorKind::TimedOut,
             format!("connect attempt exceeded {attempt_timeout:?}"),
         ))),
@@ -259,6 +260,8 @@ fn install_rustls_provider() {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Error as IoError;
+
     use super::*;
 
     #[test]
@@ -296,14 +299,14 @@ mod tests {
 
     #[test]
     fn connect_backoff_retries_only_transient_errors() {
-        assert!(is_transient_connect_error(&Error::Io(std::io::Error::from(
+        assert!(is_transient_connect_error(&Error::Io(IoError::from(
             ErrorKind::ConnectionRefused
         ))));
-        assert!(is_transient_connect_error(&Error::Io(std::io::Error::from(
+        assert!(is_transient_connect_error(&Error::Io(IoError::from(
             ErrorKind::TimedOut
         ))));
         assert!(is_transient_connect_error(&Error::ConnectionClosed));
-        assert!(!is_transient_connect_error(&Error::Io(std::io::Error::from(
+        assert!(!is_transient_connect_error(&Error::Io(IoError::from(
             ErrorKind::PermissionDenied
         ))));
         assert!(!is_transient_connect_error(&Error::Trap("bad command".to_owned())));

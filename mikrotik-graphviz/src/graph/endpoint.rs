@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use mikrotik_types::abstractions::LinkKind;
 use mikrotik_types::abstractions::Subnet;
-use mikrotik_types::device::DeviceKey;
 use mikrotik_types::device::DeviceRole;
+use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 
 use super::address_index::GraphAddressIndex;
@@ -63,7 +63,7 @@ pub(super) fn edge_endpoint_labels(
 
 /// Return one endpoint label row including interface and assigned IP prefixes.
 fn edge_endpoint_label(
-    node: &DeviceKey,
+    node: &TopologyNodeKey,
     interface: Option<&InterfaceName>,
     graph: &NetworkGraph,
     relevant_addresses: Vec<String>,
@@ -113,9 +113,9 @@ fn edge_endpoint_label(
 
 /// Return addresses worth displaying for one endpoint of a link.
 fn relevant_endpoint_addresses(
-    node: &DeviceKey,
+    node: &TopologyNodeKey,
     interface: Option<&InterfaceName>,
-    peer_node: &DeviceKey,
+    peer_node: &TopologyNodeKey,
     peer_interface: Option<&InterfaceName>,
     link_kind: LinkKind,
     address_index: &GraphAddressIndex,
@@ -184,16 +184,15 @@ fn shared_link_networks(left: &[String], right: &[String]) -> BTreeSet<Subnet> {
 }
 
 /// Return the management address known for one graph node.
-fn node_management_address(node: &DeviceKey, graph: &NetworkGraph) -> Option<String> {
+fn node_management_address(node: &TopologyNodeKey, graph: &NetworkGraph) -> Option<String> {
     graph
         .nodes
         .iter()
         .find(|candidate| candidate.key == *node)
         .and_then(|candidate| {
             candidate
-                .snapshot
-                .as_ref()
-                .map(|snapshot| snapshot.target_address.ip().to_string())
+                .target_address
+                .map(|address| address.ip().to_string())
                 .or_else(|| {
                     candidate
                         .inferred

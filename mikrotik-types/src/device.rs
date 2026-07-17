@@ -1,22 +1,16 @@
-//! Observer-level device snapshots.
-//!
-//! These types are composed from lower-level `RouterOS` endpoint rows and
-//! represent an observed device as a single domain object. They are intentionally
-//! separate from raw endpoint structs so collection clients can keep API shape
-//! changes isolated from higher-level topology and inventory logic.
+//! Device identity and raw/typed `RouterOS` endpoint snapshots.
 
+use alloc::borrow::ToOwned as _;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
-use alloc::string::ToString as _;
 use alloc::vec::Vec;
 use core::fmt;
-use core::net::IpAddr;
-use core::net::SocketAddr;
+use core::ops::Deref;
+use core::ops::DerefMut;
 use core::str::FromStr;
 
 use serde::Deserialize;
 use serde::Serialize;
-use time::OffsetDateTime;
 
 use crate::ParseError;
 use crate::Row;
@@ -156,26 +150,46 @@ use crate::api::user::UserAaa;
 use crate::api::user::UserGroup;
 use crate::api::user::UserSettings;
 
-/// Stable observer key for a device.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// `RouterBOARD` serial number used as the durable device identity.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
-pub struct DeviceKey(String);
+pub struct DeviceSerial(String);
 
-impl DeviceKey {
-    /// Return the key string.
+impl DeviceSerial {
+    /// Return the serial-number string.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Consume the serial and return its owned representation.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
 }
 
-impl fmt::Display for DeviceKey {
+impl AsRef<str> for DeviceSerial {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Deref for DeviceSerial {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for DeviceSerial {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-impl FromStr for DeviceKey {
+impl FromStr for DeviceSerial {
     type Err = ParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -183,9 +197,72 @@ impl FromStr for DeviceKey {
     }
 }
 
-impl From<String> for DeviceKey {
+impl TryFrom<String> for DeviceSerial {
+    type Error = ParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl<'de> Deserialize<'de> for DeviceSerial {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Stable topology identity, including inferred and non-serial nodes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct TopologyNodeKey(String);
+
+impl TopologyNodeKey {
+    /// Return the node-key string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for TopologyNodeKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for TopologyNodeKey {
+    type Err = ParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        crate::parse_non_empty(value).map(Self)
+    }
+}
+
+impl From<String> for TopologyNodeKey {
     fn from(value: String) -> Self {
         Self(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for TopologyNodeKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl From<DeviceSerial> for TopologyNodeKey {
+    fn from(serial: DeviceSerial) -> Self {
+        Self(serial.0)
     }
 }
 
@@ -335,313 +412,509 @@ impl FromStr for DeviceRole {
     }
 }
 
-/// A point-in-time snapshot of one `RouterOS` device.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DeviceSnapshot {
-    /// Address used to collect this snapshot.
-    pub target_address: SocketAddr,
-    /// Collection timestamp.
-    pub collected_at: OffsetDateTime,
-    /// Collection status.
-    pub status: DeviceStatus,
-    /// Operator-assigned role.
-    pub role: DeviceRole,
-    /// Whether `RouterBOARD` firmware has an available pending update.
-    #[serde(default)]
-    pub fw_update_pending: bool,
-    /// Known management or interface addresses for this device.
-    #[serde(default)]
-    pub management_addresses: Vec<IpAddr>,
+/// Data and optional collection failure for one `RouterOS` endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointSnapshot<T> {
+    /// Successfully decoded endpoint data, or its empty/default representation.
+    pub data: T,
+    /// Endpoint-local collection failure, when collection was unsuccessful.
+    pub error: Option<EndpointError>,
+}
+
+impl<T> EndpointSnapshot<T> {
+    /// Construct a successfully collected endpoint value.
+    pub const fn success(data: T) -> Self {
+        Self { data, error: None }
+    }
+}
+
+impl<T> From<T> for EndpointSnapshot<T> {
+    fn from(data: T) -> Self {
+        Self::success(data)
+    }
+}
+
+impl<T> Deref for EndpointSnapshot<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<T> DerefMut for EndpointSnapshot<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl<T: Default> Default for EndpointSnapshot<T> {
+    fn default() -> Self {
+        Self::success(T::default())
+    }
+}
+
+/// Serializable endpoint-local collection failure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointError {
+    /// Broad failure category suitable for UI and metrics labels.
+    pub kind: EndpointErrorKind,
+    /// Exact `RouterOS` command that failed.
+    pub command: String,
+    /// Safe diagnostic message.
+    pub message: String,
+}
+
+/// Category of an endpoint-local collection failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointErrorKind {
+    /// The endpoint is unavailable on this `RouterOS` release or platform.
+    Unsupported,
+    /// The authenticated API user lacks permission for the endpoint.
+    PermissionDenied,
+    /// `RouterOS` returned a command trap.
+    RouterOsTrap,
+    /// The endpoint command exceeded its deadline.
+    Timeout,
+    /// Returned rows could not be decoded.
+    Decode,
+    /// The underlying connection failed during the command.
+    Transport,
+}
+
+/// Endpoint snapshots collected from the `/system` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SystemSnapshot {
     /// `/system/identity/print` row.
-    pub identity: Identity,
+    pub identity: EndpointSnapshot<Identity>,
     /// `/system/resource/print` row.
-    pub resource: Resource,
+    pub resource: EndpointSnapshot<Resource>,
     /// `/system/routerboard/print` row.
-    pub routerboard: Routerboard,
+    pub routerboard: EndpointSnapshot<Routerboard>,
     /// `/system/clock/print` row.
-    pub clock: Clock,
+    pub clock: EndpointSnapshot<Clock>,
     /// `/system/package/print` rows.
-    pub packages: Vec<Package>,
+    pub packages: EndpointSnapshot<Vec<Package>>,
     /// `/system/package/update/print` rows.
-    pub package_updates: Vec<PackageUpdate>,
+    pub package_updates: EndpointSnapshot<Vec<PackageUpdate>>,
     /// `/system/health/print` rows.
-    pub health: Vec<Health>,
+    pub health: EndpointSnapshot<Vec<Health>>,
     /// `/system/resource/cpu/print` rows.
-    pub resource_cpus: Vec<ResourceCpu>,
+    pub resource_cpus: EndpointSnapshot<Vec<ResourceCpu>>,
     /// `/system/resource/hardware/print` rows.
-    pub resource_hardware: Vec<ResourceHardware>,
+    pub resource_hardware: EndpointSnapshot<Vec<ResourceHardware>>,
     /// `/system/resource/irq/print` rows.
-    pub resource_irqs: Vec<ResourceIrq>,
+    pub resource_irqs: EndpointSnapshot<Vec<ResourceIrq>>,
     /// `/system/resource/usb/settings/print` rows.
-    pub resource_usb_settings: Vec<ResourceUsbSettings>,
+    pub resource_usb_settings: EndpointSnapshot<Vec<ResourceUsbSettings>>,
     /// `/system/routerboard/settings/print` rows.
-    pub routerboard_settings: Vec<RouterboardSettings>,
+    pub routerboard_settings: EndpointSnapshot<Vec<RouterboardSettings>>,
     /// `/system/routerboard/reset-button/print` rows.
-    pub routerboard_reset_buttons: Vec<RouterboardResetButton>,
+    pub routerboard_reset_buttons: EndpointSnapshot<Vec<RouterboardResetButton>>,
     /// `/system/device-mode/print` rows.
-    pub device_modes: Vec<DeviceMode>,
+    pub device_modes: EndpointSnapshot<Vec<DeviceMode>>,
     /// `/system/history/print` rows.
-    pub history_entries: Vec<HistoryEntry>,
+    pub history_entries: EndpointSnapshot<Vec<HistoryEntry>>,
     /// `/system/leds/print` rows.
-    pub leds: Vec<Led>,
+    pub leds: EndpointSnapshot<Vec<Led>>,
     /// `/system/license/print` rows.
-    pub licenses: Vec<License>,
+    pub licenses: EndpointSnapshot<Vec<License>>,
     /// `/log/print` rows.
-    pub log_entries: Vec<LogEntry>,
+    pub log_entries: EndpointSnapshot<Vec<LogEntry>>,
     /// `/system/logging/print` rows.
-    pub logging_rules: Vec<LoggingRule>,
+    pub logging_rules: EndpointSnapshot<Vec<LoggingRule>>,
     /// `/system/logging/action/print` rows.
-    pub logging_actions: Vec<LoggingAction>,
+    pub logging_actions: EndpointSnapshot<Vec<LoggingAction>>,
     /// `/system/note/print` rows.
-    pub notes: Vec<Note>,
+    pub notes: EndpointSnapshot<Vec<Note>>,
     /// `/system/ntp/client/print` rows.
-    pub ntp_clients: Vec<NtpClient>,
+    pub ntp_clients: EndpointSnapshot<Vec<NtpClient>>,
     /// `/system/ntp/server/print` rows.
-    pub ntp_servers: Vec<NtpServer>,
+    pub ntp_servers: EndpointSnapshot<Vec<NtpServer>>,
     /// `/system/script/print` rows.
-    pub scripts: Vec<Script>,
+    pub scripts: EndpointSnapshot<Vec<Script>>,
     /// `/system/script/job/print` rows.
-    pub script_jobs: Vec<ScriptJob>,
+    pub script_jobs: EndpointSnapshot<Vec<ScriptJob>>,
     /// `/system/scheduler/print` rows.
-    pub schedulers: Vec<Scheduler>,
+    pub schedulers: EndpointSnapshot<Vec<Scheduler>>,
     /// `/system/upgrade/mirror/print` rows.
-    pub upgrade_mirrors: Vec<UpgradeMirror>,
+    pub upgrade_mirrors: EndpointSnapshot<Vec<UpgradeMirror>>,
     /// `/system/watchdog/print` rows.
-    pub watchdogs: Vec<Watchdog>,
+    pub watchdogs: EndpointSnapshot<Vec<Watchdog>>,
+}
+
+/// Endpoint snapshots collected from the `/interface` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct InterfaceSnapshot {
     /// `/interface/print` rows.
-    pub interfaces: Vec<Interface>,
+    pub interfaces: EndpointSnapshot<Vec<Interface>>,
     /// `/interface/ethernet/print` rows.
-    pub ethernet_interfaces: Vec<EthernetInterface>,
+    pub ethernet_interfaces: EndpointSnapshot<Vec<EthernetInterface>>,
     /// `/interface/bridge/print` rows.
-    pub bridges: Vec<Bridge>,
+    pub bridges: EndpointSnapshot<Vec<Bridge>>,
     /// `/interface/bridge/host/print` rows.
-    pub bridge_hosts: Vec<BridgeHost>,
+    pub bridge_hosts: EndpointSnapshot<Vec<BridgeHost>>,
     /// `/interface/bridge/port/print` rows.
-    pub bridge_ports: Vec<BridgePort>,
+    pub bridge_ports: EndpointSnapshot<Vec<BridgePort>>,
     /// `/interface/bridge/settings/print` rows.
-    pub bridge_settings: Vec<BridgeSettings>,
+    pub bridge_settings: EndpointSnapshot<Vec<BridgeSettings>>,
     /// `/interface/bridge/vlan/print` rows.
-    pub bridge_vlans: Vec<BridgeVlan>,
+    pub bridge_vlans: EndpointSnapshot<Vec<BridgeVlan>>,
     /// `/interface/detect-internet/print` rows.
-    pub detect_internet: Vec<DetectInternet>,
+    pub detect_internet: EndpointSnapshot<Vec<DetectInternet>>,
     /// `/interface/ethernet/switch/print` rows.
-    pub ethernet_switches: Vec<EthernetSwitch>,
+    pub ethernet_switches: EndpointSnapshot<Vec<EthernetSwitch>>,
     /// `/interface/ethernet/switch/port/print` rows.
-    pub ethernet_switch_ports: Vec<EthernetSwitchPort>,
+    pub ethernet_switch_ports: EndpointSnapshot<Vec<EthernetSwitchPort>>,
     /// `/interface/ethernet/switch/port-isolation/print` rows.
-    pub ethernet_switch_port_isolations: Vec<EthernetSwitchPortIsolation>,
+    pub ethernet_switch_port_isolations: EndpointSnapshot<Vec<EthernetSwitchPortIsolation>>,
     /// `/interface/list/print` rows.
-    pub interface_lists: Vec<InterfaceList>,
+    pub interface_lists: EndpointSnapshot<Vec<InterfaceList>>,
     /// `/interface/list/member/print` rows.
-    pub interface_list_members: Vec<InterfaceListMember>,
+    pub interface_list_members: EndpointSnapshot<Vec<InterfaceListMember>>,
     /// `/interface/lte/apn/print` rows.
-    pub lte_apns: Vec<LteApn>,
+    pub lte_apns: EndpointSnapshot<Vec<LteApn>>,
     /// `/interface/vlan/print` rows.
-    pub vlan_interfaces: Vec<VlanInterface>,
+    pub vlan_interfaces: EndpointSnapshot<Vec<VlanInterface>>,
     /// `/interface/wireguard/print` rows.
-    pub wireguard_interfaces: Vec<WireGuardInterface>,
+    pub wireguard_interfaces: EndpointSnapshot<Vec<WireGuardInterface>>,
     /// `/interface/wireguard/peers/print` rows.
-    pub wireguard_peers: Vec<WireGuardPeer>,
+    pub wireguard_peers: EndpointSnapshot<Vec<WireGuardPeer>>,
     /// `/interface/wireless/security-profiles/print` rows.
-    pub wireless_security_profiles: Vec<WirelessSecurityProfile>,
+    pub wireless_security_profiles: EndpointSnapshot<Vec<WirelessSecurityProfile>>,
+}
+
+/// Endpoint snapshots collected from the `/ip` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct IpSnapshot {
     /// `/ip/neighbor/print` rows.
-    pub neighbors: Vec<Neighbor>,
+    pub neighbors: EndpointSnapshot<Vec<Neighbor>>,
     /// `/ip/address/print` rows.
-    pub addresses: Vec<Address>,
+    pub addresses: EndpointSnapshot<Vec<Address>>,
     /// `/ip/arp/print` rows.
-    pub arp_entries: Vec<ArpEntry>,
+    pub arp_entries: EndpointSnapshot<Vec<ArpEntry>>,
     /// `/ip/dhcp-client/print` rows.
-    pub dhcp_clients: Vec<DhcpClient>,
+    pub dhcp_clients: EndpointSnapshot<Vec<DhcpClient>>,
     /// `/ip/dhcp-server/print` rows.
-    pub dhcp_servers: Vec<DhcpServer>,
+    pub dhcp_servers: EndpointSnapshot<Vec<DhcpServer>>,
     /// `/ip/dhcp-server/network/print` rows.
-    pub dhcp_server_networks: Vec<DhcpServerNetwork>,
+    pub dhcp_server_networks: EndpointSnapshot<Vec<DhcpServerNetwork>>,
     /// `/ip/dhcp-server/lease/print` rows.
-    pub dhcp_leases: Vec<DhcpLease>,
+    pub dhcp_leases: EndpointSnapshot<Vec<DhcpLease>>,
     /// `/ip/dns/print` rows.
-    pub dns: Vec<Dns>,
+    pub dns: EndpointSnapshot<Vec<Dns>>,
     /// `/ip/dns/cache/print` rows.
-    pub dns_cache_entries: Vec<DnsCacheEntry>,
+    pub dns_cache_entries: EndpointSnapshot<Vec<DnsCacheEntry>>,
     /// `/ip/route/print` rows.
-    pub routes: Vec<Route>,
+    pub routes: EndpointSnapshot<Vec<Route>>,
     /// `/ip/firewall/filter/print` rows.
-    pub firewall_filter_rules: Vec<FirewallRule>,
+    pub firewall_filter_rules: EndpointSnapshot<Vec<FirewallRule>>,
     /// `/ip/firewall/nat/print` rows.
-    pub firewall_nat_rules: Vec<FirewallRule>,
+    pub firewall_nat_rules: EndpointSnapshot<Vec<FirewallRule>>,
     /// `/ip/firewall/address-list/print` rows.
-    pub firewall_address_list_entries: Vec<FirewallAddressListEntry>,
+    pub firewall_address_list_entries: EndpointSnapshot<Vec<FirewallAddressListEntry>>,
     /// `/ip/firewall/connection/print` rows.
-    pub firewall_connections: Vec<FirewallConnection>,
+    pub firewall_connections: EndpointSnapshot<Vec<FirewallConnection>>,
     /// `/ip/firewall/connection/tracking/print` rows.
-    pub firewall_connection_tracking: Vec<FirewallConnectionTracking>,
+    pub firewall_connection_tracking: EndpointSnapshot<Vec<FirewallConnectionTracking>>,
     /// `/ip/firewall/mangle/print` rows.
-    pub firewall_mangle_rules: Vec<FirewallRule>,
+    pub firewall_mangle_rules: EndpointSnapshot<Vec<FirewallRule>>,
     /// `/ip/firewall/raw/print` rows.
-    pub firewall_raw_rules: Vec<FirewallRule>,
+    pub firewall_raw_rules: EndpointSnapshot<Vec<FirewallRule>>,
     /// `/ip/firewall/service-port/print` rows.
-    pub firewall_service_ports: Vec<FirewallServicePort>,
+    pub firewall_service_ports: EndpointSnapshot<Vec<FirewallServicePort>>,
     /// `/ip/hotspot/profile/print` rows.
-    pub hotspot_profiles: Vec<HotspotProfile>,
+    pub hotspot_profiles: EndpointSnapshot<Vec<HotspotProfile>>,
     /// `/ip/hotspot/user/print` rows.
-    pub hotspot_users: Vec<HotspotUser>,
+    pub hotspot_users: EndpointSnapshot<Vec<HotspotUser>>,
     /// `/ip/cloud/print` rows.
-    pub ip_cloud: Vec<IpCloud>,
+    pub ip_cloud: EndpointSnapshot<Vec<IpCloud>>,
     /// `/ip/pool/print` rows.
-    pub ip_pools: Vec<IpPool>,
+    pub ip_pools: EndpointSnapshot<Vec<IpPool>>,
     /// `/ip/pool/used/print` rows.
-    pub ip_pool_used: Vec<IpPoolUsed>,
+    pub ip_pool_used: EndpointSnapshot<Vec<IpPoolUsed>>,
     /// `/ip/proxy/print` rows.
-    pub ip_proxy: Vec<IpProxy>,
+    pub ip_proxy: EndpointSnapshot<Vec<IpProxy>>,
     /// `/ip/service/print` rows.
-    pub ip_services: Vec<IpService>,
+    pub ip_services: EndpointSnapshot<Vec<IpService>>,
     /// `/ip/settings/print` rows.
-    pub ip_settings: Vec<IpSettings>,
+    pub ip_settings: EndpointSnapshot<Vec<IpSettings>>,
     /// `/ip/ipsec/policy/print` rows.
-    pub ipsec_policies: Vec<IpsecPolicy>,
+    pub ipsec_policies: EndpointSnapshot<Vec<IpsecPolicy>>,
     /// `/ip/ipsec/profile/print` rows.
-    pub ipsec_profiles: Vec<IpsecProfile>,
+    pub ipsec_profiles: EndpointSnapshot<Vec<IpsecProfile>>,
     /// `/ip/ipsec/proposal/print` rows.
-    pub ipsec_proposals: Vec<IpsecProposal>,
+    pub ipsec_proposals: EndpointSnapshot<Vec<IpsecProposal>>,
     /// `/ip/ipsec/statistics/print` rows.
-    pub ipsec_statistics: Vec<IpsecStatistics>,
-    /// `/ipv6/address/print` rows.
-    pub ipv6_addresses: Vec<Ipv6Address>,
-    /// `/ipv6/neighbor/print` rows.
-    pub ipv6_neighbors: Vec<Ipv6Neighbor>,
-    /// `/ipv6/nd/print` rows.
-    pub ipv6_neighbor_discovery: Vec<Ipv6NeighborDiscovery>,
-    /// `/ipv6/route/print` rows.
-    pub ipv6_routes: Vec<Ipv6Route>,
-    /// `/ipv6/settings/print` rows.
-    pub ipv6_settings: Vec<Ipv6Settings>,
+    pub ipsec_statistics: EndpointSnapshot<Vec<IpsecStatistics>>,
     /// `/ip/nat-pmp/print` rows.
-    pub nat_pmp: Vec<NatPmp>,
+    pub nat_pmp: EndpointSnapshot<Vec<NatPmp>>,
     /// `/ip/neighbor/discovery-settings/print` rows.
-    pub neighbor_discovery_settings: Vec<NeighborDiscoverySettings>,
+    pub neighbor_discovery_settings: EndpointSnapshot<Vec<NeighborDiscoverySettings>>,
     /// `/ip/smb/print` rows.
-    pub smb: Vec<Smb>,
+    pub smb: EndpointSnapshot<Vec<Smb>>,
     /// `/ip/smb/shares/print` rows.
-    pub smb_shares: Vec<SmbShare>,
+    pub smb_shares: EndpointSnapshot<Vec<SmbShare>>,
     /// `/ip/socks/print` rows.
-    pub socks: Vec<Socks>,
+    pub socks: EndpointSnapshot<Vec<Socks>>,
     /// `/ip/ssh/print` rows.
-    pub ssh: Vec<Ssh>,
+    pub ssh: EndpointSnapshot<Vec<Ssh>>,
     /// `/ip/traffic-flow/print` rows.
-    pub traffic_flow: Vec<TrafficFlow>,
+    pub traffic_flow: EndpointSnapshot<Vec<TrafficFlow>>,
     /// `/ip/upnp/print` rows.
-    pub upnp: Vec<Upnp>,
+    pub upnp: EndpointSnapshot<Vec<Upnp>>,
     /// `/ip/vrf/print` rows.
-    pub vrfs: Vec<Vrf>,
+    pub vrfs: EndpointSnapshot<Vec<Vrf>>,
+}
+
+/// Endpoint snapshots collected from the `/ipv6` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Ipv6Snapshot {
+    /// `/ipv6/address/print` rows.
+    pub ipv6_addresses: EndpointSnapshot<Vec<Ipv6Address>>,
+    /// `/ipv6/neighbor/print` rows.
+    pub ipv6_neighbors: EndpointSnapshot<Vec<Ipv6Neighbor>>,
+    /// `/ipv6/nd/print` rows.
+    pub ipv6_neighbor_discovery: EndpointSnapshot<Vec<Ipv6NeighborDiscovery>>,
+    /// `/ipv6/route/print` rows.
+    pub ipv6_routes: EndpointSnapshot<Vec<Ipv6Route>>,
+    /// `/ipv6/settings/print` rows.
+    pub ipv6_settings: EndpointSnapshot<Vec<Ipv6Settings>>,
+}
+
+/// Endpoint snapshots collected from the `/certificate` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CertificateSnapshot {
     /// `/certificate/print` rows.
-    pub certificates: Vec<Certificate>,
+    pub certificates: EndpointSnapshot<Vec<Certificate>>,
     /// `/certificate/settings/print` rows.
-    pub certificate_settings: Vec<CertificateSettings>,
+    pub certificate_settings: EndpointSnapshot<Vec<CertificateSettings>>,
+}
+
+/// Endpoint snapshots collected from the `/console` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ConsoleSnapshot {
     /// `/console/settings/print` rows.
-    pub console_settings: Vec<ConsoleSettings>,
+    pub console_settings: EndpointSnapshot<Vec<ConsoleSettings>>,
+}
+
+/// Endpoint snapshots collected from the `/disk` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DiskSnapshot {
     /// `/disk/print` rows.
-    pub disks: Vec<Disk>,
+    pub disks: EndpointSnapshot<Vec<Disk>>,
     /// `/disk/settings/print` rows.
-    pub disk_settings: Vec<DiskSettings>,
+    pub disk_settings: EndpointSnapshot<Vec<DiskSettings>>,
+}
+
+/// Endpoint snapshots collected from the `/file` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FileSnapshot {
     /// `/file/print` rows.
-    pub files: Vec<File>,
+    pub files: EndpointSnapshot<Vec<File>>,
+}
+
+/// Endpoint snapshots collected from the `/partitions` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PartitionsSnapshot {
     /// `/partitions/print` rows.
-    pub partitions: Vec<Partition>,
+    pub partitions: EndpointSnapshot<Vec<Partition>>,
+}
+
+/// Endpoint snapshots collected from the `/caps-man` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CapsManSnapshot {
     /// `/caps-man/aaa/print` rows.
-    pub caps_man_aaa: Vec<CapsManAaa>,
+    pub caps_man_aaa: EndpointSnapshot<Vec<CapsManAaa>>,
     /// `/caps-man/manager/print` rows.
-    pub caps_man_managers: Vec<CapsManManager>,
+    pub caps_man_managers: EndpointSnapshot<Vec<CapsManManager>>,
     /// `/caps-man/manager/interface/print` rows.
-    pub caps_man_manager_interfaces: Vec<CapsManManagerInterface>,
+    pub caps_man_manager_interfaces: EndpointSnapshot<Vec<CapsManManagerInterface>>,
+}
+
+/// Endpoint snapshots collected from the `/mpls` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MplsSnapshot {
     /// `/mpls/settings/print` rows.
-    pub mpls_settings: Vec<MplsSettings>,
+    pub mpls_settings: EndpointSnapshot<Vec<MplsSettings>>,
+}
+
+/// Endpoint snapshots collected from the `/ppp` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PppSnapshot {
     /// `/ppp/aaa/print` rows.
-    pub ppp_aaa: Vec<PppAaa>,
+    pub ppp_aaa: EndpointSnapshot<Vec<PppAaa>>,
     /// `/ppp/profile/print` rows.
-    pub ppp_profiles: Vec<PppProfile>,
+    pub ppp_profiles: EndpointSnapshot<Vec<PppProfile>>,
+}
+
+/// Endpoint snapshots collected from the `/radius` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RadiusSnapshot {
     /// `/radius/incoming/print` rows.
-    pub radius_incoming: Vec<RadiusIncoming>,
+    pub radius_incoming: EndpointSnapshot<Vec<RadiusIncoming>>,
+}
+
+/// Endpoint snapshots collected from the `/queue` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct QueueSnapshot {
     /// `/queue/interface/print` rows.
-    pub queue_interfaces: Vec<QueueInterface>,
+    pub queue_interfaces: EndpointSnapshot<Vec<QueueInterface>>,
     /// `/queue/type/print` rows.
-    pub queue_types: Vec<QueueType>,
+    pub queue_types: EndpointSnapshot<Vec<QueueType>>,
+}
+
+/// Endpoint snapshots collected from the `/snmp` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SnmpSnapshot {
     /// `/snmp/print` rows.
-    pub snmp: Vec<Snmp>,
+    pub snmp: EndpointSnapshot<Vec<Snmp>>,
     /// `/snmp/community/print` rows.
-    pub snmp_communities: Vec<SnmpCommunity>,
+    pub snmp_communities: EndpointSnapshot<Vec<SnmpCommunity>>,
+}
+
+/// Endpoint snapshots collected from the `/tool` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ToolSnapshot {
     /// `/tool/bandwidth-server/print` rows.
-    pub bandwidth_servers: Vec<BandwidthServer>,
+    pub bandwidth_servers: EndpointSnapshot<Vec<BandwidthServer>>,
     /// `/tool/e-mail/print` rows.
-    pub emails: Vec<Email>,
+    pub emails: EndpointSnapshot<Vec<Email>>,
     /// `/tool/graphing/print` rows.
-    pub graphing: Vec<Graphing>,
+    pub graphing: EndpointSnapshot<Vec<Graphing>>,
     /// `/tool/mac-server/ping/print` rows.
-    pub mac_server_pings: Vec<MacServerPing>,
+    pub mac_server_pings: EndpointSnapshot<Vec<MacServerPing>>,
     /// `/tool/romon/print` rows.
-    pub romon: Vec<Romon>,
+    pub romon: EndpointSnapshot<Vec<Romon>>,
     /// `/tool/romon/port/print` rows.
-    pub romon_ports: Vec<RomonPort>,
+    pub romon_ports: EndpointSnapshot<Vec<RomonPort>>,
     /// `/tool/sms/print` rows.
-    pub sms: Vec<Sms>,
+    pub sms: EndpointSnapshot<Vec<Sms>>,
     /// `/tool/sniffer/print` rows.
-    pub sniffers: Vec<Sniffer>,
+    pub sniffers: EndpointSnapshot<Vec<Sniffer>>,
     /// `/tool/traffic-generator/print` rows.
-    pub traffic_generators: Vec<TrafficGenerator>,
+    pub traffic_generators: EndpointSnapshot<Vec<TrafficGenerator>>,
     /// `/tool/traffic-generator/stats/latency-distribution/print` rows.
-    pub traffic_generator_latency_distributions: Vec<TrafficGeneratorLatencyDistribution>,
+    pub traffic_generator_latency_distributions: EndpointSnapshot<Vec<TrafficGeneratorLatencyDistribution>>,
+}
+
+/// Endpoint snapshots collected from the `/routing` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RoutingSnapshot {
     /// `/routing/bgp/session/print` rows.
-    pub bgp_sessions: Vec<BgpSession>,
+    pub bgp_sessions: EndpointSnapshot<Vec<BgpSession>>,
     /// `/routing/bgp/connection/print` rows.
-    pub bgp_connections: Vec<BgpConnection>,
+    pub bgp_connections: EndpointSnapshot<Vec<BgpConnection>>,
     /// `RouterOS` v6 `/routing/bgp/peer/print` rows.
-    pub bgp_peers: Vec<BgpPeer>,
+    pub bgp_peers: EndpointSnapshot<Vec<BgpPeer>>,
     /// `/routing/bgp/template/print` rows.
-    pub bgp_templates: Vec<BgpTemplate>,
+    pub bgp_templates: EndpointSnapshot<Vec<BgpTemplate>>,
     /// `/routing/igmp-proxy/print` rows.
-    pub igmp_proxy: Vec<IgmpProxy>,
+    pub igmp_proxy: EndpointSnapshot<Vec<IgmpProxy>>,
     /// `/routing/id/print` rows.
-    pub routing_ids: Vec<RoutingId>,
+    pub routing_ids: EndpointSnapshot<Vec<RoutingId>>,
     /// `/routing/nexthop/print` rows.
-    pub routing_nexthops: Vec<RoutingNexthop>,
+    pub routing_nexthops: EndpointSnapshot<Vec<RoutingNexthop>>,
     /// `/routing/route/print` rows.
-    pub routing_routes: Vec<RoutingRoute>,
+    pub routing_routes: EndpointSnapshot<Vec<RoutingRoute>>,
     /// `/routing/settings/print` rows.
-    pub routing_settings: Vec<RoutingSettings>,
+    pub routing_settings: EndpointSnapshot<Vec<RoutingSettings>>,
     /// `/routing/stats/memory/print` rows.
-    pub routing_stats_memory: Vec<RoutingStatsMemory>,
+    pub routing_stats_memory: EndpointSnapshot<Vec<RoutingStatsMemory>>,
     /// `/routing/stats/origin/print` rows.
-    pub routing_stats_origin: Vec<RoutingStatsOrigin>,
+    pub routing_stats_origin: EndpointSnapshot<Vec<RoutingStatsOrigin>>,
     /// `/routing/stats/process/print` rows.
-    pub routing_stats_processes: Vec<RoutingStatsProcess>,
+    pub routing_stats_processes: EndpointSnapshot<Vec<RoutingStatsProcess>>,
     /// `/routing/stats/step/print` rows.
-    pub routing_stats_steps: Vec<RoutingStatsStep>,
+    pub routing_stats_steps: EndpointSnapshot<Vec<RoutingStatsStep>>,
     /// `/routing/table/print` rows.
-    pub routing_tables: Vec<RoutingTable>,
+    pub routing_tables: EndpointSnapshot<Vec<RoutingTable>>,
+}
+
+/// Endpoint snapshots collected from the `/user` section.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct UserSnapshot {
     /// `/user/active/print` rows.
-    pub active_users: Vec<ActiveUser>,
+    pub active_users: EndpointSnapshot<Vec<ActiveUser>>,
     /// `/user/ssh-keys/print` rows.
-    pub ssh_keys: Vec<SshKey>,
+    pub ssh_keys: EndpointSnapshot<Vec<SshKey>>,
     /// `/user/print` rows.
-    pub users: Vec<User>,
+    pub users: EndpointSnapshot<Vec<User>>,
     /// `/user/aaa/print` rows.
-    pub user_aaa: Vec<UserAaa>,
+    pub user_aaa: EndpointSnapshot<Vec<UserAaa>>,
     /// `/user/group/print` rows.
-    pub user_groups: Vec<UserGroup>,
+    pub user_groups: EndpointSnapshot<Vec<UserGroup>>,
     /// `/user/settings/print` rows.
-    pub user_settings: Vec<UserSettings>,
+    pub user_settings: EndpointSnapshot<Vec<UserSettings>>,
+}
+
+/// Typed and raw endpoint rows read from one `RouterOS` device.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct RouterOsSnapshot {
+    /// Collected `/system` endpoints.
+    pub system: SystemSnapshot,
+    /// Collected `/interface` endpoints.
+    pub interface: InterfaceSnapshot,
+    /// Collected `/ip` endpoints.
+    pub ip: IpSnapshot,
+    /// Collected `/ipv6` endpoints.
+    pub ipv6: Ipv6Snapshot,
+    /// Collected `/certificate` endpoints.
+    pub certificate: CertificateSnapshot,
+    /// Collected `/console` endpoints.
+    pub console: ConsoleSnapshot,
+    /// Collected `/disk` endpoints.
+    pub disk: DiskSnapshot,
+    /// Collected `/file` endpoints.
+    pub file: FileSnapshot,
+    /// Collected `/partitions` endpoints.
+    pub partitions: PartitionsSnapshot,
+    /// Collected `/caps-man` endpoints.
+    pub caps_man: CapsManSnapshot,
+    /// Collected `/mpls` endpoints.
+    pub mpls: MplsSnapshot,
+    /// Collected `/ppp` endpoints.
+    pub ppp: PppSnapshot,
+    /// Collected `/radius` endpoints.
+    pub radius: RadiusSnapshot,
+    /// Collected `/queue` endpoints.
+    pub queue: QueueSnapshot,
+    /// Collected `/snmp` endpoints.
+    pub snmp: SnmpSnapshot,
+    /// Collected `/tool` endpoints.
+    pub tool: ToolSnapshot,
+    /// Collected `/routing` endpoints.
+    pub routing: RoutingSnapshot,
+    /// Collected `/user` endpoints.
+    pub user: UserSnapshot,
     /// Raw `RouterOS` rows by endpoint name.
     pub raw: BTreeMap<String, Vec<Row>>,
 }
 
-impl DeviceSnapshot {
-    /// Stable-ish key used before a real inventory identity model exists.
+impl RouterOsSnapshot {
+    /// Return the `RouterBOARD` serial exposed by `RouterOS`.
     #[must_use]
-    pub fn stable_key(&self) -> DeviceKey {
-        self.routerboard
+    pub fn device_serial(&self) -> Option<DeviceSerial> {
+        self.system
+            .routerboard
+            .data
             .serial_number
             .as_deref()
-            .or(self.identity.name.as_deref())
-            .map_or_else(|| self.target_address.to_string(), alloc::borrow::ToOwned::to_owned)
-            .into()
+            .and_then(|value| value.parse().ok())
+    }
+
+    /// Return the strongest topology identity exposed by `RouterOS`.
+    #[must_use]
+    pub fn topology_node_key(&self) -> Option<TopologyNodeKey> {
+        self.device_serial().map(Into::into).or_else(|| {
+            self.system
+                .identity
+                .data
+                .name
+                .as_deref()
+                .map(|value| value.to_owned().into())
+        })
     }
 
     /// Return whether `RouterBOARD` current and upgrade firmware differ.
@@ -655,187 +928,43 @@ impl DeviceSnapshot {
     }
 }
 
-impl Default for DeviceSnapshot {
-    #[allow(clippy::too_many_lines)]
-    fn default() -> Self {
-        Self {
-            target_address: SocketAddr::from(([0, 0, 0, 0], 0)),
-            collected_at: OffsetDateTime::UNIX_EPOCH,
-            status: DeviceStatus::Unreachable,
-            role: DeviceRole::Unknown,
-            fw_update_pending: false,
-            management_addresses: Vec::new(),
-            identity: Identity::default(),
-            resource: Resource::default(),
-            routerboard: Routerboard::default(),
-            clock: Clock::default(),
-            packages: Vec::new(),
-            package_updates: Vec::new(),
-            health: Vec::new(),
-            resource_cpus: Vec::new(),
-            resource_hardware: Vec::new(),
-            resource_irqs: Vec::new(),
-            resource_usb_settings: Vec::new(),
-            routerboard_settings: Vec::new(),
-            routerboard_reset_buttons: Vec::new(),
-            device_modes: Vec::new(),
-            history_entries: Vec::new(),
-            leds: Vec::new(),
-            licenses: Vec::new(),
-            log_entries: Vec::new(),
-            logging_rules: Vec::new(),
-            logging_actions: Vec::new(),
-            notes: Vec::new(),
-            ntp_clients: Vec::new(),
-            ntp_servers: Vec::new(),
-            scripts: Vec::new(),
-            script_jobs: Vec::new(),
-            schedulers: Vec::new(),
-            upgrade_mirrors: Vec::new(),
-            watchdogs: Vec::new(),
-            interfaces: Vec::new(),
-            ethernet_interfaces: Vec::new(),
-            bridges: Vec::new(),
-            bridge_hosts: Vec::new(),
-            bridge_ports: Vec::new(),
-            bridge_settings: Vec::new(),
-            bridge_vlans: Vec::new(),
-            detect_internet: Vec::new(),
-            ethernet_switches: Vec::new(),
-            ethernet_switch_ports: Vec::new(),
-            ethernet_switch_port_isolations: Vec::new(),
-            interface_lists: Vec::new(),
-            interface_list_members: Vec::new(),
-            lte_apns: Vec::new(),
-            vlan_interfaces: Vec::new(),
-            wireguard_interfaces: Vec::new(),
-            wireguard_peers: Vec::new(),
-            wireless_security_profiles: Vec::new(),
-            neighbors: Vec::new(),
-            addresses: Vec::new(),
-            arp_entries: Vec::new(),
-            dhcp_clients: Vec::new(),
-            dhcp_servers: Vec::new(),
-            dhcp_server_networks: Vec::new(),
-            dhcp_leases: Vec::new(),
-            dns: Vec::new(),
-            dns_cache_entries: Vec::new(),
-            routes: Vec::new(),
-            firewall_filter_rules: Vec::new(),
-            firewall_nat_rules: Vec::new(),
-            firewall_address_list_entries: Vec::new(),
-            firewall_connections: Vec::new(),
-            firewall_connection_tracking: Vec::new(),
-            firewall_mangle_rules: Vec::new(),
-            firewall_raw_rules: Vec::new(),
-            firewall_service_ports: Vec::new(),
-            hotspot_profiles: Vec::new(),
-            hotspot_users: Vec::new(),
-            ip_cloud: Vec::new(),
-            ip_pools: Vec::new(),
-            ip_pool_used: Vec::new(),
-            ip_proxy: Vec::new(),
-            ip_services: Vec::new(),
-            ip_settings: Vec::new(),
-            ipsec_policies: Vec::new(),
-            ipsec_profiles: Vec::new(),
-            ipsec_proposals: Vec::new(),
-            ipsec_statistics: Vec::new(),
-            ipv6_addresses: Vec::new(),
-            ipv6_neighbors: Vec::new(),
-            ipv6_neighbor_discovery: Vec::new(),
-            ipv6_routes: Vec::new(),
-            ipv6_settings: Vec::new(),
-            nat_pmp: Vec::new(),
-            neighbor_discovery_settings: Vec::new(),
-            smb: Vec::new(),
-            smb_shares: Vec::new(),
-            socks: Vec::new(),
-            ssh: Vec::new(),
-            traffic_flow: Vec::new(),
-            upnp: Vec::new(),
-            vrfs: Vec::new(),
-            certificates: Vec::new(),
-            certificate_settings: Vec::new(),
-            console_settings: Vec::new(),
-            disks: Vec::new(),
-            disk_settings: Vec::new(),
-            files: Vec::new(),
-            partitions: Vec::new(),
-            caps_man_aaa: Vec::new(),
-            caps_man_managers: Vec::new(),
-            caps_man_manager_interfaces: Vec::new(),
-            mpls_settings: Vec::new(),
-            ppp_aaa: Vec::new(),
-            ppp_profiles: Vec::new(),
-            radius_incoming: Vec::new(),
-            queue_interfaces: Vec::new(),
-            queue_types: Vec::new(),
-            snmp: Vec::new(),
-            snmp_communities: Vec::new(),
-            bandwidth_servers: Vec::new(),
-            emails: Vec::new(),
-            graphing: Vec::new(),
-            mac_server_pings: Vec::new(),
-            romon: Vec::new(),
-            romon_ports: Vec::new(),
-            sms: Vec::new(),
-            sniffers: Vec::new(),
-            traffic_generators: Vec::new(),
-            traffic_generator_latency_distributions: Vec::new(),
-            bgp_sessions: Vec::new(),
-            bgp_connections: Vec::new(),
-            bgp_peers: Vec::new(),
-            bgp_templates: Vec::new(),
-            igmp_proxy: Vec::new(),
-            routing_ids: Vec::new(),
-            routing_nexthops: Vec::new(),
-            routing_routes: Vec::new(),
-            routing_settings: Vec::new(),
-            routing_stats_memory: Vec::new(),
-            routing_stats_origin: Vec::new(),
-            routing_stats_processes: Vec::new(),
-            routing_stats_steps: Vec::new(),
-            routing_tables: Vec::new(),
-            active_users: Vec::new(),
-            ssh_keys: Vec::new(),
-            users: Vec::new(),
-            user_aaa: Vec::new(),
-            user_groups: Vec::new(),
-            user_settings: Vec::new(),
-            raw: BTreeMap::new(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use alloc::borrow::ToOwned as _;
-    use core::net::SocketAddr;
 
-    use time::OffsetDateTime;
-
-    use super::DeviceSnapshot;
-    use super::DeviceStatus;
+    use super::RouterOsSnapshot;
+    use super::SystemSnapshot;
     use crate::api::system::Identity;
     use crate::api::system::Routerboard;
 
     #[test]
-    fn snapshot_prefers_serial_for_stable_key() {
-        let snapshot = DeviceSnapshot {
-            target_address: SocketAddr::from(([10, 0, 0, 1], 8728)),
-            collected_at: OffsetDateTime::UNIX_EPOCH,
-            status: DeviceStatus::Reachable,
-            identity: Identity {
-                name: Some("core".to_owned()),
+    fn snapshot_exposes_serial_and_prefers_it_for_topology() {
+        let snapshot = RouterOsSnapshot {
+            system: SystemSnapshot {
+                identity: Identity {
+                    name: Some("core".to_owned()),
+                }
+                .into(),
+                routerboard: Routerboard {
+                    serial_number: Some("abc123".to_owned()),
+                    ..Routerboard::default()
+                }
+                .into(),
+                ..SystemSnapshot::default()
             },
-            routerboard: Routerboard {
-                serial_number: Some("abc123".to_owned()),
-                ..Routerboard::default()
-            },
-            ..DeviceSnapshot::default()
+            ..RouterOsSnapshot::default()
         };
 
-        assert_eq!(snapshot.stable_key().as_str(), "abc123");
+        assert_eq!(
+            snapshot.device_serial().as_ref().map(super::DeviceSerial::as_str),
+            Some("abc123")
+        );
+        assert_eq!(
+            snapshot
+                .topology_node_key()
+                .as_ref()
+                .map(super::TopologyNodeKey::as_str),
+            Some("abc123")
+        );
     }
 }

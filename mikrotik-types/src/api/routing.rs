@@ -211,12 +211,19 @@ pub struct RoutingNexthop {
     #[serde(alias = "immediate-gw.address")]
     /// Resolved immediate gateway address.
     pub immediate_gw_address: Option<String>,
-    #[serde(alias = "immediate-gw.interface-idx", deserialize_with = "crate::optional_from_str")]
-    /// Internal interface index for the resolved immediate gateway.
-    pub immediate_gw_interface_idx: Option<u32>,
-    #[serde(alias = "immediate-gw.weight", deserialize_with = "crate::optional_from_str")]
-    /// Weight assigned to the resolved immediate gateway.
-    pub immediate_gw_weight: Option<u32>,
+    #[serde(
+        alias = "immediate-gw.interface-idx",
+        deserialize_with = "crate::comma_list_from_str"
+    )]
+    /// Internal interface indices for the resolved immediate gateway paths.
+    ///
+    /// `RouterOS` returns one comma-separated value for every ECMP path.
+    pub immediate_gw_interface_idx: Vec<u32>,
+    #[serde(alias = "immediate-gw.weight", deserialize_with = "crate::comma_list_from_str")]
+    /// Weights assigned to the resolved immediate gateway paths.
+    ///
+    /// `RouterOS` returns one comma-separated value for every ECMP path.
+    pub immediate_gw_weight: Vec<u32>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Route scope value.
     pub scope: Option<u32>,
@@ -530,10 +537,12 @@ pub struct RoutingStatsStep {
 #[cfg(test)]
 mod tests {
     use alloc::string::ToString;
+    use alloc::vec;
 
     use super::BgpConnection;
     use super::BgpPeer;
     use super::BgpSession;
+    use super::RoutingNexthop;
     use super::RoutingRoute;
     use super::RoutingStatsMemory;
     use crate::Row;
@@ -577,6 +586,20 @@ mod tests {
             route.dst_address.as_ref().map(ToString::to_string).as_deref(),
             Some("fe80::%ether1/64")
         );
+    }
+
+    #[test]
+    fn routing_nexthop_deserializes_ecmp_path_fields() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*202C28A0".into());
+        row.insert("address".into(), "192.168.255.51".into());
+        row.insert("immediate-gw.interface-idx".into(), "1313632,1313562".into());
+        row.insert("immediate-gw.weight".into(), "1,1".into());
+
+        let nexthop = crate::deserialize::<RoutingNexthop>(&row).expect("ECMP nexthop should deserialize");
+
+        assert_eq!(nexthop.immediate_gw_interface_idx, vec![1_313_632, 1_313_562]);
+        assert_eq!(nexthop.immediate_gw_weight, vec![1, 1]);
     }
 
     #[test]

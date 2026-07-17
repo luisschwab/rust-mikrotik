@@ -29,7 +29,7 @@ tracing-appender = { version = "0.2.3" }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt"] }
 
 [workspace.metadata.rbmt]
-version = "0.5.0"
+version = "0.5.1"
 toolchains = { stable = "1.97.1", nightly = "nightly-2026-07-17" }
 tools = { cargo-audit = "=0.22.2", zizmor = "=1.26.1" }
 test = { sample_strategy = "all" }

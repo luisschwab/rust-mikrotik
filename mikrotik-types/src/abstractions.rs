@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::ParseError;
-use crate::device::DeviceKey;
+use crate::device::TopologyNodeKey;
 use crate::primitives::interface::InterfaceName;
 
 /// One normalized IP subnet.
@@ -118,7 +118,7 @@ impl fmt::Display for Subnet {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SubnetEndpoint {
     /// Device node key.
-    pub node: DeviceKey,
+    pub node: TopologyNodeKey,
     /// Interface connected to the subnet.
     pub interface: InterfaceName,
 }

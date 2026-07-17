@@ -8,6 +8,7 @@
 use alloc::string::String;
 use alloc::string::ToString as _;
 use core::fmt;
+use core::ops::Range;
 use core::str::FromStr;
 use core::time::Duration;
 
@@ -351,12 +352,12 @@ fn parse_month_number_as(value: u8, error: ParseError) -> Result<Month, ParseErr
 }
 
 /// Parse a byte range from a string as `i32` using a caller-selected parse error.
-fn parse_i32_slice_as(value: &str, range: core::ops::Range<usize>, error: ParseError) -> Result<i32, ParseError> {
+fn parse_i32_slice_as(value: &str, range: Range<usize>, error: ParseError) -> Result<i32, ParseError> {
     parse_i32_as(value.get(range).ok_or(error)?, error)
 }
 
 /// Parse a byte range from a string as `u8` using a caller-selected parse error.
-fn parse_u8_slice_as(value: &str, range: core::ops::Range<usize>, error: ParseError) -> Result<u8, ParseError> {
+fn parse_u8_slice_as(value: &str, range: Range<usize>, error: ParseError) -> Result<u8, ParseError> {
     parse_u8_as(value.get(range).ok_or(error)?, error)
 }
 

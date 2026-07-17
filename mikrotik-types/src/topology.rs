@@ -11,6 +11,7 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt;
 use core::net::IpAddr;
+use core::net::SocketAddr;
 use core::str::FromStr;
 
 use serde::Deserialize;
@@ -18,9 +19,9 @@ use serde::Serialize;
 
 use crate::ParseError;
 use crate::api::ip::Neighbor;
-use crate::device::DeviceKey;
 use crate::device::DeviceRole;
-use crate::device::DeviceSnapshot;
+use crate::device::RouterOsSnapshot;
+use crate::device::TopologyNodeKey;
 use crate::primitives::interface::InterfaceName;
 use crate::primitives::ip::DiscoveryProtocol;
 use crate::primitives::ip::MacAddress;
@@ -30,11 +31,11 @@ use crate::primitives::system::RouterOsVersion;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopologyLink {
     /// Local node identifier.
-    pub local_node: DeviceKey,
+    pub local_node: TopologyNodeKey,
     /// Local interface name.
     pub local_interface: Option<InterfaceName>,
     /// Remote node identifier.
-    pub remote_node: DeviceKey,
+    pub remote_node: TopologyNodeKey,
     /// Remote interface name, when known.
     pub remote_interface: Option<InterfaceName>,
     /// Discovery protocols that reported this link.
@@ -93,11 +94,17 @@ impl TopologyLink {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NetworkNode {
     /// Stable node identifier.
-    pub key: DeviceKey,
+    pub key: TopologyNodeKey,
     /// Whether this node was successfully collected or inferred from neighbor evidence.
     pub status: NetworkNodeStatus,
+    /// Inventory role used to style and arrange a collected node.
+    pub role: Option<DeviceRole>,
+    /// Address used to collect this node, when collected.
+    pub target_address: Option<SocketAddr>,
+    /// Addresses that identify this node in discovery evidence.
+    pub management_addresses: Vec<IpAddr>,
     /// Collected device snapshot, when this node was reachable.
-    pub snapshot: Option<DeviceSnapshot>,
+    pub snapshot: Option<RouterOsSnapshot>,
     /// Neighbor evidence used for inferred-only nodes.
     pub inferred: Option<InferredDevice>,
 }
@@ -108,7 +115,7 @@ impl NetworkNode {
     pub fn label(&self) -> String {
         self.snapshot
             .as_ref()
-            .and_then(|snapshot| snapshot.identity.name.clone())
+            .and_then(|snapshot| snapshot.system.identity.name.clone())
             .or_else(|| self.inferred.as_ref().and_then(|inferred| inferred.identity.clone()))
             .unwrap_or_else(|| self.key.to_string())
     }
@@ -121,6 +128,7 @@ impl NetworkNode {
         };
 
         snapshot
+            .system
             .routerboard
             .serial_number
             .as_ref()
@@ -130,7 +138,7 @@ impl NetworkNode {
     /// Return the collected device role.
     #[must_use]
     pub fn role(&self) -> Option<DeviceRole> {
-        self.snapshot.as_ref().map(|snapshot| snapshot.role)
+        self.role
     }
 }
 
@@ -182,7 +190,7 @@ pub struct FailedNeighborCrawl {
     /// Neighbor row that produced the failed target.
     pub neighbor: Neighbor,
     /// Collected node that discovered the failed target.
-    pub local_node: DeviceKey,
+    pub local_node: TopologyNodeKey,
     /// Interface on the collected node where the failed target was discovered.
     pub local_interface: Option<InterfaceName>,
     /// Failure reason to attach to the inferred node.
@@ -195,7 +203,7 @@ pub struct InferredNeighborEvidence {
     /// Neighbor row that identified the target.
     pub neighbor: Neighbor,
     /// Collected node that discovered the target.
-    pub local_node: DeviceKey,
+    pub local_node: TopologyNodeKey,
     /// Interface on the collected node where the target was discovered.
     pub local_interface: Option<InterfaceName>,
 }
@@ -204,7 +212,7 @@ pub struct InferredNeighborEvidence {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LanMap {
     /// Router target used to collect the map.
-    pub router: DeviceKey,
+    pub router: TopologyNodeKey,
     /// Known bridge ports on the router.
     pub ports: Vec<LanPort>,
     /// Hosts correlated by MAC address.

@@ -228,6 +228,53 @@ impl FromStr for DeviceStatus {
     }
 }
 
+/// Physical device classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceKind {
+    /// Router appliance.
+    Router,
+    /// Ethernet switch appliance.
+    Switch,
+    /// Wireless, cellular, `IoT`, or 60 GHz radio appliance.
+    Radio,
+}
+
+impl DeviceKind {
+    /// Return the uppercase label used by fleet interfaces.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Router => "ROUTER",
+            Self::Switch => "SWITCH",
+            Self::Radio => "RADIO",
+        }
+    }
+}
+
+impl fmt::Display for DeviceKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Router => "router",
+            Self::Switch => "switch",
+            Self::Radio => "radio",
+        })
+    }
+}
+
+impl FromStr for DeviceKind {
+    type Err = ParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "router" => Ok(Self::Router),
+            "switch" => Ok(Self::Switch),
+            "radio" => Ok(Self::Radio),
+            _ => Err(ParseError::DeviceKind),
+        }
+    }
+}
+
 /// Operator-assigned device role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -244,6 +291,19 @@ pub enum DeviceRole {
     Switch,
     /// Radio.
     Radio,
+}
+
+impl DeviceRole {
+    /// Return the physical kind implied by this operator-assigned role.
+    #[must_use]
+    pub const fn kind(self) -> Option<DeviceKind> {
+        match self {
+            Self::Unknown => None,
+            Self::BgpRouter | Self::CoreRouter | Self::CustomerRouter => Some(DeviceKind::Router),
+            Self::Switch => Some(DeviceKind::Switch),
+            Self::Radio => Some(DeviceKind::Radio),
+        }
+    }
 }
 
 impl fmt::Display for DeviceRole {

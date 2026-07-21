@@ -1,16 +1,19 @@
-#![allow(
-    clippy::large_stack_arrays,
-    reason = "snapshot fixtures intentionally exercise complete typed endpoint payloads"
-)]
-
 use core::net::SocketAddr;
 use std::collections::BTreeSet;
 
 use mikrotik_types::abstractions::LinkKind;
+use mikrotik_types::api::interface::Interface;
+use mikrotik_types::api::interface::WifiRegistration;
+use mikrotik_types::api::interface::WirelessRegistration;
 use mikrotik_types::api::ip::Neighbor;
 use mikrotik_types::api::routing::BgpConnection;
+use mikrotik_types::api::system::Identity;
+use mikrotik_types::api::system::Resource;
+use mikrotik_types::api::system::Routerboard;
 use mikrotik_types::device::DeviceRole;
 use mikrotik_types::device::RouterOsSnapshot;
+use mikrotik_types::device::RoutingSnapshot;
+use mikrotik_types::device::SystemSnapshot;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
 use mikrotik_types::topology::InferredNeighborEvidence;
 use mikrotik_types::topology::NetworkNode;
@@ -168,6 +171,8 @@ fn radio_chain_uses_uncapped_downstream_depth() {
     );
     assert!(is_radio_name("Orbitel-QI23"));
     assert!(is_radio_name("QI23-ESCmusica"));
+    assert!(is_radio_name("radio-sonnata-orbitel"));
+    assert!(!is_radio_name("rt-sonnata"));
     assert!(!is_radio_name("RT-ORBITEL-BORDERv2"));
 }
 
@@ -263,6 +268,436 @@ fn graph_does_not_turn_shared_location_tokens_into_wireless_cliques() {
     );
 
     assert!(!graph.edges.iter().any(TopologyLink::is_wireless));
+}
+
+#[test]
+#[allow(clippy::large_stack_arrays)]
+fn one_sided_legacy_registration_creates_confidence_95_wireless_edge() {
+    let ap = key("serial-ap");
+    let station = key("serial-station");
+    let mut snapshot_ap = graph_snapshot(&ap, "Orbitel-Sonata", DeviceRole::Radio);
+    let mut snapshot_station = graph_snapshot(&station, "Sonata-Orbitel", DeviceRole::Radio);
+    add_interface(&mut snapshot_ap, "wlan1", "00:11:22:33:44:01", "wlan");
+    add_interface(&mut snapshot_station, "wlan1", "00:11:22:33:44:02", "wlan");
+    snapshot_ap
+        .snapshot
+        .interface
+        .wireless_registrations
+        .data
+        .push(WirelessRegistration {
+            interface: Some("wlan1".parse().unwrap()),
+            mac_address: Some("00:11:22:33:44:02".parse().unwrap()),
+            dot1x_port_enabled: Some(false),
+            ..WirelessRegistration::default()
+        });
+
+    let graph = build_graph(&[snapshot_ap, snapshot_station], []);
+
+    assert_eq!(graph.edges.len(), 1);
+    assert!(graph.edges[0].is_registration_wireless());
+    assert!(!graph.edges[0].is_heuristic_wireless());
+    assert_eq!(graph.edges[0].confidence, 95);
+    assert_eq!(graph.link_kind(&graph.edges[0]), LinkKind::Wireless);
+}
+
+#[test]
+#[allow(clippy::large_stack_arrays)]
+fn reciprocal_mixed_stack_registration_collapses_to_confidence_100() {
+    let legacy = key("serial-legacy");
+    let wifi = key("serial-wifi");
+    let mut snapshot_legacy = graph_snapshot(&legacy, "Orbitel-Sonata", DeviceRole::Radio);
+    let mut snapshot_wifi = graph_snapshot(&wifi, "Sonata-Orbitel", DeviceRole::Radio);
+    add_interface(&mut snapshot_legacy, "wlan1", "00:11:22:33:44:01", "wlan");
+    add_interface(&mut snapshot_wifi, "wifi1", "00:11:22:33:44:02", "wifi");
+    snapshot_legacy
+        .snapshot
+        .interface
+        .wireless_registrations
+        .data
+        .push(WirelessRegistration {
+            interface: Some("wlan1".parse().unwrap()),
+            mac_address: Some("00:11:22:33:44:02".parse().unwrap()),
+            ..WirelessRegistration::default()
+        });
+    snapshot_wifi
+        .snapshot
+        .interface
+        .wifi_registrations
+        .data
+        .push(WifiRegistration {
+            interface: Some("wifi1".parse().unwrap()),
+            mac_address: Some("00:11:22:33:44:01".parse().unwrap()),
+            authorized: Some(false),
+            ..WifiRegistration::default()
+        });
+
+    let graph = build_graph(&[snapshot_legacy, snapshot_wifi], []);
+
+    assert_eq!(graph.edges.len(), 1);
+    assert!(graph.edges[0].is_registration_wireless());
+    assert_eq!(graph.edges[0].confidence, 100);
+}
+
+#[test]
+#[allow(clippy::large_stack_arrays)]
+fn duplicate_peer_mac_does_not_create_registration_edge_or_anonymous_node() {
+    let ap = key("serial-ap");
+    let station_a = key("serial-station-a");
+    let station_b = key("serial-station-b");
+    let mut snapshot_ap = graph_snapshot(&ap, "Orbitel-Sonata", DeviceRole::Radio);
+    let mut snapshot_a = graph_snapshot(&station_a, "Sonata-Orbitel", DeviceRole::Radio);
+    let mut snapshot_b = graph_snapshot(&station_b, "Backup-Orbitel", DeviceRole::Radio);
+    add_interface(&mut snapshot_ap, "wlan1", "00:11:22:33:44:01", "wlan");
+    add_interface(&mut snapshot_a, "wlan1", "00:11:22:33:44:02", "wlan");
+    add_interface(&mut snapshot_b, "wlan1", "00:11:22:33:44:02", "wlan");
+    snapshot_ap
+        .snapshot
+        .interface
+        .wireless_registrations
+        .data
+        .push(WirelessRegistration {
+            interface: Some("wlan1".parse().unwrap()),
+            mac_address: Some("00:11:22:33:44:02".parse().unwrap()),
+            ..WirelessRegistration::default()
+        });
+
+    let graph = build_graph(&[snapshot_ap, snapshot_a, snapshot_b], []);
+
+    assert!(!graph.edges.iter().any(TopologyLink::is_registration_wireless));
+    assert_eq!(graph.nodes.len(), 3);
+}
+
+#[test]
+fn successfully_collected_empty_wifi_table_suppresses_name_fallback() {
+    let router = key("serial-router");
+    let radio = key("serial-radio");
+    let mut snapshot_router = graph_snapshot(&router, "Rt_Sonata", DeviceRole::CustomerRouter);
+    let mut snapshot_radio = graph_snapshot(&radio, "Sonata-Orbitel", DeviceRole::Radio);
+    snapshot_router.target_address = SocketAddr::new("10.100.0.220".parse().unwrap(), 8728);
+    snapshot_radio.target_address = SocketAddr::new("10.100.0.230".parse().unwrap(), 8728);
+    add_interface(&mut snapshot_radio, "wifi1", "00:11:22:33:44:02", "wifi");
+
+    let snapshots = vec![snapshot_router, snapshot_radio].into_boxed_slice();
+    let graph = build_graph_with_neighbor_evidence(
+        snapshots.as_ref(),
+        [InferredNeighborEvidence {
+            neighbor: graph_neighbor("ether1", "wifi1", "10.100.0.230", "Sonata-Orbitel"),
+            local_node: router,
+            local_interface: Some("ether1".parse().unwrap()),
+        }],
+        [],
+    );
+
+    assert!(!graph.edges.iter().any(TopologyLink::is_wireless));
+}
+
+#[test]
+fn unresolved_live_wifi_registration_allows_name_fallback_without_anonymous_node() {
+    let router = key("serial-router");
+    let radio = key("serial-radio");
+    let mut snapshot_router = graph_snapshot(&router, "Rt_Sonata", DeviceRole::CustomerRouter);
+    let mut snapshot_radio = graph_snapshot(&radio, "Sonata-Orbitel", DeviceRole::Radio);
+    snapshot_router.target_address = SocketAddr::new("10.100.0.220".parse().unwrap(), 8728);
+    snapshot_radio.target_address = SocketAddr::new("10.100.0.230".parse().unwrap(), 8728);
+    add_interface(&mut snapshot_radio, "wifi1", "00:11:22:33:44:02", "wifi");
+    snapshot_radio
+        .snapshot
+        .interface
+        .wifi_registrations
+        .data
+        .push(WifiRegistration {
+            interface: Some("wifi1".parse().unwrap()),
+            mac_address: Some("00:11:22:33:44:99".parse().unwrap()),
+            ..WifiRegistration::default()
+        });
+
+    let snapshots = vec![snapshot_router, snapshot_radio].into_boxed_slice();
+    let graph = build_graph_with_neighbor_evidence(
+        snapshots.as_ref(),
+        [InferredNeighborEvidence {
+            neighbor: graph_neighbor("ether1", "wifi1", "10.100.0.230", "Sonata-Orbitel"),
+            local_node: router,
+            local_interface: Some("ether1".parse().unwrap()),
+        }],
+        [],
+    );
+
+    assert_eq!(graph.nodes.len(), 2);
+    assert_eq!(graph.edges.len(), 1);
+    assert!(graph.edges[0].is_heuristic_wireless());
+    assert_eq!(graph.edges[0].confidence, 70);
+}
+
+#[test]
+#[allow(clippy::large_stack_arrays)]
+fn reciprocal_mndp_on_radio_ethernet_creates_physical_attachment() {
+    let router = key("serial-router");
+    let radio = key("serial-radio");
+    let mut snapshot_router = graph_snapshot(&router, "rt-sonnata", DeviceRole::CustomerRouter);
+    let mut snapshot_radio = graph_snapshot(&radio, "radio-sonnata-orbitel", DeviceRole::Radio);
+    add_interface(&mut snapshot_router, "ether1", "6C:3B:6B:32:42:45", "ether");
+    add_interface(&mut snapshot_radio, "ether1", "CC:2D:E0:77:0B:86", "ether");
+    add_interface(&mut snapshot_radio, "wlan1", "CC:2D:E0:77:0B:87", "wlan");
+    add_neighbor(
+        &mut snapshot_router,
+        "ether1",
+        "bridge",
+        "10.100.0.230",
+        "radio-sonnata-orbitel",
+        "CC:2D:E0:77:0B:87",
+    );
+    add_neighbor(
+        &mut snapshot_radio,
+        "ether1",
+        "ether1",
+        "10.100.0.220",
+        "rt-sonnata",
+        "6C:3B:6B:32:42:45",
+    );
+
+    let graph = build_graph(&[snapshot_router, snapshot_radio], []);
+    let attachment = graph
+        .edges
+        .iter()
+        .find(|edge| edge.is_mndp_attachment())
+        .expect("reciprocal MNDP on the radio Ethernet port should create an attachment");
+
+    assert_eq!(attachment.local_node, radio);
+    assert_eq!(
+        attachment.local_interface.as_ref().map(ToString::to_string).as_deref(),
+        Some("ether1")
+    );
+    assert_eq!(attachment.remote_node, router);
+    assert_eq!(
+        attachment.remote_interface.as_ref().map(ToString::to_string).as_deref(),
+        Some("ether1")
+    );
+    assert_eq!(attachment.confidence, 100);
+    assert_eq!(graph.link_kind(attachment), LinkKind::Management);
+}
+
+#[test]
+#[allow(clippy::large_stack_arrays)]
+fn mndp_seen_on_radio_wireless_interface_does_not_create_attachment() {
+    let router = key("serial-router");
+    let radio = key("serial-radio");
+    let mut snapshot_router = graph_snapshot(&router, "rt-orbitel", DeviceRole::CustomerRouter);
+    let mut snapshot_radio = graph_snapshot(&radio, "radio-sonnata-orbitel", DeviceRole::Radio);
+    add_interface(&mut snapshot_router, "ether1", "00:11:22:33:44:01", "ether");
+    add_interface(&mut snapshot_radio, "ether1", "00:11:22:33:44:02", "ether");
+    add_interface(&mut snapshot_radio, "wlan1", "00:11:22:33:44:03", "wlan");
+    add_neighbor(
+        &mut snapshot_router,
+        "ether1",
+        "wlan1",
+        "10.100.0.230",
+        "radio-sonnata-orbitel",
+        "00:11:22:33:44:03",
+    );
+    add_neighbor(
+        &mut snapshot_radio,
+        "wlan1",
+        "ether1",
+        "10.100.0.147",
+        "rt-orbitel",
+        "00:11:22:33:44:01",
+    );
+
+    let graph = build_graph(&[snapshot_router, snapshot_radio], []);
+
+    assert!(!graph.edges.iter().any(TopologyLink::is_mndp_attachment));
+}
+
+#[test]
+#[allow(clippy::large_stack_arrays)]
+fn ambiguous_reciprocal_mndp_radio_ethernet_neighbors_do_not_create_attachments() {
+    let router_a = key("serial-router-a");
+    let router_b = key("serial-router-b");
+    let radio = key("serial-radio");
+    let mut snapshot_a = graph_snapshot(&router_a, "rt-sonnata", DeviceRole::CustomerRouter);
+    let mut snapshot_b = graph_snapshot(&router_b, "switch-sonnata", DeviceRole::Switch);
+    let mut snapshot_radio = graph_snapshot(&radio, "radio-sonnata-orbitel", DeviceRole::Radio);
+    add_interface(&mut snapshot_a, "ether1", "00:11:22:33:44:01", "ether");
+    add_interface(&mut snapshot_b, "ether1", "00:11:22:33:44:02", "ether");
+    add_interface(&mut snapshot_radio, "ether1", "00:11:22:33:44:03", "ether");
+    add_neighbor(
+        &mut snapshot_a,
+        "ether1",
+        "ether1",
+        "10.100.0.230",
+        "radio-sonnata-orbitel",
+        "00:11:22:33:44:03",
+    );
+    add_neighbor(
+        &mut snapshot_b,
+        "ether1",
+        "ether1",
+        "10.100.0.230",
+        "radio-sonnata-orbitel",
+        "00:11:22:33:44:03",
+    );
+    add_neighbor(
+        &mut snapshot_radio,
+        "ether1",
+        "ether1",
+        "10.100.0.220",
+        "rt-sonnata",
+        "00:11:22:33:44:01",
+    );
+    add_neighbor(
+        &mut snapshot_radio,
+        "ether1",
+        "ether1",
+        "10.100.0.221",
+        "switch-sonnata",
+        "00:11:22:33:44:02",
+    );
+
+    let graph = build_graph(&[snapshot_a, snapshot_b, snapshot_radio], []);
+
+    assert!(!graph.edges.iter().any(TopologyLink::is_mndp_attachment));
+}
+
+#[test]
+fn graphviz_replaces_direct_l3_shortcut_with_unique_radio_chain_only() {
+    let router_a = key("router-a");
+    let radio_a = key("radio-a");
+    let radio_b = key("radio-b");
+    let router_b = key("router-b");
+    let graph = NetworkGraph {
+        nodes: vec![
+            collected_named_node(&router_a, "RtBorder", DeviceRole::CoreRouter),
+            collected_named_node(&radio_a, "Orbitel-Sonata", DeviceRole::Radio),
+            collected_named_node(&radio_b, "Sonata-Orbitel", DeviceRole::Unknown),
+            collected_named_node(&router_b, "RtSonata", DeviceRole::CustomerRouter),
+        ],
+        edges: vec![
+            evidence_edge(&router_a, &router_b, "l3"),
+            evidence_edge(&router_a, &radio_a, "l3"),
+            evidence_edge(&radio_a, &radio_b, "wireless-registration"),
+            evidence_edge(&radio_b, &router_b, "mndp-attachment"),
+        ],
+    };
+    let options = DotExportOptions {
+        hide_link_tables: true,
+        ..DotExportOptions::default()
+    };
+
+    let dot = graph.to_graphviz_dot_with_options(&options);
+
+    assert!(!dot.contains("\"router-a\" -> \"router-b\""));
+    assert!(dot.contains("\"router-a\" -> \"radio-a\""));
+    assert!(dot.contains("\"radio-a\" -> \"radio-b\""));
+    assert!(dot.contains("\"radio-b\" -> \"router-b\""));
+    assert!(graph.edges.iter().any(|edge| {
+        edge.is_l3()
+            && ((edge.local_node == router_a && edge.remote_node == router_b)
+                || (edge.local_node == router_b && edge.remote_node == router_a))
+    }));
+}
+
+#[test]
+fn graphviz_ignores_longer_radio_detours_from_the_unique_shortest_chain() {
+    let router_a = key("router-a");
+    let radio_a = key("radio-a");
+    let radio_b = key("radio-b");
+    let detour_radio = key("detour-radio");
+    let router_b = key("router-b");
+    let graph = NetworkGraph {
+        nodes: vec![
+            collected_named_node(&router_a, "RtBorder", DeviceRole::CoreRouter),
+            collected_named_node(&radio_a, "Orbitel-Sonata", DeviceRole::Radio),
+            collected_named_node(&radio_b, "Sonata-Orbitel", DeviceRole::Radio),
+            collected_named_node(&detour_radio, "Sonata-Patio", DeviceRole::Radio),
+            collected_named_node(&router_b, "RtSonata", DeviceRole::CustomerRouter),
+        ],
+        edges: vec![
+            evidence_edge(&router_a, &router_b, "l3"),
+            evidence_edge(&router_a, &radio_a, "l3"),
+            evidence_edge(&radio_a, &radio_b, "wireless-registration"),
+            evidence_edge(&radio_b, &router_b, "mndp-attachment"),
+            evidence_edge(&radio_b, &detour_radio, "wireless-registration"),
+            evidence_edge(&detour_radio, &router_b, "route"),
+        ],
+    };
+    let options = DotExportOptions {
+        hide_link_tables: true,
+        ..DotExportOptions::default()
+    };
+
+    let dot = graph.to_graphviz_dot_with_options(&options);
+
+    assert!(!dot.contains("\"router-a\" -> \"router-b\""));
+    assert!(dot.contains("\"router-a\" -> \"radio-a\""));
+    assert!(dot.contains("\"radio-a\" -> \"radio-b\""));
+    assert!(dot.contains("\"radio-b\" -> \"router-b\""));
+}
+
+#[test]
+fn graphviz_keeps_direct_l3_shortcut_when_radio_path_is_ambiguous() {
+    let router_a = key("router-a");
+    let radio_a = key("radio-a");
+    let radio_b = key("radio-b");
+    let radio_c = key("radio-c");
+    let radio_d = key("radio-d");
+    let router_b = key("router-b");
+    let graph = NetworkGraph {
+        nodes: vec![
+            collected_named_node(&router_a, "RtBorder", DeviceRole::CoreRouter),
+            collected_named_node(&radio_a, "Orbitel-Sonata", DeviceRole::Radio),
+            collected_named_node(&radio_b, "Sonata-Orbitel", DeviceRole::Radio),
+            collected_named_node(&radio_c, "Orbitel-Backup", DeviceRole::Radio),
+            collected_named_node(&radio_d, "Backup-Orbitel", DeviceRole::Radio),
+            collected_named_node(&router_b, "RtSonata", DeviceRole::CustomerRouter),
+        ],
+        edges: vec![
+            evidence_edge(&router_a, &router_b, "l3"),
+            evidence_edge(&router_a, &radio_a, "l3"),
+            evidence_edge(&radio_a, &radio_b, "wireless-registration"),
+            evidence_edge(&radio_b, &router_b, "l3"),
+            evidence_edge(&router_a, &radio_c, "route"),
+            evidence_edge(&radio_c, &radio_d, "wireless-registration"),
+            evidence_edge(&radio_d, &router_b, "l3"),
+        ],
+    };
+    let options = DotExportOptions {
+        hide_link_tables: true,
+        ..DotExportOptions::default()
+    };
+
+    let dot = graph.to_graphviz_dot_with_options(&options);
+
+    assert!(dot.contains("\"router-a\" -> \"router-b\""));
+}
+
+#[test]
+fn graphviz_keeps_direct_l3_shortcut_when_registration_link_is_missing() {
+    let router_a = key("router-a");
+    let radio_a = key("radio-a");
+    let radio_b = key("radio-b");
+    let router_b = key("router-b");
+    let graph = NetworkGraph {
+        nodes: vec![
+            collected_named_node(&router_a, "RtBorder", DeviceRole::CoreRouter),
+            collected_named_node(&radio_a, "Orbitel-Sonata", DeviceRole::Radio),
+            collected_named_node(&radio_b, "Sonata-Orbitel", DeviceRole::Radio),
+            collected_named_node(&router_b, "RtSonata", DeviceRole::CustomerRouter),
+        ],
+        edges: vec![
+            evidence_edge(&router_a, &router_b, "l3"),
+            evidence_edge(&router_a, &radio_a, "l3"),
+            evidence_edge(&radio_a, &radio_b, "wireless"),
+            evidence_edge(&radio_b, &router_b, "l3"),
+        ],
+    };
+    let options = DotExportOptions {
+        hide_link_tables: true,
+        ..DotExportOptions::default()
+    };
+
+    let dot = graph.to_graphviz_dot_with_options(&options);
+
+    assert!(dot.contains("\"router-a\" -> \"router-b\""));
 }
 
 #[test]
@@ -385,15 +820,15 @@ fn collected_node(key: &TopologyNodeKey, has_bgp_state: bool) -> NetworkNode {
         target_address: Some(SocketAddr::new("192.0.2.1".parse().unwrap(), 8728)),
         management_addresses: Vec::new(),
         snapshot: Some(RouterOsSnapshot {
-            system: mikrotik_types::device::SystemSnapshot {
-                identity: mikrotik_types::api::system::Identity::default().into(),
-                resource: mikrotik_types::api::system::Resource::default().into(),
-                routerboard: mikrotik_types::api::system::Routerboard::default().into(),
-                ..mikrotik_types::device::SystemSnapshot::default()
+            system: SystemSnapshot {
+                identity: Identity::default().into(),
+                resource: Resource::default().into(),
+                routerboard: Routerboard::default().into(),
+                ..SystemSnapshot::default()
             },
-            routing: mikrotik_types::device::RoutingSnapshot {
+            routing: RoutingSnapshot {
                 bgp_connections: bgp_connections.into(),
-                ..mikrotik_types::device::RoutingSnapshot::default()
+                ..RoutingSnapshot::default()
             },
             ..RouterOsSnapshot::default()
         }),
@@ -409,18 +844,18 @@ fn collected_named_node(key: &TopologyNodeKey, name: &str, role: DeviceRole) -> 
         target_address: Some(SocketAddr::new("192.0.2.1".parse().unwrap(), 8728)),
         management_addresses: Vec::new(),
         snapshot: Some(RouterOsSnapshot {
-            system: mikrotik_types::device::SystemSnapshot {
-                identity: mikrotik_types::api::system::Identity {
+            system: SystemSnapshot {
+                identity: Identity {
                     name: Some(name.to_owned()),
                 }
                 .into(),
-                resource: mikrotik_types::api::system::Resource::default().into(),
-                routerboard: mikrotik_types::api::system::Routerboard {
+                resource: Resource::default().into(),
+                routerboard: Routerboard {
                     serial_number: Some(key.to_string()),
-                    ..mikrotik_types::api::system::Routerboard::default()
+                    ..Routerboard::default()
                 }
                 .into(),
-                ..mikrotik_types::device::SystemSnapshot::default()
+                ..SystemSnapshot::default()
             },
             ..RouterOsSnapshot::default()
         }),
@@ -437,6 +872,34 @@ fn graph_snapshot(key: &TopologyNodeKey, name: &str, role: DeviceRole) -> GraphS
     }
 }
 
+fn add_interface(snapshot: &mut GraphSnapshot, name: &str, mac_address: &str, interface_type: &str) {
+    snapshot.snapshot.interface.interfaces.data.push(Interface {
+        name: Some(name.parse().unwrap()),
+        mac_address: Some(mac_address.parse().unwrap()),
+        interface_type: Some(interface_type.parse().unwrap()),
+        ..Interface::default()
+    });
+}
+
+fn add_neighbor(
+    snapshot: &mut GraphSnapshot,
+    local_interface: &str,
+    remote_interface: &str,
+    address: &str,
+    identity: &str,
+    mac_address: &str,
+) {
+    snapshot.snapshot.ip.neighbors.data.push(Neighbor {
+        interface: Some(local_interface.parse().unwrap()),
+        interface_name: Some(remote_interface.parse().unwrap()),
+        address: Some(address.parse().unwrap()),
+        mac_address: Some(mac_address.parse().unwrap()),
+        identity: Some(identity.to_owned()),
+        board: Some("RouterBOARD".to_owned()),
+        ..Neighbor::default()
+    });
+}
+
 fn edge(local_node: &TopologyNodeKey, remote_node: &TopologyNodeKey) -> TopologyLink {
     TopologyLink {
         local_node: local_node.clone(),
@@ -445,6 +908,17 @@ fn edge(local_node: &TopologyNodeKey, remote_node: &TopologyNodeKey) -> Topology
         remote_interface: None,
         discovered_by: vec![DiscoveryProtocol::Unknown("management".to_owned())],
         confidence: 100,
+    }
+}
+
+fn evidence_edge(local_node: &TopologyNodeKey, remote_node: &TopologyNodeKey, evidence: &str) -> TopologyLink {
+    TopologyLink {
+        local_node: local_node.clone(),
+        local_interface: None,
+        remote_node: remote_node.clone(),
+        remote_interface: None,
+        discovered_by: vec![DiscoveryProtocol::Unknown(evidence.to_owned())],
+        confidence: 95,
     }
 }
 

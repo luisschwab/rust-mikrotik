@@ -107,9 +107,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.2.1"
+version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12ae9db68ad7fac5fe51304d20f016c911539251075a214f8e663babefa35187"
+checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bytes"
@@ -412,6 +412,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sharded-slab",
+ "tracing",
  "tracing-subscriber",
 ]
 
@@ -437,10 +438,8 @@ dependencies = [
 name = "mikrotik-graphviz"
 version = "0.0.0"
 dependencies = [
- "mikrotik-client",
  "mikrotik-types",
  "serde",
- "time",
 ]
 
 [[package]]
@@ -459,6 +458,8 @@ name = "mikrotik-qemu-runner"
 version = "0.0.0"
 dependencies = [
  "bitreq",
+ "bumpalo",
+ "memchr",
  "mikrotik-client",
  "mikrotik-common",
  "mikrotik-types",
@@ -474,7 +475,6 @@ dependencies = [
 name = "mikrotik-types"
 version = "0.0.0"
 dependencies = [
- "memchr",
  "mikrotik-common",
  "serde",
  "serde_json",

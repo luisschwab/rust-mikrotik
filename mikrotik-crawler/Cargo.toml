@@ -24,13 +24,13 @@ mikrotik-graphviz = { path = "../mikrotik-graphviz" }
 mikrotik-qemu-runner = { path = "../mikrotik-qemu-runner" }
 mikrotik-types = { path = "../mikrotik-types" }
 # External Dependencies
-argh.workspace = true
-serde.workspace = true
-time.workspace = true
+argh = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "signal", "sync", "time"] }
-tracing.workspace = true
-tracing-appender.workspace = true
-tracing-subscriber.workspace = true
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [lints]
 workspace = true
@@ -39,5 +39,6 @@ workspace = true
 lint = { allowed_duplicates = [
   "argh_shared",
   "getrandom",
+  "syn",
   "windows-sys",
 ] }

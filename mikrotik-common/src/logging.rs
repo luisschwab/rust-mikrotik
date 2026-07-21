@@ -1,16 +1,18 @@
 //! Tracing initialization helpers and logging macros.
 
 #[cfg(feature = "tracing-subscriber")]
+use tracing::Level;
+#[cfg(feature = "tracing-subscriber")]
 use tracing_subscriber::EnvFilter;
 
-/// Initialize a `tracing-subscriber` from `RUST_LOG`, defaulting to `info`.
+/// Initialize a `tracing-subscriber` with an explicit filter.
 ///
 /// This is intended for examples and small CLIs that only need a stdout/stderr
 /// formatter. Larger binaries should keep using their own logging setup when
 /// they need file sinks, buffering, or additional layers.
 #[cfg(feature = "tracing-subscriber")]
-pub fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+pub fn init_tracing(filter: Level) {
+    let filter = EnvFilter::default().add_directive(filter.into());
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 

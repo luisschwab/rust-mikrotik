@@ -21,7 +21,6 @@ use std::sync::Arc;
 use argh::FromArgs;
 use mikrotik_client::builder::Protocol;
 use mikrotik_crawler::AddressFamily;
-use mikrotik_crawler::BinaryApiFactory;
 use mikrotik_crawler::CrawlConfig;
 use mikrotik_crawler::CrawlReport;
 use mikrotik_crawler::Crawler;
@@ -31,7 +30,11 @@ use mikrotik_crawler::CrawlerStateSnapshot;
 use mikrotik_crawler::DEFAULT_COMMAND_TIMEOUT;
 use mikrotik_crawler::DEFAULT_CONNECT_RETRIES;
 use mikrotik_crawler::DEFAULT_CONNECT_TIMEOUT;
+use mikrotik_crawler::RouterOsApiConnector;
+use mikrotik_crawler::SnapshotClientConnector;
+use mikrotik_crawler::resolver::DirectTargetResolver;
 use mikrotik_crawler::resolver::StaticTargetResolver;
+use mikrotik_crawler::resolver::TargetResolver;
 use mikrotik_graphviz::constants::GRAPHVIZ_LAYERED_LAYOUT;
 use mikrotik_graphviz::constants::GRAPHVIZ_RADIAL_LAYOUT;
 use mikrotik_graphviz::constants::GRAPHVIZ_RECURSIVE_RADIAL_LAYOUT;
@@ -44,6 +47,7 @@ use mikrotik_graphviz::options::GraphvizRenderOptions;
 use mikrotik_graphviz::options::LinkFilter;
 use mikrotik_graphviz::render::render_graphviz_artifact;
 use mikrotik_graphviz::render::write_graphviz_interactive_html;
+use mikrotik_graphviz::snapshot::GraphSnapshot;
 use mikrotik_qemu_runner::Scenario;
 use mikrotik_qemu_runner::ScenarioConf;
 use mikrotik_types::target::Credentials;
@@ -52,6 +56,7 @@ use mikrotik_types::topology::InferredDevice;
 use mikrotik_types::topology::InferredDeviceFailure;
 use mikrotik_types::topology::NetworkNode;
 use mikrotik_types::topology::NetworkNodeStatus;
+use time::OffsetDateTime;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
 
@@ -65,6 +70,8 @@ const DEFAULT_MAX_CONCURRENCY: usize = 16;
 const DEFAULT_LIVE_RUNS_DIR: &str = "mikrotik-crawler/src/bin/runs/live";
 /// Default QEMU runner scenario artifact run root.
 const DEFAULT_SCENARIO_RUNS_DIR: &str = "mikrotik-crawler/src/bin/runs/scenario";
+/// Default tracing directive for the crawler CLI.
+const DEFAULT_LOG_FILTER: &str = "mikrotik_crawler=info";
 /// Stable symlink name for the latest run under a run root.
 const LATEST_RUN_SYMLINK: &str = "latest";
 /// Worker stack size for large `RouterOS` snapshot futures.
@@ -119,7 +126,7 @@ async fn maybe_spawn_scenario(args: &Args) -> Result<Option<Scenario>, Box<dyn E
 
 /// Run one recursive crawl to completion.
 async fn run_one_shot(args: &Args, seeds: Vec<DeviceTarget>) -> Result<NetworkGraph, Box<dyn Error>> {
-    let factory = BinaryApiFactory::new(args.protocol)
+    let factory = RouterOsApiConnector::new(args.protocol)
         .with_api_fallback()
         .with_connect_timeout(Duration::from_secs(args.connect_timeout_seconds))
         .with_command_timeout(Duration::from_secs(args.command_timeout_seconds));
@@ -151,16 +158,16 @@ async fn run_continuous(args: &Args, seeds: Vec<DeviceTarget>) -> Result<Network
         address_family: args.address_family,
         protocol: args.protocol,
     };
-    let factory: Arc<dyn mikrotik_crawler::SnapshotClientConnector> = Arc::new(
-        BinaryApiFactory::new(args.protocol)
+    let factory: Arc<dyn SnapshotClientConnector> = Arc::new(
+        RouterOsApiConnector::new(args.protocol)
             .with_api_fallback()
             .with_connect_timeout(Duration::from_secs(args.connect_timeout_seconds))
             .with_command_timeout(Duration::from_secs(args.command_timeout_seconds)),
     );
-    let target_resolver: Arc<dyn mikrotik_crawler::resolver::TargetResolver> = if let Some(mappings) = &args.mappings {
+    let target_resolver: Arc<dyn TargetResolver> = if let Some(mappings) = &args.mappings {
         Arc::new(static_resolver(mappings)?)
     } else {
-        Arc::new(mikrotik_crawler::resolver::DirectTargetResolver)
+        Arc::new(DirectTargetResolver)
     };
     let service = CrawlerService::start_with_parts(&config, &factory, &target_resolver);
     let handle = service.handle();
@@ -176,13 +183,8 @@ async fn run_continuous(args: &Args, seeds: Vec<DeviceTarget>) -> Result<Network
 
 /// Build a graph from continuous crawler state and failed target markers.
 fn graph_from_state(state: &CrawlerStateSnapshot) -> NetworkGraph {
-    let mut graph = NetworkGraph::from_snapshots(
-        state
-            .snapshots
-            .values()
-            .map(mikrotik_graphviz::snapshot::GraphSnapshot::from)
-            .collect(),
-    );
+    let snapshots = state.snapshots.values().map(GraphSnapshot::from).collect::<Vec<_>>();
+    let mut graph = NetworkGraph::from_snapshots(&snapshots);
     add_failed_targets_to_graph(&mut graph, state);
     graph
 }
@@ -508,28 +510,32 @@ fn default_outdir(run_kind: RunKind) -> PathBuf {
     PathBuf::from(root).join(local_timestamp())
 }
 
-/// Return a local timestamp in run-directory format.
+/// Return a UTC timestamp in run-directory format.
 fn local_timestamp() -> String {
-    Command::new("date")
-        .arg("+%Y%m%d-%H%M%S")
-        .output()
-        .ok()
-        .and_then(|output| output.status.success().then_some(output.stdout))
-        .and_then(|stdout| String::from_utf8(stdout).ok())
-        .map(|timestamp| timestamp.trim().to_owned())
-        .filter(|timestamp| !timestamp.is_empty())
-        .unwrap_or_else(|| "unknown-time".to_owned())
+    let now = OffsetDateTime::now_utc();
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    )
 }
 
 /// Initialize CLI logging to stderr and the run directory.
 fn init_tracing(outdir: &Path) -> tracing_appender::non_blocking::WorkerGuard {
     let file_appender = tracing_appender::rolling::never(outdir, "crawl.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("mikrotik_crawler=info"));
-    let _ = tracing_subscriber::fmt()
+    let filter = EnvFilter::new(DEFAULT_LOG_FILTER);
+    if let Err(error) = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(file_writer.and(io::stderr))
-        .try_init();
+        .try_init()
+    {
+        eprintln!("failed to initialize crawler logging: {error}");
+    }
     guard
 }
 

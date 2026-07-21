@@ -4,6 +4,7 @@ use core::net::SocketAddr;
 use core::time::Duration;
 use std::sync::Arc;
 
+use mikrotik_client::builder::Protocol;
 use mikrotik_types::api::interface::Interface;
 use mikrotik_types::api::system::Health;
 use mikrotik_types::api::system::Resource;
@@ -37,8 +38,7 @@ pub struct TelemetrySnapshot {
 ///
 /// Returns an error when connection, authentication, or a required command fails.
 pub async fn collect_target_telemetry(target: &DeviceTarget) -> Result<TelemetrySnapshot> {
-    let connector: Arc<dyn SnapshotClientConnector> =
-        Arc::new(RouterOsApiConnector::new(mikrotik_client::builder::Protocol::Api));
+    let connector: Arc<dyn SnapshotClientConnector> = Arc::new(RouterOsApiConnector::new(Protocol::Api));
     let client = connector.connect(target).await?;
     client.telemetry(&target.address.to_string()).await
 }

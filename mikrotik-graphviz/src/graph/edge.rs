@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use mikrotik_types::abstractions::LinkKind;
 use mikrotik_types::device::DeviceRole;
@@ -38,6 +39,12 @@ pub(super) struct GraphvizEdge {
     pub(super) remote_interface: Option<InterfaceName>,
     /// Visual link kind.
     pub(super) link_kind: LinkKind,
+    /// Whether the underlying relationship has direct L3 or route evidence.
+    pub(super) has_l3_or_route_evidence: bool,
+    /// Whether the underlying relationship has live registration-table evidence.
+    pub(super) has_registration_evidence: bool,
+    /// Whether reciprocal MNDP identifies this edge as a physical router-radio attachment.
+    pub(super) has_mndp_attachment_evidence: bool,
 }
 
 /// Add one Graphviz edge statement.
@@ -118,13 +125,26 @@ pub(super) fn push_graphviz_edge(
 pub(super) fn collapsed_graphviz_edges(edges: &[TopologyLink], graph: &NetworkGraph) -> Vec<GraphvizEdge> {
     let mut reciprocal_interfaces = HashMap::new();
     let mut bgp_evidence = BTreeSet::new();
+    let mut l3_or_route_evidence = BTreeSet::new();
+    let mut registration_evidence = BTreeSet::new();
+    let mut mndp_attachment_evidence = BTreeSet::new();
     for edge in edges {
+        let pair = ordered_pair(&edge.local_node, &edge.remote_node);
         reciprocal_interfaces.insert(
             (edge.local_node.clone(), edge.remote_node.clone()),
             (edge.local_interface.clone(), edge.remote_interface.clone()),
         );
         if edge.is_bgp() {
-            bgp_evidence.insert(ordered_pair(&edge.local_node, &edge.remote_node));
+            bgp_evidence.insert(pair.clone());
+        }
+        if edge.is_l3() || edge.is_route() {
+            l3_or_route_evidence.insert(pair.clone());
+        }
+        if edge.is_registration_wireless() {
+            registration_evidence.insert(pair.clone());
+        }
+        if edge.is_mndp_attachment() {
+            mndp_attachment_evidence.insert(pair);
         }
     }
 
@@ -132,7 +152,7 @@ pub(super) fn collapsed_graphviz_edges(edges: &[TopologyLink], graph: &NetworkGr
     let mut collapsed = Vec::new();
     for edge in edges {
         let pair = ordered_pair(&edge.local_node, &edge.remote_node);
-        if !seen.insert(pair) {
+        if !seen.insert(pair.clone()) {
             continue;
         }
 
@@ -153,6 +173,9 @@ pub(super) fn collapsed_graphviz_edges(edges: &[TopologyLink], graph: &NetworkGr
             remote_node: edge.remote_node.clone(),
             remote_interface,
             link_kind: graph_link_kind_from_edge(edge, graph, &bgp_evidence),
+            has_l3_or_route_evidence: l3_or_route_evidence.contains(&pair),
+            has_registration_evidence: registration_evidence.contains(&pair),
+            has_mndp_attachment_evidence: mndp_attachment_evidence.contains(&pair),
         });
     }
 
@@ -176,8 +199,136 @@ pub(super) fn orient_graphviz_edge(
             remote_node: edge.local_node,
             remote_interface: edge.local_interface,
             link_kind: edge.link_kind,
+            has_l3_or_route_evidence: edge.has_l3_or_route_evidence,
+            has_registration_evidence: edge.has_registration_evidence,
+            has_mndp_attachment_evidence: edge.has_mndp_attachment_evidence,
         }
     }
+}
+
+/// Remove direct visual L3 shortcuts replaced by one unambiguous visible radio chain.
+pub(super) fn suppress_redundant_l3_shortcuts(edges: Vec<GraphvizEdge>, graph: &NetworkGraph) -> Vec<GraphvizEdge> {
+    let suppressed = edges
+        .iter()
+        .enumerate()
+        .filter_map(|(index, edge)| {
+            if !edge.has_l3_or_route_evidence
+                || super::rank::graphviz_is_radio_node(&edge.local_node, graph)
+                || super::rank::graphviz_is_radio_node(&edge.remote_node, graph)
+            {
+                return None;
+            }
+            has_unique_radio_path(&edges, index, edge, graph).then_some(index)
+        })
+        .collect::<BTreeSet<_>>();
+
+    edges
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, edge)| (!suppressed.contains(&index)).then_some(edge))
+        .collect()
+}
+
+/// Return whether exactly one shortest eligible radio-only path replaces a direct edge.
+fn has_unique_radio_path(
+    edges: &[GraphvizEdge],
+    direct_index: usize,
+    direct: &GraphvizEdge,
+    graph: &NetworkGraph,
+) -> bool {
+    let mut frontier = VecDeque::new();
+    let mut distance = HashMap::<(TopologyNodeKey, bool), usize>::new();
+    let mut path_count = HashMap::<(TopologyNodeKey, bool), u8>::new();
+
+    for (index, edge) in edges.iter().enumerate() {
+        if index == direct_index || !is_outer_radio_attachment(edge) {
+            continue;
+        }
+        let next = if edge.local_node == direct.local_node {
+            &edge.remote_node
+        } else if edge.remote_node == direct.local_node {
+            &edge.local_node
+        } else {
+            continue;
+        };
+        if !super::rank::graphviz_is_radio_node(next, graph) {
+            continue;
+        }
+        let state = (next.clone(), false);
+        distance.entry(state.clone()).or_insert_with(|| {
+            frontier.push_back(state.clone());
+            1
+        });
+        path_count
+            .entry(state)
+            .and_modify(|count| *count = count.saturating_add(1))
+            .or_insert(1);
+    }
+
+    let mut shortest_target_distance = None;
+    let mut shortest_target_count = 0_u8;
+    while let Some(state) = frontier.pop_front() {
+        let current_distance = distance[&state];
+        let current_count = path_count[&state];
+        if shortest_target_distance.is_some_and(|shortest| current_distance + 1 > shortest) {
+            continue;
+        }
+
+        for (index, edge) in edges.iter().enumerate() {
+            if index == direct_index {
+                continue;
+            }
+            let next = if edge.local_node == state.0 {
+                &edge.remote_node
+            } else if edge.remote_node == state.0 {
+                &edge.local_node
+            } else {
+                continue;
+            };
+            if next == &direct.remote_node {
+                if is_outer_radio_attachment(edge) && state.1 {
+                    let target_distance = current_distance + 1;
+                    match shortest_target_distance {
+                        None => {
+                            shortest_target_distance = Some(target_distance);
+                            shortest_target_count = current_count;
+                        }
+                        Some(shortest) if target_distance == shortest => {
+                            shortest_target_count = shortest_target_count.saturating_add(current_count);
+                        }
+                        Some(_) => {}
+                    }
+                }
+                continue;
+            }
+            if edge.link_kind != LinkKind::Wireless || !super::rank::graphviz_is_radio_node(next, graph) {
+                continue;
+            }
+
+            let next_state = (next.clone(), state.1 || edge.has_registration_evidence);
+            let next_distance = current_distance + 1;
+            match distance.get(&next_state).copied() {
+                None => {
+                    distance.insert(next_state.clone(), next_distance);
+                    path_count.insert(next_state.clone(), current_count);
+                    frontier.push_back(next_state);
+                }
+                Some(existing) if existing == next_distance => {
+                    path_count
+                        .entry(next_state)
+                        .and_modify(|count| *count = count.saturating_add(current_count));
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
+    shortest_target_count == 1
+}
+
+/// Return whether an edge is eligible as an outer router-radio attachment.
+fn is_outer_radio_attachment(edge: &GraphvizEdge) -> bool {
+    edge.has_l3_or_route_evidence || edge.has_mndp_attachment_evidence
 }
 
 /// Classify one visual link from collected device roles.

@@ -39,7 +39,7 @@ pub(crate) fn ensure_chr_image(root: &Path, version: &str, arch: ChrArch) -> Res
 
     debug!("Unpacking {} to {}", archive_member, image.display());
     unpack_chr_archive(&archive, &archive_member, &image)?;
-    fs::remove_file(&archive)?;
+    fs::remove_file(&archive).map_err(|source| Error::io("remove downloaded CHR archive", &archive, source))?;
     Ok(image)
 }
 
@@ -67,7 +67,7 @@ fn chr_image_filename(version: &str, arch: ChrArch) -> String {
 
 /// Extract one member from a CHR zip archive into the image cache.
 fn unpack_chr_archive(archive_path: &Path, archive_member: &str, image: &Path) -> Result<()> {
-    let file = fs::File::open(archive_path)?;
+    let file = fs::File::open(archive_path).map_err(|source| Error::io("open CHR archive", archive_path, source))?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|error| Error::Tool(format!("open CHR archive {}: {error}", archive_path.display())))?;
     let mut member = archive.by_name(archive_member).map_err(|error| {
@@ -76,14 +76,8 @@ fn unpack_chr_archive(archive_path: &Path, archive_member: &str, image: &Path) -
             archive_path.display()
         ))
     })?;
-    let mut output = fs::File::create(image)?;
-    io::copy(&mut member, &mut output).map_err(|error| {
-        Error::Tool(format!(
-            "extract {archive_member} from CHR archive {} to {}: {error}",
-            archive_path.display(),
-            image.display()
-        ))
-    })?;
+    let mut output = fs::File::create(image).map_err(|source| Error::io("create CHR image", image, source))?;
+    io::copy(&mut member, &mut output).map_err(|source| Error::io("extract CHR archive member to", image, source))?;
     Ok(())
 }
 
@@ -97,12 +91,14 @@ fn download_chr_archive(version: &str, url: &str, archive: &Path, archive_member
 
     for attempt in 1..=ATTEMPTS {
         if partial.exists() {
-            fs::remove_file(&partial)?;
+            fs::remove_file(&partial)
+                .map_err(|source| Error::io("remove stale partial CHR archive", &partial, source))?;
         }
 
         match try_download_chr_archive(url, &partial, archive_member, TIMEOUT_SECONDS) {
             Ok(()) => {
-                fs::rename(&partial, archive)?;
+                fs::rename(&partial, archive)
+                    .map_err(|source| Error::io("promote partial CHR archive to", archive, source))?;
                 return Ok(());
             }
             Err(error) => {
@@ -143,7 +139,9 @@ fn try_download_chr_archive(url: &str, partial: &Path, archive_member: &str, tim
     let body = response.as_bytes();
 
     if let Some(expected_len) = expected_len {
-        if body.len() as u64 != expected_len {
+        let actual_len = u64::try_from(body.len())
+            .map_err(|_| Error::Tool("downloaded CHR archive length exceeds u64".to_owned()))?;
+        if actual_len != expected_len {
             return Err(Error::Tool(format!(
                 "downloaded {} byte(s) from {url}, expected {expected_len}",
                 body.len()
@@ -151,7 +149,7 @@ fn try_download_chr_archive(url: &str, partial: &Path, archive_member: &str, tim
         }
     }
 
-    fs::write(partial, body)?;
+    fs::write(partial, body).map_err(|source| Error::io("write partial CHR archive", partial, source))?;
     validate_chr_archive(partial, archive_member)?;
 
     Ok(())
@@ -172,7 +170,8 @@ fn content_length(response: &bitreq::Response) -> Result<Option<u64>> {
 
 /// Validate a CHR zip archive before it is promoted into the image cache.
 fn validate_chr_archive(archive_path: &Path, archive_member: &str) -> Result<()> {
-    let file = fs::File::open(archive_path)?;
+    let file = fs::File::open(archive_path)
+        .map_err(|source| Error::io("open CHR archive for validation", archive_path, source))?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|error| Error::Tool(format!("validate CHR archive {}: {error}", archive_path.display())))?;
     archive.by_name(archive_member).map_err(|error| {

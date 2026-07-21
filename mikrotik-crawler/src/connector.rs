@@ -11,6 +11,7 @@ use std::time::Instant;
 use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
 use mikrotik_client::client::Client;
+use mikrotik_client::error::Error as ClientError;
 use mikrotik_common::warn_with_label;
 use mikrotik_types::target::DeviceTarget;
 
@@ -62,9 +63,6 @@ pub trait SnapshotClientConnector: Send + Sync {
         self.connect(target)
     }
 }
-
-/// Backward-compatible name for the snapshot client connector trait.
-pub use SnapshotClientConnector as DiscoveryClientFactory;
 
 /// Default connector backed by `mikrotik-client`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,9 +170,6 @@ impl RouterOsApiConnector {
     }
 }
 
-/// Backward-compatible name for the default `RouterOS` API connector.
-pub type BinaryApiFactory = RouterOsApiConnector;
-
 /// Build a connection builder from a target address.
 pub(crate) fn builder_from_target(
     target: &DeviceTarget,
@@ -204,9 +199,10 @@ fn is_api_ssl_fallback_error(error: &Error) -> bool {
     matches!(
         error,
         Error::Client(
-            mikrotik_client::error::Error::Io(_)
-                | mikrotik_client::error::Error::Connection(_)
-                | mikrotik_client::error::Error::ConnectionClosed
+            ClientError::Transport { .. }
+                | ClientError::Timeout { .. }
+                | ClientError::Connection { .. }
+                | ClientError::ConnectionClosed { .. }
         ) | Error::Io(_)
     )
 }

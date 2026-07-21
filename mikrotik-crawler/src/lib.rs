@@ -42,10 +42,8 @@ pub use config::CrawlerServiceConfig;
 pub use config::DEFAULT_COMMAND_TIMEOUT;
 pub use config::DEFAULT_CONNECT_RETRIES;
 pub use config::DEFAULT_CONNECT_TIMEOUT;
-pub use connector::BinaryApiFactory;
 pub use connector::BoxFuture;
 pub use connector::DiscoveryClient;
-pub use connector::DiscoveryClientFactory;
 pub use connector::RouterOsApiConnector;
 pub use connector::SnapshotClientConnector;
 pub use oneshot::CrawlFailure;
@@ -61,17 +59,10 @@ pub use telemetry::collect_target_telemetry;
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::large_stack_arrays,
-        reason = "snapshot fixtures intentionally exercise complete typed endpoint payloads"
-    )]
-
     use core::net::SocketAddr;
     use core::time::Duration;
     use std::collections::BTreeMap;
     use std::collections::BTreeSet;
-    use std::io::Error as IoError;
-    use std::io::ErrorKind;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Instant;
@@ -85,6 +76,7 @@ mod tests {
     use mikrotik_graphviz::graph::model::NetworkGraph;
     use mikrotik_graphviz::options::DotExportOptions;
     use mikrotik_graphviz::options::LinkFilter;
+    use mikrotik_graphviz::snapshot::GraphSnapshot;
     use mikrotik_types::api::interface::Interface;
     use mikrotik_types::api::ip::Address;
     use mikrotik_types::api::ip::Neighbor;
@@ -96,7 +88,9 @@ mod tests {
     use mikrotik_types::api::system::Resource;
     use mikrotik_types::api::system::Routerboard;
     use mikrotik_types::device::DeviceRole;
+    use mikrotik_types::device::IpSnapshot;
     use mikrotik_types::device::RouterOsSnapshot;
+    use mikrotik_types::device::SystemSnapshot;
     use mikrotik_types::primitives::interface::InterfaceType;
     use mikrotik_types::primitives::ip::IpPrefix;
     use mikrotik_types::target::Credentials;
@@ -139,6 +133,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_follows_mikrotik_neighbors_and_falls_back_for_unconnected_topology() {
         let factory = Arc::new(FakeFactory::new([
             snapshot(
@@ -167,6 +162,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_keeps_neighbor_evidence_for_already_seen_targets() {
         let factory = Arc::new(FakeFactory::new([
             snapshot(
@@ -214,6 +210,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_many_collects_multiple_seed_targets() {
         let factory = Arc::new(FakeFactory::new([
             snapshot("10.0.0.1", "r1", "s1", []),
@@ -230,6 +227,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_honors_max_depth() {
         let factory = Arc::new(FakeFactory::new([
             snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]),
@@ -255,6 +253,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_honors_max_devices() {
         let factory = Arc::new(FakeFactory::new([
             snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]),
@@ -298,6 +297,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_retries_timed_out_targets() {
         let factory = Arc::new(TimeoutOnceFactory::new([
             snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]),
@@ -340,6 +340,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_avoids_cycles() {
         let factory = Arc::new(FakeFactory::new([
             snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]),
@@ -357,6 +358,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::large_stack_arrays)]
     async fn crawl_uses_static_target_resolver_for_discovered_neighbors() {
         let factory = Arc::new(FakeFactory::new([
             snapshot("127.0.0.1:5001", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]),
@@ -379,6 +381,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graphviz_dot_contains_nodes_and_edges() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]);
         r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether1")];
@@ -453,6 +456,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graphviz_link_table_uses_extra_address_rows() {
         let mut r1 = snapshot("10.0.0.1", "r1", "s1", [neighbor("ether1", "10.0.0.2", "r2")]);
         r1.ip.addresses.data = vec![
@@ -463,8 +467,8 @@ mod tests {
         let mut r2 = snapshot("10.0.0.2", "r2", "s2", [neighbor("ether2", "10.0.0.1", "r1")]);
         r2.ip.addresses.data = vec![address("10.0.0.2/30", "ether2")];
         let local_node = r2.topology_node_key();
-        let r1 = mikrotik_graphviz::snapshot::GraphSnapshot::from(&r1);
-        let mut r2 = mikrotik_graphviz::snapshot::GraphSnapshot::from(&r2);
+        let r1 = GraphSnapshot::from(&r1);
+        let mut r2 = GraphSnapshot::from(&r2);
         r2.role = DeviceRole::CustomerRouter;
         let graph = build_graph_with_neighbor_evidence(
             &[r1, r2],
@@ -521,6 +525,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graph_does_not_infer_l3_topology_from_broad_management_prefixes() {
         let mut customer = snapshot("10.100.0.220", "customer", "customer-serial", []);
         customer.ip.addresses.data = vec![address("10.100.0.220/24", "ether1")];
@@ -534,6 +539,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graph_uses_neighbor_fallback_for_otherwise_unconnected_collected_nodes() {
         let mut customer = snapshot("10.100.0.220", "customer", "customer-serial", []);
         customer.ip.addresses.data = vec![address("10.100.0.220/24", "ether1")];
@@ -564,6 +570,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graph_does_not_add_neighbor_fallback_for_already_connected_nodes() {
         let mut customer = snapshot("10.100.0.220", "customer", "customer-serial", []);
         customer.ip.addresses.data = vec![address("10.100.0.220/30", "ether1")];
@@ -681,6 +688,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graph_adds_bgp_edges_from_collected_sessions() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
         r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether2")];
@@ -701,6 +709,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graph_adds_bgp_edges_from_configured_connections() {
         let mut r1 = snapshot("127.0.0.1:5001", "r1", "s1", []);
         r1.ip.addresses.data = vec![address("10.0.0.1/30", "ether2")];
@@ -794,6 +803,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::large_stack_arrays)]
     fn graph_adds_route_next_hop_edges_to_collected_routers() {
         let mut core = snapshot("10.100.0.208", "core", "core-serial", []);
         core.ip.addresses.data = vec![address("10.100.0.208/24", "mgmt")];
@@ -937,7 +947,7 @@ mod tests {
         }
     }
 
-    impl DiscoveryClientFactory for FakeFactory {
+    impl SnapshotClientConnector for FakeFactory {
         fn connect<'a>(&'a self, target: &'a DeviceTarget) -> BoxFuture<'a, Result<Arc<dyn DiscoveryClient>>> {
             Box::pin(async move {
                 self.connects.lock().unwrap().push(target.address.to_string());
@@ -990,15 +1000,15 @@ mod tests {
         }
     }
 
-    impl DiscoveryClientFactory for TimeoutOnceFactory {
+    impl SnapshotClientConnector for TimeoutOnceFactory {
         fn connect<'a>(&'a self, target: &'a DeviceTarget) -> BoxFuture<'a, Result<Arc<dyn DiscoveryClient>>> {
             Box::pin(async move {
                 self.connects.lock().unwrap().push(target.address.to_string());
                 if target.address != socket("10.0.0.1") && self.timed_out.lock().unwrap().insert(target.address) {
-                    return Err(Error::Client(ClientError::Io(IoError::new(
-                        ErrorKind::TimedOut,
-                        "test timeout",
-                    ))));
+                    return Err(Error::Client(ClientError::Timeout {
+                        operation: "test connection",
+                        duration: Duration::from_secs(1),
+                    }));
                 }
 
                 let snapshot = self
@@ -1037,7 +1047,7 @@ mod tests {
             collected_at: time::OffsetDateTime::UNIX_EPOCH,
             snapshot_duration: Duration::ZERO,
             snapshot: RouterOsSnapshot {
-                system: mikrotik_types::device::SystemSnapshot {
+                system: SystemSnapshot {
                     identity: Identity {
                         name: Some(identity.to_owned()),
                     }
@@ -1048,9 +1058,9 @@ mod tests {
                     }
                     .into(),
                     resource: Resource::default().into(),
-                    ..mikrotik_types::device::SystemSnapshot::default()
+                    ..SystemSnapshot::default()
                 },
-                ip: mikrotik_types::device::IpSnapshot {
+                ip: IpSnapshot {
                     addresses: vec![Address {
                         address: Some(format!("{host}/32").parse::<IpPrefix>().unwrap()),
                         interface: Some("ether1".parse().unwrap()),
@@ -1058,7 +1068,7 @@ mod tests {
                     }]
                     .into(),
                     neighbors: Vec::from(neighbors).into(),
-                    ..mikrotik_types::device::IpSnapshot::default()
+                    ..IpSnapshot::default()
                 },
                 ..RouterOsSnapshot::default()
             },

@@ -12,7 +12,6 @@ repository.workspace = true
 std = ["uuid/std", "uuid/v4"]
 
 [dependencies]
-# External Dependencies
 hashbrown = { version = "0.17.1" }
 uuid = { version = "1.23.4", default-features = false }
 

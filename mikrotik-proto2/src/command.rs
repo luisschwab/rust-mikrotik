@@ -22,6 +22,7 @@
 //! ```
 
 use alloc::vec::Vec;
+use core::fmt;
 use core::marker::PhantomData;
 
 use crate::codec;
@@ -44,7 +45,7 @@ pub struct Cmd;
 ///
 /// - `CommandBuilder<NoCmd>`: initial state, call `.command()` to transition.
 /// - `CommandBuilder<Cmd>`: command word set, can add attributes and `.build()`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[must_use]
 pub struct CommandBuilder<State> {
     /// Command tag used to correlate responses.
@@ -53,6 +54,15 @@ pub struct CommandBuilder<State> {
     buf: Vec<u8>,
     /// Typestate marker.
     state: PhantomData<State>,
+}
+
+impl<State> fmt::Debug for CommandBuilder<State> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandBuilder")
+            .field("tag", &self.tag)
+            .field("encoded_len", &self.buf.len())
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "std")]
@@ -88,6 +98,10 @@ impl CommandBuilder<NoCmd> {
     }
 
     /// Builds a login command with the provided username and optional password.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an encoded command word exceeds the protocol's `u32` length limit.
     #[cfg(feature = "std")]
     pub fn login(username: &str, password: Option<&str>) -> Command {
         Self::new()
@@ -108,6 +122,10 @@ impl CommandBuilder<NoCmd> {
     /// # Arguments
     ///
     /// * `command`: The `MikroTik` command path, such as `/system/resource/print`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the command path exceeds the protocol's `u32` length limit.
     pub fn command(self, command: &str) -> CommandBuilder<Cmd> {
         let Self { tag, mut buf, .. } = self;
 
@@ -136,6 +154,10 @@ impl CommandBuilder<Cmd> {
     ///
     /// * `key`: The attribute's key.
     /// * `value`: The attribute's value. If `None`, the attribute is treated as a flag, such as `=key=`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded attribute exceeds the protocol's `u32` length limit.
     pub fn attribute(self, key: &str, value: Option<&str>) -> Self {
         let Self { tag, mut buf, .. } = self;
 
@@ -143,7 +165,7 @@ impl CommandBuilder<Cmd> {
         // Avoid format!() allocation
         let value_bytes = value.unwrap_or("");
         let word_len = 1 + key.len() + 1 + value_bytes.len();
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.push(b'=');
         buf.extend_from_slice(key.as_bytes());
         buf.push(b'=');
@@ -159,12 +181,16 @@ impl CommandBuilder<Cmd> {
     /// Adds an attribute with a raw byte value to the command being built.
     ///
     /// Use this method when your attribute values might contain non-UTF-8 or binary data.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded attribute exceeds the protocol's `u32` length limit.
     pub fn attribute_raw(self, key: &str, value: Option<&[u8]>) -> Self {
         let Self { tag, mut buf, .. } = self;
 
         let value_bytes = value.unwrap_or(&[]);
         let word_len = 1 + key.len() + 1 + value_bytes.len();
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.push(b'=');
         buf.extend_from_slice(key.as_bytes());
         buf.push(b'=');
@@ -187,10 +213,14 @@ impl CommandBuilder<Cmd> {
     /// Adds a query to check if a property is present.
     ///
     /// Pushes `true` if an item has a value for the property, `false` if it does not.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded query exceeds the protocol's `u32` length limit.
     pub fn query_is_present(self, name: &str) -> Self {
         let Self { tag, mut buf, .. } = self;
         let word_len = 1 + name.len(); // "?" + name
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.push(b'?');
         buf.extend_from_slice(name.as_bytes());
         Self {
@@ -201,10 +231,14 @@ impl CommandBuilder<Cmd> {
     }
 
     /// Adds a query to check if a property is absent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded query exceeds the protocol's `u32` length limit.
     pub fn query_not_present(self, name: &str) -> Self {
         let Self { tag, mut buf, .. } = self;
         let word_len = 2 + name.len(); // "?-" + name
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.extend_from_slice(b"?-");
         buf.extend_from_slice(name.as_bytes());
         Self {
@@ -215,10 +249,14 @@ impl CommandBuilder<Cmd> {
     }
 
     /// Adds a query to check if a property equals a value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded query exceeds the protocol's `u32` length limit.
     pub fn query_equal(self, name: &str, value: &str) -> Self {
         let Self { tag, mut buf, .. } = self;
         let word_len = 1 + name.len() + 1 + value.len(); // "?" + name + "=" + value
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.push(b'?');
         buf.extend_from_slice(name.as_bytes());
         buf.push(b'=');
@@ -231,10 +269,14 @@ impl CommandBuilder<Cmd> {
     }
 
     /// Adds a query to check if a property is greater than a value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded query exceeds the protocol's `u32` length limit.
     pub fn query_gt(self, key: &str, value: &str) -> Self {
         let Self { tag, mut buf, .. } = self;
         let word_len = 2 + key.len() + 1 + value.len(); // "?>" + key + "=" + value
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.extend_from_slice(b"?>");
         buf.extend_from_slice(key.as_bytes());
         buf.push(b'=');
@@ -247,10 +289,14 @@ impl CommandBuilder<Cmd> {
     }
 
     /// Adds a query to check if a property is less than a value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded query exceeds the protocol's `u32` length limit.
     pub fn query_lt(self, key: &str, value: &str) -> Self {
         let Self { tag, mut buf, .. } = self;
         let word_len = 2 + key.len() + 1 + value.len(); // "?<" + key + "=" + value
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.extend_from_slice(b"?<");
         buf.extend_from_slice(key.as_bytes());
         buf.push(b'=');
@@ -265,13 +311,17 @@ impl CommandBuilder<Cmd> {
     /// Adds query operations (combination operators for the query stack).
     ///
     /// See [MikroTik API Queries](https://help.mikrotik.com/docs/spaces/ROS/pages/47579160/API#API-Queries).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the encoded query exceeds the protocol's `u32` length limit.
     pub fn query_operations(self, operations: impl Iterator<Item = QueryOperator>) -> Self {
         let Self { tag, mut buf, .. } = self;
 
         // Collect operation chars: "?#" + operator chars
         let ops: Vec<u8> = operations.map(QueryOperator::code).collect();
         let word_len = 2 + ops.len(); // "?#" + ops
-        codec::encode_length(word_len as u32, &mut buf);
+        encode_word_length(word_len, &mut buf);
         buf.extend_from_slice(b"?#");
         buf.extend_from_slice(&ops);
 
@@ -291,18 +341,35 @@ impl CommandBuilder<Cmd> {
     }
 }
 
+/// Encode a computed word length after enforcing the protocol's 32-bit limit.
+fn encode_word_length(word_len: usize, buf: &mut Vec<u8>) {
+    let Ok(word_len) = word_len.try_into() else {
+        panic!("word length exceeds u32::MAX");
+    };
+    codec::encode_length(word_len, buf);
+}
+
 /// A finalized command ready to be sent to the router.
 ///
 /// Created via [`CommandBuilder`]. Contains the complete wire-format bytes
 /// (length-prefixed words + null terminator).
 ///
 /// The wire data is immutable after construction to preserve builder invariants.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Command {
     /// The tag identifying this command for response correlation.
     pub tag: Tag,
     /// The wire-format encoded command data.
     pub(crate) data: Vec<u8>,
+}
+
+impl fmt::Debug for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Command")
+            .field("tag", &self.tag)
+            .field("encoded_len", &self.data.len())
+            .finish()
+    }
 }
 
 impl Command {
@@ -345,6 +412,7 @@ impl QueryOperator {
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
+    use alloc::format;
     use alloc::string::String;
     use core::str;
 
@@ -422,6 +490,20 @@ mod tests {
         assert!(s.contains("/login"));
         assert!(s.contains("name=admin"));
         assert!(s.contains("password=password"));
+    }
+
+    #[test]
+    fn command_debug_does_not_expose_encoded_credentials() {
+        let builder = CommandBuilder::<NoCmd>::with_tag(TEST_TAG)
+            .command("/login")
+            .attribute("password", Some("highly-secret"));
+        let builder_debug = format!("{builder:?}");
+        assert!(!builder_debug.contains("highly-secret"));
+        assert!(!builder_debug.contains("password"));
+
+        let command_debug = format!("{:?}", builder.build());
+        assert!(!command_debug.contains("highly-secret"));
+        assert!(!command_debug.contains("password"));
     }
 
     #[test]

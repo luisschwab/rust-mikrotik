@@ -15,10 +15,12 @@ use std::process;
 use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
 use mikrotik_client::client::Client;
+use mikrotik_client::error::Result;
 use mikrotik_client::types::target::Credentials;
+use mikrotik_common::redaction::redact_command_row;
 
 /// Parsed example arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct Args {
     /// Router host name or IP address.
     host: String,
@@ -73,7 +75,7 @@ fn usage() -> ! {
 
 /// Example entry point.
 #[tokio::main]
-async fn main() -> mikrotik_client::error::Result<()> {
+async fn main() -> Result<()> {
     let args = Args::parse();
     let client = Client::connect(ClientBuilder::new(
         args.host,
@@ -95,7 +97,7 @@ async fn main() -> mikrotik_client::error::Result<()> {
     let rows = client.call(&args.command, &attributes).await?;
     println!("rows: {}", rows.len());
     for row in rows {
-        println!("{row:#?}");
+        println!("{:#?}", redact_command_row(&args.command, &row));
     }
     Ok(())
 }

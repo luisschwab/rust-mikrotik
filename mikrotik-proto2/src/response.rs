@@ -9,6 +9,7 @@
 //! - **Empty**: no data to reply with (`RouterOS` 7.18+).
 
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 use core::fmt::Display;
@@ -73,7 +74,7 @@ impl CommandResponse {
 
         let category = word.category().ok_or(ProtocolError::WordSequence {
             word: word.word_type(),
-            expected: alloc::vec![WordType::Category],
+            expected: vec![WordType::Category],
         })?;
 
         match category {
@@ -82,7 +83,7 @@ impl CommandResponse {
 
                 let tag = word.tag().ok_or(ProtocolError::WordSequence {
                     word: word.into(),
-                    expected: alloc::vec![WordType::Tag],
+                    expected: vec![WordType::Tag],
                 })?;
                 Ok(Self::Done(DoneResponse { tag }))
             }
@@ -102,7 +103,7 @@ impl CommandResponse {
                         word => {
                             return Err(ProtocolError::WordSequence {
                                 word: word.into(),
-                                expected: alloc::vec![WordType::Tag, WordType::Attribute],
+                                expected: vec![WordType::Tag, WordType::Attribute],
                             });
                         }
                     }
@@ -137,17 +138,13 @@ impl CommandResponse {
                                 message = value.map(String::from);
                             }
                             key => {
-                                return Err(TrapCategoryError::InvalidAttribute {
-                                    key: String::from(key),
-                                    value: value.map(String::from),
-                                }
-                                .into());
+                                return Err(TrapCategoryError::InvalidAttribute { key: String::from(key) }.into());
                             }
                         },
                         word => {
                             return Err(ProtocolError::WordSequence {
                                 word: word.into(),
-                                expected: alloc::vec![WordType::Tag, WordType::Attribute],
+                                expected: vec![WordType::Tag, WordType::Attribute],
                             });
                         }
                     }
@@ -163,7 +160,7 @@ impl CommandResponse {
 
                 let reason = word.generic().ok_or(ProtocolError::WordSequence {
                     word: word.word_type(),
-                    expected: alloc::vec![WordType::Message],
+                    expected: vec![WordType::Message],
                 })?;
 
                 Ok(Self::Fatal(String::from(reason)))
@@ -173,7 +170,7 @@ impl CommandResponse {
 
                 let tag = word.tag().ok_or(ProtocolError::WordSequence {
                     word: word.into(),
-                    expected: alloc::vec![WordType::Tag],
+                    expected: vec![WordType::Tag],
                 })?;
                 Ok(Self::Empty(EmptyResponse { tag }))
             }
@@ -210,7 +207,7 @@ impl Display for EmptyResponse {
 }
 
 /// Represents a reply to a command, including a tag and multiple attributes.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ReplyResponse {
     /// The tag associated with the command.
     pub tag: Tag,
@@ -220,12 +217,23 @@ pub struct ReplyResponse {
     pub attributes_raw: HashMap<String, Option<Vec<u8>>>,
 }
 
+impl fmt::Debug for ReplyResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReplyResponse")
+            .field("tag", &self.tag)
+            .field("attribute_count", &self.attributes.len())
+            .field("raw_attribute_count", &self.attributes_raw.len())
+            .finish()
+    }
+}
+
 impl Display for ReplyResponse {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "ReplyResponse {{ tag: {}, attributes: {:?} }}",
-            self.tag, self.attributes
+            "ReplyResponse {{ tag: {}, attribute_count: {} }}",
+            self.tag,
+            self.attributes.len()
         )
     }
 }
@@ -308,6 +316,7 @@ impl TryFrom<&str> for TrapCategory {
 #[cfg(test)]
 mod tests {
     extern crate alloc;
+    use alloc::format;
     use alloc::string::String;
     use alloc::vec;
     use alloc::vec::Vec;
@@ -366,6 +375,21 @@ mod tests {
             }
             other => panic!("expected Reply, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn reply_formatting_does_not_expose_attribute_values() {
+        let data = build_sentence(&[
+            b"!re",
+            b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8",
+            b"=private-key=highly-secret",
+        ]);
+        let response = parse_response(&data).unwrap();
+
+        let debug = format!("{response:?}");
+
+        assert!(!debug.contains("highly-secret"));
+        assert!(!debug.contains("private-key"));
     }
 
     #[test]

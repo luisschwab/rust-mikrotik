@@ -152,8 +152,12 @@ fn graphviz_has_radio_ancestor(node: &TopologyNodeKey, graph: &NetworkGraph, opt
 }
 
 /// Return true for radio/backhaul device names that follow `<src>-<dst>`.
-fn graphviz_is_radio_node(node: &TopologyNodeKey, graph: &NetworkGraph) -> bool {
-    graphviz_node_label(node, graph).is_some_and(|label| is_radio_name(&label))
+pub(super) fn graphviz_is_radio_node(node: &TopologyNodeKey, graph: &NetworkGraph) -> bool {
+    match graphviz_node_role(node, graph) {
+        Some(DeviceRole::Radio) => true,
+        Some(DeviceRole::Unknown) | None => graphviz_node_label(node, graph).is_some_and(|label| is_radio_name(&label)),
+        Some(DeviceRole::BgpRouter | DeviceRole::CoreRouter | DeviceRole::CustomerRouter | DeviceRole::Switch) => false,
+    }
 }
 
 /// Return true when a name looks like a point-to-point radio label.
@@ -163,6 +167,10 @@ pub(super) fn is_radio_name(label: &str) -> bool {
 
 /// Return endpoint names for point-to-point radio labels.
 pub(super) fn radio_name_parts(label: &str) -> Option<(&str, &str)> {
+    let label = label
+        .get(..6)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("radio-"))
+        .map_or(label, |_| &label[6..]);
     let mut parts = label.split('-');
     let left = parts.next()?.trim();
     let right = parts.next()?.trim();
@@ -171,6 +179,8 @@ pub(super) fn radio_name_parts(label: &str) -> Option<(&str, &str)> {
         || right.is_empty()
         || left.starts_with("Rt_")
         || left.starts_with("RT_")
+        || left.eq_ignore_ascii_case("rt")
+        || left.eq_ignore_ascii_case("router")
         || left.eq_ignore_ascii_case("serial")
     {
         return None;

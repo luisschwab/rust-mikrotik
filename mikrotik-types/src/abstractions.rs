@@ -2,16 +2,16 @@
 
 use core::fmt;
 use core::net::IpAddr;
-use core::net::Ipv4Addr;
-use core::net::Ipv6Addr;
 use core::str::FromStr;
 
+use mikrotik_common::parse;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::ParseError;
 use crate::device::TopologyNodeKey;
 use crate::primitives::interface::InterfaceName;
+use crate::primitives::ip::IpPrefix;
 
 /// One normalized IP subnet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -29,20 +29,37 @@ impl Subnet {
         prefix.parse().ok()
     }
 
+    /// Parse a prefix only when its address is already the canonical network address.
+    #[must_use]
+    pub fn from_canonical_prefix(prefix: &str) -> Option<Self> {
+        let (address, prefix_length) = parse::parse_ip_prefix(prefix)?;
+        let subnet = Self::from_prefix(prefix)?;
+        (subnet.address == address && subnet.prefix_length == prefix_length).then_some(subnet)
+    }
+
+    /// Construct a normalized subnet from an address and prefix length.
+    #[must_use]
+    pub fn new(address: IpAddr, prefix_length: u8) -> Option<Self> {
+        parse::network_address(address, prefix_length).map(|address| Self { address, prefix_length })
+    }
+
     /// Return whether this network contains an IP address.
     #[must_use]
     pub fn contains(self, address: IpAddr) -> bool {
-        match (self.address, address) {
-            (IpAddr::V4(network_address), IpAddr::V4(address)) => {
-                Self::ipv4_network_address(address, self.prefix_length)
-                    .is_some_and(|address| address == network_address)
-            }
-            (IpAddr::V6(network_address), IpAddr::V6(address)) => {
-                Self::ipv6_network_address(address, self.prefix_length)
-                    .is_some_and(|address| address == network_address)
-            }
-            (IpAddr::V4(_), IpAddr::V6(_)) | (IpAddr::V6(_), IpAddr::V4(_)) => false,
-        }
+        parse::prefix_contains(self.address, self.prefix_length, address)
+    }
+
+    /// Return whether this subnet overlaps another subnet.
+    #[must_use]
+    pub fn overlaps(self, other: Self) -> bool {
+        parse::prefixes_overlap((self.address, self.prefix_length), (other.address, other.prefix_length))
+    }
+
+    /// Return the number of addresses in this subnet when it fits in `u128`.
+    #[must_use]
+    pub fn address_count(self) -> Option<u128> {
+        let host_bits = parse::maximum_prefix_length(self.address) - self.prefix_length;
+        (host_bits < 128).then(|| 1_u128 << host_bits)
     }
 
     /// Return whether this prefix is small enough to represent a topology link.
@@ -53,58 +70,22 @@ impl Subnet {
             IpAddr::V6(_) => self.prefix_length >= 126 && self.prefix_length < 128,
         }
     }
-
-    /// Parse an IP prefix into address and prefix length.
-    fn parse_prefix(prefix: &str) -> Result<(IpAddr, u8), ParseError> {
-        let (address, length) = prefix.split_once('/').ok_or(ParseError::IpPrefix)?;
-        let address = address.parse::<IpAddr>().map_err(|_| ParseError::IpPrefix)?;
-        let length = length.parse::<u8>().map_err(|_| ParseError::IpPrefix)?;
-        Ok((address, length))
-    }
-
-    /// Return the IPv4 network address for a prefix length.
-    fn ipv4_network_address(address: Ipv4Addr, length: u8) -> Option<Ipv4Addr> {
-        if length > 32 {
-            return None;
-        }
-
-        let mask = if length == 0 {
-            0
-        } else {
-            u32::MAX << (32 - u32::from(length))
-        };
-        Some(Ipv4Addr::from(u32::from(address) & mask))
-    }
-
-    /// Return the IPv6 network address for a prefix length.
-    fn ipv6_network_address(address: Ipv6Addr, length: u8) -> Option<Ipv6Addr> {
-        if length > 128 {
-            return None;
-        }
-
-        let mask = if length == 0 {
-            0
-        } else {
-            u128::MAX << (128 - u128::from(length))
-        };
-        Some(Ipv6Addr::from(u128::from(address) & mask))
-    }
 }
 
 impl FromStr for Subnet {
     type Err = ParseError;
 
     fn from_str(prefix: &str) -> Result<Self, Self::Err> {
-        let (address, prefix_length) = Self::parse_prefix(prefix)?;
-        let address = match address {
-            IpAddr::V4(address) => {
-                IpAddr::V4(Self::ipv4_network_address(address, prefix_length).ok_or(ParseError::IpPrefix)?)
-            }
-            IpAddr::V6(address) => {
-                IpAddr::V6(Self::ipv6_network_address(address, prefix_length).ok_or(ParseError::IpPrefix)?)
-            }
-        };
+        let (address, prefix_length) = parse::parse_ip_prefix(prefix).ok_or(ParseError::IpPrefix)?;
+        let address = parse::network_address(address, prefix_length).ok_or(ParseError::IpPrefix)?;
         Ok(Self { address, prefix_length })
+    }
+}
+
+impl From<&IpPrefix> for Subnet {
+    fn from(prefix: &IpPrefix) -> Self {
+        Self::new(prefix.address(), prefix.prefix_length())
+            .expect("IpPrefix validates its address family and prefix length")
     }
 }
 
@@ -191,12 +172,36 @@ mod tests {
     }
 
     #[test]
+    fn subnet_normalizes_routeros_ip_prefix() {
+        let prefix = "192.0.2.9/29".parse::<IpPrefix>().unwrap();
+
+        assert_eq!(Subnet::from(&prefix).to_string(), "192.0.2.8/29");
+    }
+
+    #[test]
     fn subnet_contains_matching_addresses() {
         let network = Subnet::from_prefix("192.0.2.9/29").unwrap();
 
         assert!(network.contains("192.0.2.14".parse().unwrap()));
         assert!(!network.contains("192.0.2.16".parse().unwrap()));
         assert!(!network.contains("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn subnet_requires_canonical_prefix_when_requested() {
+        assert!(Subnet::from_canonical_prefix("192.0.2.0/24").is_some());
+        assert!(Subnet::from_canonical_prefix("192.0.2.1/24").is_none());
+    }
+
+    #[test]
+    fn subnet_reports_overlap_and_address_count() {
+        let parent = Subnet::from_prefix("192.0.2.0/24").unwrap();
+        let child = Subnet::from_prefix("192.0.2.128/25").unwrap();
+        let other = Subnet::from_prefix("192.0.3.0/24").unwrap();
+        assert!(parent.overlaps(child));
+        assert!(!parent.overlaps(other));
+        assert_eq!(parent.address_count(), Some(256));
+        assert_eq!(Subnet::from_prefix("::/0").unwrap().address_count(), None);
     }
 
     #[test]

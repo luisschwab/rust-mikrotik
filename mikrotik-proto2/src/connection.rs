@@ -45,8 +45,10 @@
 //! ```
 
 use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 
 use crate::HashMap;
 use crate::codec::Decode;
@@ -109,10 +111,15 @@ pub enum Event {
 ///
 /// Returned by [`Connection::poll_transmit()`]. The caller is responsible
 /// for writing these bytes to the transport (TCP, TLS, etc.).
-#[derive(Debug)]
 pub struct Transmit {
     /// The wire-format bytes to send.
     pub data: Vec<u8>,
+}
+
+impl fmt::Debug for Transmit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Transmit").field("byte_len", &self.data.len()).finish()
+    }
 }
 
 /// Connection state.
@@ -144,7 +151,6 @@ struct CommandState {
 /// - Reading bytes from the network and feeding them via [`receive()`](Connection::receive).
 /// - Draining outbound bytes via [`poll_transmit()`](Connection::poll_transmit) and sending them.
 /// - Polling for application events via [`poll_event()`](Connection::poll_event).
-#[derive(Debug)]
 pub struct Connection {
     /// Current connection state.
     state: State,
@@ -156,6 +162,18 @@ pub struct Connection {
     events: VecDeque<Event>,
     /// Queue of outbound wire-format data ready to be sent.
     outbound: VecDeque<Transmit>,
+}
+
+impl fmt::Debug for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Connection")
+            .field("state", &self.state)
+            .field("recv_buffer_len", &self.recv_buf.len())
+            .field("in_flight_count", &self.in_flight.len())
+            .field("event_count", &self.events.len())
+            .field("outbound_count", &self.outbound.len())
+            .finish()
+    }
 }
 
 impl Connection {
@@ -401,7 +419,7 @@ impl Connection {
                 response: TrapResponse {
                     tag,
                     category: None,
-                    message: alloc::format!("Protocol error: {error}"),
+                    message: format!("Protocol error: {error}"),
                 },
             });
         }

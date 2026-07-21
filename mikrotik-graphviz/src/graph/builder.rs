@@ -17,6 +17,8 @@ mod l3;
 mod merge;
 /// Neighbor evidence and fallback edge inference.
 mod neighbor;
+/// Wireless registration-table edge inference.
+mod registration;
 
 use self::bgp::bgp_connection_edges;
 use self::bgp::bgp_peer_edges;
@@ -28,10 +30,12 @@ use self::merge::mark_reciprocal_edges;
 use self::merge::merge_duplicate_edges;
 use self::neighbor::failed_neighbor_l3_edges;
 use self::neighbor::inferred_node;
+use self::neighbor::reciprocal_mndp_radio_attachment_edges;
 use self::neighbor::remote_key;
 use self::neighbor::unconnected_failed_neighbor_fallback_edges;
 use self::neighbor::unconnected_neighbor_fallback_edges;
 use self::neighbor::wireless_neighbor_edges;
+use self::registration::registration_topology;
 
 /// Build a graph from collected snapshots and failed neighbor crawl evidence.
 pub fn build_graph<S, I>(snapshots: &[S], failed_neighbors: I) -> NetworkGraph
@@ -100,6 +104,7 @@ where
         neighbor_keys.insert(key, node);
     }
 
+    let registration = registration_topology(snapshots);
     let mut edges = l3_link_edges(snapshots);
     edges.extend(route_next_hop_edges(snapshots, &target_keys, &address_interfaces));
     edges.extend(failed_neighbor_l3_edges(snapshots, &failed_neighbors, &target_keys));
@@ -126,7 +131,14 @@ where
     for (key, node) in neighbor_keys {
         nodes.entry(key).or_insert(node);
     }
-    edges.extend(wireless_neighbor_edges(&nodes, &neighbor_evidence, &target_keys));
+    edges.extend(reciprocal_mndp_radio_attachment_edges(snapshots));
+    edges.extend(registration.edges.iter().cloned());
+    edges.extend(wireless_neighbor_edges(
+        &nodes,
+        &neighbor_evidence,
+        &target_keys,
+        &registration,
+    ));
     edges.extend(unconnected_neighbor_fallback_edges(
         &nodes,
         &edges,

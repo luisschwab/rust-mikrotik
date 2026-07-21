@@ -77,6 +77,11 @@ tools:
 qemu-deps:
     brew install qemu
 
+[doc: "Run ShellCheck"]
+shellcheck:
+    @command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck was not found on \$PATH" && exit 1; }
+    find . -name '*.sh' -print -exec shellcheck {} +
+
 [doc: "Run Zizmor"]
 zizmor:
     zizmor .

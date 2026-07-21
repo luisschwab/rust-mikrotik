@@ -1,13 +1,14 @@
 //! Scenario configuration and lifecycle.
 
 use core::fmt;
+use core::str::FromStr;
 use std::path::Path;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use mikrotik_common::info_with_label;
 use mikrotik_types::target::DeviceTarget;
 
+use crate::DEFAULT_ALLOW_SOFTWARE_EMULATION;
 use crate::Error;
 use crate::MikrotikD;
 use crate::MikrotikDConf;
@@ -120,7 +121,7 @@ impl ScenarioConf {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            allow_software_emulation: true,
+            allow_software_emulation: DEFAULT_ALLOW_SOFTWARE_EMULATION,
             devices: Vec::new(),
             links: Vec::new(),
         }
@@ -164,12 +165,6 @@ impl ScenarioConf {
         self.links.push(link);
         self
     }
-
-    /// Add a point-to-point Ethernet link.
-    #[must_use]
-    pub fn with_link(self, link: EthernetLink) -> Self {
-        self.with_ethernet_link(link)
-    }
 }
 
 impl Default for ScenarioConf {
@@ -188,7 +183,7 @@ pub struct Scenario {
     /// Running devices in configuration order.
     devices: Vec<MikrotikD>,
     /// Runtime socket directory removed after devices are dropped.
-    socket_dir_guard: RuntimeSocketDir,
+    _socket_dir_guard: RuntimeSocketDir,
 }
 
 impl Scenario {
@@ -233,7 +228,7 @@ impl Scenario {
             name: config.name.clone(),
             run_dir: spawned.run_dir,
             devices: spawned.devices,
-            socket_dir_guard: spawned.socket_dir_guard,
+            _socket_dir_guard: spawned.socket_dir_guard,
         })
     }
 
@@ -281,6 +276,5 @@ impl Scenario {
 impl Drop for Scenario {
     fn drop(&mut self) {
         self.shutdown();
-        let _ = &self.socket_dir_guard;
     }
 }

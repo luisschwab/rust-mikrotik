@@ -11,6 +11,9 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::de::DeserializeOwned;
 use serde::de::Error as _;
+use serde_json::Error as JsonError;
+use serde_json::from_value;
+use serde_json::to_value;
 
 use crate::row::Row;
 
@@ -20,11 +23,11 @@ use crate::row::Row;
 ///
 /// Returns an error if the raw row cannot be converted to JSON or if the typed
 /// endpoint model cannot be deserialized from that JSON value.
-pub fn deserialize<T>(row: &Row) -> Result<T, serde_json::Error>
+pub fn deserialize<T>(row: &Row) -> Result<T, JsonError>
 where
     T: DeserializeOwned,
 {
-    serde_json::from_value(serde_json::to_value(row)?)
+    from_value(to_value(row)?)
 }
 
 /// Deserialize a raw `RouterOS` row string field into an optional typed value.

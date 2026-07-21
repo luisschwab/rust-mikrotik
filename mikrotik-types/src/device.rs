@@ -29,8 +29,10 @@ use crate::api::interface::InterfaceList;
 use crate::api::interface::InterfaceListMember;
 use crate::api::interface::LteApn;
 use crate::api::interface::VlanInterface;
+use crate::api::interface::WifiRegistration;
 use crate::api::interface::WireGuardInterface;
 use crate::api::interface::WireGuardPeer;
+use crate::api::interface::WirelessRegistration;
 use crate::api::interface::WirelessSecurityProfile;
 use crate::api::ip::Address;
 use crate::api::ip::ArpEntry;
@@ -583,6 +585,12 @@ pub struct InterfaceSnapshot {
     pub wireguard_peers: EndpointSnapshot<Vec<WireGuardPeer>>,
     /// `/interface/wireless/security-profiles/print` rows.
     pub wireless_security_profiles: EndpointSnapshot<Vec<WirelessSecurityProfile>>,
+    /// `/interface/wireless/registration-table/print` rows.
+    #[serde(default)]
+    pub wireless_registrations: EndpointSnapshot<Vec<WirelessRegistration>>,
+    /// `/interface/wifi/registration-table/print` rows.
+    #[serde(default)]
+    pub wifi_registrations: EndpointSnapshot<Vec<WifiRegistration>>,
 }
 
 /// Endpoint snapshots collected from the `/ip` section.
@@ -932,6 +940,7 @@ impl RouterOsSnapshot {
 mod tests {
     use alloc::borrow::ToOwned as _;
 
+    use super::InterfaceSnapshot;
     use super::RouterOsSnapshot;
     use super::SystemSnapshot;
     use crate::api::system::Identity;
@@ -966,5 +975,20 @@ mod tests {
                 .map(super::TopologyNodeKey::as_str),
             Some("abc123")
         );
+    }
+
+    #[test]
+    fn interface_snapshot_defaults_registration_fields_from_older_json() {
+        let mut value = serde_json::to_value(InterfaceSnapshot::default()).expect("snapshot should serialize");
+        let object = value.as_object_mut().expect("interface snapshot should be an object");
+        object.remove("wireless_registrations");
+        object.remove("wifi_registrations");
+
+        let snapshot: InterfaceSnapshot = serde_json::from_value(value).expect("older snapshot should deserialize");
+
+        assert!(snapshot.wireless_registrations.data.is_empty());
+        assert!(snapshot.wifi_registrations.data.is_empty());
+        assert!(snapshot.wireless_registrations.error.is_none());
+        assert!(snapshot.wifi_registrations.error.is_none());
     }
 }

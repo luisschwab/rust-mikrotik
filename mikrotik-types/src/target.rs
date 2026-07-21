@@ -32,12 +32,22 @@ impl fmt::Display for ObserverError {
 }
 
 /// `RouterOS` API credentials.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Credentials {
     /// `RouterOS` username.
     pub username: String,
     /// `RouterOS` password, if the account has one.
+    #[serde(skip_serializing)]
     pub password: Option<String>,
+}
+
+impl fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Credentials")
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 /// Connection target for a `RouterOS` device.
@@ -106,6 +116,7 @@ fn parse_device_socket_addr(address: &str) -> Result<SocketAddr, ObserverError> 
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
     use alloc::string::ToString as _;
 
     use super::*;
@@ -129,5 +140,32 @@ mod tests {
         let target = DeviceTarget::new("2001:db8::1", "admin", None).unwrap();
 
         assert_eq!(target.address.to_string(), "[2001:db8::1]:8728");
+    }
+
+    #[test]
+    fn credentials_debug_redacts_password() {
+        let credentials = Credentials {
+            username: "observer".to_string(),
+            password: Some("highly-secret".to_string()),
+        };
+
+        let debug = format!("{credentials:?}");
+
+        assert!(debug.contains("observer"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("highly-secret"));
+    }
+
+    #[test]
+    fn credentials_serialization_omits_password() {
+        let credentials = Credentials {
+            username: "observer".to_string(),
+            password: Some("highly-secret".to_string()),
+        };
+
+        let serialized = serde_json::to_string(&credentials).unwrap();
+
+        assert_eq!(serialized, r#"{"username":"observer"}"#);
+        assert!(!serialized.contains("highly-secret"));
     }
 }

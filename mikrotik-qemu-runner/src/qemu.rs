@@ -1,7 +1,7 @@
 //! QEMU host probing and argument construction.
 
+use core::net::SocketAddr;
 use std::fs::OpenOptions;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
@@ -278,7 +278,13 @@ pub(crate) fn append_disk_args(
         ChrArch::Aarch64 => {
             let firmware = aarch64_firmware_paths()?;
             let vars = run_dir.join(format!("{router_name}.vars.fd"));
-            sh.copy_file(firmware.vars, &vars)?;
+            sh.copy_file(&firmware.vars, &vars).map_err(|error| {
+                Error::Tool(format!(
+                    "copy aarch64 firmware vars from {} to {}: {error}",
+                    firmware.vars.display(),
+                    vars.display()
+                ))
+            })?;
             args.extend([
                 "-M".to_owned(),
                 "virt,acpi=on".to_owned(),

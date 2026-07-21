@@ -7,6 +7,7 @@ use mikrotik_types::abstractions::Subnet;
 use mikrotik_types::abstractions::SubnetEndpoint;
 use mikrotik_types::api::ip::Route;
 use mikrotik_types::device::TopologyNodeKey;
+use mikrotik_types::primitives::RouteGateway;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::primitives::interface::InterfaceType;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
@@ -133,24 +134,8 @@ fn route_next_hop(route: &Route) -> Option<(IpAddr, Option<InterfaceName>)> {
     route
         .immediate_gw
         .as_ref()
-        .and_then(|gateway| parse_route_gateway(gateway.as_str()))
-        .or_else(|| {
-            route
-                .gateway
-                .as_ref()
-                .and_then(|gateway| parse_route_gateway(gateway.as_str()))
-        })
-}
-
-/// Parse a `RouterOS` gateway value into a next-hop IP and optional interface scope.
-fn parse_route_gateway(gateway: &str) -> Option<(IpAddr, Option<InterfaceName>)> {
-    let candidate = gateway.split_once('@').map_or(gateway, |(gateway, _table)| gateway);
-    let (address, interface) = candidate
-        .split_once('%')
-        .map_or((candidate, None), |(address, interface)| (address, Some(interface)));
-    let address = address.parse::<IpAddr>().ok()?;
-    let interface = interface.and_then(|interface| interface.parse().ok());
-    Some((address, interface))
+        .and_then(RouteGateway::next_hop)
+        .or_else(|| route.gateway.as_ref().and_then(RouteGateway::next_hop))
 }
 
 /// Return confidence for an edge discovered from route next-hop evidence.
@@ -170,7 +155,7 @@ fn l3_endpoints(snapshot: &GraphSnapshot) -> Vec<SubnetInterfaceAddress> {
                 return None;
             }
             let prefix = address.address.as_ref()?;
-            let network = Subnet::from_prefix(prefix.as_str())?;
+            let network = Subnet::from(prefix);
             if !network.is_link_network() {
                 return None;
             }
@@ -223,7 +208,7 @@ fn interface_for_reachable_address_with(
             return None;
         }
         let prefix = address.address.as_ref()?;
-        let network = Subnet::from_prefix(prefix.as_str())?;
+        let network = Subnet::from(prefix);
         if !include_network(&network) {
             return None;
         }

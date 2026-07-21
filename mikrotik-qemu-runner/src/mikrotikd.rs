@@ -1,10 +1,11 @@
 //! Running `MikrotikD` device lifecycle.
 
+use core::fmt;
+use core::net::Ipv4Addr;
+use core::net::SocketAddr;
 use core::slice;
 use core::time::Duration;
 use std::fs;
-use std::net::Ipv4Addr;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -13,10 +14,12 @@ use mikrotik_client::builder::ClientBuilder;
 use mikrotik_client::builder::Protocol;
 use mikrotik_client::client::Client;
 use mikrotik_common::info_with_label;
+use mikrotik_common::redaction::is_sensitive_key;
 use mikrotik_types::target::Credentials;
 use mikrotik_types::target::DeviceTarget;
 use tokio::time::Instant;
 
+use crate::DEFAULT_ALLOW_SOFTWARE_EMULATION;
 use crate::DEFAULT_BOOT_TIMEOUT;
 use crate::DEFAULT_ROUTEROS_VERSION;
 use crate::Error;
@@ -72,7 +75,7 @@ impl MikrotikDConf {
             version: DEFAULT_ROUTEROS_VERSION,
             memory_mib: DEFAULT_MEMORY_MIB,
             cpus: DEFAULT_CPUS,
-            allow_software_emulation: true,
+            allow_software_emulation: DEFAULT_ALLOW_SOFTWARE_EMULATION,
             bootstrap: Vec::new(),
         }
     }
@@ -81,6 +84,20 @@ impl MikrotikDConf {
     #[must_use]
     pub const fn with_version(mut self, version: RouterOsVersion) -> Self {
         self.version = version;
+        self
+    }
+
+    /// Override guest memory in MiB.
+    #[must_use]
+    pub const fn with_memory_mib(mut self, memory_mib: u16) -> Self {
+        self.memory_mib = memory_mib;
+        self
+    }
+
+    /// Override the guest virtual CPU count.
+    #[must_use]
+    pub const fn with_cpus(mut self, cpus: u8) -> Self {
+        self.cpus = cpus;
         self
     }
 
@@ -106,12 +123,27 @@ impl Default for MikrotikDConf {
 }
 
 /// Raw `RouterOS` command with optional attributes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RouterCommand {
     /// `RouterOS` API command path.
     pub command: String,
     /// Command attributes in call order.
     pub attributes: Vec<CommandAttribute>,
+}
+
+impl fmt::Debug for RouterCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RouterCommand")
+            .field("command", &self.command)
+            .field(
+                "attributes",
+                &RedactedCommandAttributes {
+                    command: &self.command,
+                    attributes: &self.attributes,
+                },
+            )
+            .finish()
+    }
 }
 
 impl RouterCommand {
@@ -146,12 +178,67 @@ impl RouterCommand {
 }
 
 /// One `RouterOS` command attribute.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CommandAttribute {
     /// Attribute key without leading `=`.
     pub key: String,
     /// Attribute value, or `None` for a flag attribute.
     pub value: Option<String>,
+}
+
+impl fmt::Debug for CommandAttribute {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        RedactedCommandAttribute {
+            command: "",
+            attribute: self,
+        }
+        .fmt(f)
+    }
+}
+
+/// Debug wrapper that applies command-aware redaction to an attribute list.
+struct RedactedCommandAttributes<'a> {
+    /// `RouterOS` command path.
+    command: &'a str,
+    /// Command attributes in call order.
+    attributes: &'a [CommandAttribute],
+}
+
+impl fmt::Debug for RedactedCommandAttributes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        for attribute in self.attributes {
+            list.entry(&RedactedCommandAttribute {
+                command: self.command,
+                attribute,
+            });
+        }
+        list.finish()
+    }
+}
+
+/// Debug wrapper for one potentially sensitive command attribute.
+struct RedactedCommandAttribute<'a> {
+    /// `RouterOS` command path.
+    command: &'a str,
+    /// Attribute being formatted.
+    attribute: &'a CommandAttribute,
+}
+
+impl fmt::Debug for RedactedCommandAttribute<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let redact = is_sensitive_key(&self.attribute.key)
+            || (self.command.starts_with("/snmp/community/") && self.attribute.key == "name");
+        let value = if redact && self.attribute.value.is_some() {
+            Some("<redacted>")
+        } else {
+            self.attribute.value.as_deref()
+        };
+        f.debug_struct("CommandAttribute")
+            .field("key", &self.attribute.key)
+            .field("value", &value)
+            .finish()
+    }
 }
 
 /// One live simulated router VM.
@@ -263,7 +350,8 @@ impl MikrotikD {
             }
         }
 
-        fs::write(qemu_args_path, format!("{} {}\n", context.qemu_system, args.join(" ")))?;
+        fs::write(&qemu_args_path, format!("{} {}\n", context.qemu_system, args.join(" ")))
+            .map_err(|source| Error::io("write QEMU argument artifact", &qemu_args_path, source))?;
 
         info_with_label!(
             router_name,
@@ -272,9 +360,9 @@ impl MikrotikD {
             router.api_port
         );
         let mut command = context.sh.cmd(context.qemu_system).args(&args).to_command();
-        command
-            .stdout(Stdio::null())
-            .stderr(Stdio::from(fs::File::create(qemu_log_path)?));
+        let qemu_log =
+            fs::File::create(&qemu_log_path).map_err(|source| Error::io("create QEMU log", &qemu_log_path, source))?;
+        command.stdout(Stdio::null()).stderr(Stdio::from(qemu_log));
 
         let child = command
             .spawn()

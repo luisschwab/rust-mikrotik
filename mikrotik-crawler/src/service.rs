@@ -10,7 +10,6 @@ use mikrotik_types::target::DeviceTarget;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 use tokio::sync::broadcast;
-use tokio::task::JoinHandle;
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
 use tokio::time::interval;
@@ -25,6 +24,7 @@ use crate::snapshot::collect_target_snapshot_with_timeouts;
 use crate::state::CrawlerStateProjection;
 use crate::state::CrawlerStateSnapshot;
 use crate::state::SnapshotEvent;
+use crate::state::publish_event;
 use crate::state::record_snapshot_result;
 use crate::state::snapshot_targets_by_retry_priority;
 
@@ -65,7 +65,7 @@ impl CrawlerHandle {
     pub async fn upsert_target(&self, target: DeviceTarget) {
         let address = target.address;
         self.state.write().await.targets.insert(address, target);
-        let _ = self.events.send(SnapshotEvent::TargetDiscovered { address });
+        publish_event(&self.events, SnapshotEvent::TargetDiscovered { address });
         self.snapshot_requested.notify_one();
     }
 }
@@ -75,8 +75,8 @@ impl CrawlerHandle {
 pub struct CrawlerService {
     /// Read-only handle exposed to consumers.
     handle: CrawlerHandle,
-    /// Background task handles aborted on drop.
-    tasks: Vec<JoinHandle<()>>,
+    /// Observable background tasks.
+    tasks: JoinSet<()>,
 }
 
 impl CrawlerService {
@@ -105,14 +105,15 @@ impl CrawlerService {
         };
 
         let snapshot_config = config.clone();
-        let snapshot_task = tokio::spawn(snapshot_loop(
+        let mut tasks = JoinSet::new();
+        tasks.spawn(snapshot_loop(
             Arc::clone(&state),
             events.clone(),
             Arc::clone(factory),
             Arc::clone(&snapshot_requested),
             snapshot_config,
         ));
-        let discovery_task = tokio::spawn(discovery_loop(
+        tasks.spawn(discovery_loop(
             Arc::clone(&state),
             events,
             Arc::clone(target_resolver),
@@ -121,10 +122,7 @@ impl CrawlerService {
             config.discovery_interval,
         ));
 
-        Self {
-            handle,
-            tasks: vec![snapshot_task, discovery_task],
-        }
+        Self { handle, tasks }
     }
 
     /// Return a handle for reading crawler state and subscribing to updates.
@@ -132,13 +130,33 @@ impl CrawlerService {
     pub fn handle(&self) -> CrawlerHandle {
         self.handle.clone()
     }
+
+    /// Wait until one of the crawler loops exits.
+    ///
+    /// A long-running crawler has no normal completion condition, so a completed
+    /// loop is reported as an error for its supervisor to recover.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a crawler loop exits or panics.
+    pub async fn completed(&mut self) -> Result<(), String> {
+        match self.tasks.join_next().await {
+            Some(Ok(())) => Err("crawler worker exited unexpectedly".to_owned()),
+            Some(Err(error)) => Err(format!("crawler worker failed: {error}")),
+            None => Err("crawler has no active workers".to_owned()),
+        }
+    }
+
+    /// Stop every crawler loop and wait for task cancellation to complete.
+    pub async fn shutdown(&mut self) {
+        self.tasks.abort_all();
+        while self.tasks.join_next().await.is_some() {}
+    }
 }
 
 impl Drop for CrawlerService {
     fn drop(&mut self) {
-        for task in &self.tasks {
-            task.abort();
-        }
+        self.tasks.abort_all();
     }
 }
 
@@ -182,7 +200,7 @@ async fn register_seed_targets(
         let address = seed.address;
         if let Entry::Vacant(entry) = state.targets.entry(address) {
             entry.insert(seed);
-            let _ = events.send(SnapshotEvent::TargetDiscovered { address });
+            publish_event(events, SnapshotEvent::TargetDiscovered { address });
         }
     }
 }

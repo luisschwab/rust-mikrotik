@@ -10,6 +10,7 @@ extern crate alloc;
 
 pub mod format;
 pub mod logging;
+pub mod parse;
 pub mod redaction;
 pub mod row;
 pub mod serde;

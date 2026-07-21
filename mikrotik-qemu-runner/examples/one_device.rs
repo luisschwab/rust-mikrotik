@@ -3,13 +3,15 @@
 use std::path::PathBuf;
 
 use mikrotik_common::info_with_label;
+use mikrotik_common::logging::init_tracing;
 use mikrotik_qemu_runner::MikrotikD;
 use mikrotik_qemu_runner::Result;
 use mikrotik_qemu_runner::ScenarioConf;
+use tracing::Level;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    mikrotik_common::logging::init_tracing();
+    init_tracing(Level::INFO);
 
     let scenario_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("scenarios")

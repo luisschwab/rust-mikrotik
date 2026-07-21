@@ -2,6 +2,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 use core::net::IpAddr;
 
 use serde::Deserialize;
@@ -106,6 +107,75 @@ pub struct Interface {
     /// Fast-path transmitted packets.
     #[serde(deserialize_with = "crate::optional_from_str")]
     pub fp_tx_packet: Option<u64>,
+}
+
+/// Response row from `/interface/wireless/registration-table/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct WirelessRegistration {
+    /// Internal `RouterOS` row ID, when returned.
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    pub id: Option<RouterOsId>,
+    /// Wireless interface on which the peer is registered.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub interface: Option<InterfaceName>,
+    /// MAC address of the registered peer.
+    pub mac_address: Option<MacAddress>,
+    /// Time elapsed since the peer associated with the access point.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub uptime: Option<RouterOsDuration>,
+    /// Time elapsed since the last peer transmit or receive activity.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub last_activity: Option<RouterOsDuration>,
+    /// Whether 802.1X permits data exchange with the peer.
+    #[serde(rename = "802.1x-port-enabled", deserialize_with = "crate::optional_bool")]
+    pub dot1x_port_enabled: Option<bool>,
+    /// Authentication method used for the peer.
+    pub authentication_type: Option<String>,
+    /// Average signal strength reported for the peer.
+    pub signal_strength: Option<String>,
+    /// Current peer receive rate.
+    pub rx_rate: Option<String>,
+    /// Current peer transmit rate.
+    pub tx_rate: Option<String>,
+}
+
+/// Response row from `/interface/wifi/registration-table/print`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct WifiRegistration {
+    /// Internal `RouterOS` row ID, when returned.
+    #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
+    pub id: Option<RouterOsId>,
+    /// `WiFi` interface on which the peer is registered.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub interface: Option<InterfaceName>,
+    /// MAC address of the registered peer.
+    pub mac_address: Option<MacAddress>,
+    /// Time elapsed since association.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub uptime: Option<RouterOsDuration>,
+    /// Time elapsed since the last peer transmit or receive activity.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub last_activity: Option<RouterOsDuration>,
+    /// Whether the peer has successfully authenticated.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub authorized: Option<bool>,
+    /// Authentication method used for the peer.
+    pub auth_type: Option<String>,
+    /// Signal strength received from the peer, in dBm.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub signal: Option<i16>,
+    /// Current peer receive rate.
+    pub rx_rate: Option<String>,
+    /// Current peer transmit rate.
+    pub tx_rate: Option<String>,
+    /// Current receive throughput from the peer.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub rx_bits_per_second: Option<u64>,
+    /// Current transmit throughput to the peer.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tx_bits_per_second: Option<u64>,
 }
 
 /// Response row from `/interface/bridge/host/print`.
@@ -454,7 +524,7 @@ pub struct VlanInterface {
 }
 
 /// Response row from `/interface/wireguard/print`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct WireGuardInterface {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
@@ -466,6 +536,7 @@ pub struct WireGuardInterface {
     /// Comment configured on this wire guard interface.
     pub comment: Option<String>,
     /// Private key value.
+    #[serde(skip_serializing)]
     pub private_key: Option<String>,
     /// Public key value.
     pub public_key: Option<String>,
@@ -482,8 +553,24 @@ pub struct WireGuardInterface {
     pub running: Option<bool>,
 }
 
+impl fmt::Debug for WireGuardInterface {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WireGuardInterface")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("comment", &self.comment)
+            .field("private_key", &self.private_key.as_ref().map(|_| "<redacted>"))
+            .field("public_key", &self.public_key)
+            .field("mtu", &self.mtu)
+            .field("listen_port", &self.listen_port)
+            .field("disabled", &self.disabled)
+            .field("running", &self.running)
+            .finish()
+    }
+}
+
 /// Response row from `/interface/wireguard/peers/print`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct WireGuardPeer {
     #[serde(rename = ".id", deserialize_with = "crate::optional_from_str")]
@@ -522,6 +609,7 @@ pub struct WireGuardPeer {
     /// Public key value.
     pub public_key: Option<String>,
     /// Preshared key value.
+    #[serde(skip_serializing)]
     pub preshared_key: Option<String>,
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Received byte count.
@@ -535,6 +623,31 @@ pub struct WireGuardPeer {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row was created dynamically by `RouterOS`.
     pub dynamic: Option<bool>,
+}
+
+impl fmt::Debug for WireGuardPeer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WireGuardPeer")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("comment", &self.comment)
+            .field("interface", &self.interface)
+            .field("allowed_address", &self.allowed_address)
+            .field("client_address", &self.client_address)
+            .field("current_endpoint_address", &self.current_endpoint_address)
+            .field("current_endpoint_port", &self.current_endpoint_port)
+            .field("endpoint_address", &self.endpoint_address)
+            .field("endpoint_port", &self.endpoint_port)
+            .field("last_handshake", &self.last_handshake)
+            .field("persistent_keepalive", &self.persistent_keepalive)
+            .field("public_key", &self.public_key)
+            .field("preshared_key", &self.preshared_key.as_ref().map(|_| "<redacted>"))
+            .field("rx", &self.rx)
+            .field("tx", &self.tx)
+            .field("disabled", &self.disabled)
+            .field("dynamic", &self.dynamic)
+            .finish()
+    }
 }
 
 /// Response row from `/interface/bridge/settings/print`.
@@ -848,6 +961,7 @@ pub struct WirelessSecurityProfile {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
     use alloc::string::ToString as _;
     use alloc::vec;
 
@@ -855,7 +969,12 @@ mod tests {
     use super::EthernetSwitch;
     use super::EthernetSwitchPort;
     use super::Interface;
+    use super::WifiRegistration;
+    use super::WireGuardInterface;
+    use super::WireGuardPeer;
+    use super::WirelessRegistration;
     use crate::Row;
+    use crate::primitives::interface::InterfaceName;
 
     #[test]
     fn interface_deserializes_typed_link_timestamps() {
@@ -883,6 +1002,76 @@ mod tests {
             "2026-06-04 18:51:39"
         );
         assert_eq!(interface.max_l2mtu, Some(2028));
+    }
+
+    #[test]
+    fn legacy_wireless_registration_deserializes_routeros_v6_and_v7_variants() {
+        let mut v6_row = Row::new();
+        v6_row.insert(".id".into(), "*7".into());
+        v6_row.insert("interface".into(), "wlan1".into());
+        v6_row.insert("mac-address".into(), "00:11:22:33:44:55".into());
+        v6_row.insert("uptime".into(), "1d2h3m4s".into());
+        v6_row.insert("last-activity".into(), "120ms".into());
+        v6_row.insert("802.1x-port-enabled".into(), "false".into());
+        v6_row.insert("authentication-type".into(), "wpa2-psk".into());
+        v6_row.insert("signal-strength".into(), "-64dBm@6Mbps".into());
+        v6_row.insert("rx-rate".into(), "54Mbps".into());
+        v6_row.insert("tx-rate".into(), "48Mbps".into());
+
+        let registration =
+            crate::deserialize::<WirelessRegistration>(&v6_row).expect("v6 legacy registration should deserialize");
+
+        assert_eq!(
+            registration.interface.as_ref().map(InterfaceName::as_str),
+            Some("wlan1")
+        );
+        assert_eq!(
+            registration.mac_address.map(|address| address.to_string()).as_deref(),
+            Some("00:11:22:33:44:55")
+        );
+        assert_eq!(registration.dot1x_port_enabled, Some(false));
+        assert_eq!(registration.signal_strength.as_deref(), Some("-64dBm@6Mbps"));
+        assert_eq!(registration.rx_rate.as_deref(), Some("54Mbps"));
+
+        let mut v7_row = Row::new();
+        v7_row.insert("interface".into(), "wlan-backhaul".into());
+        v7_row.insert("mac-address".into(), "00:11:22:33:44:66".into());
+        v7_row.insert("signal-strength".into(), "-59".into());
+
+        let registration =
+            crate::deserialize::<WirelessRegistration>(&v7_row).expect("v7 legacy registration should deserialize");
+
+        assert_eq!(registration.dot1x_port_enabled, None);
+        assert_eq!(registration.uptime, None);
+        assert_eq!(registration.signal_strength.as_deref(), Some("-59"));
+    }
+
+    #[test]
+    fn wifi_registration_deserializes_routeros_v7_fields() {
+        let mut row = Row::new();
+        row.insert(".id".into(), "*3".into());
+        row.insert("interface".into(), "wifi1".into());
+        row.insert("mac-address".into(), "00:AA:BB:CC:DD:EE".into());
+        row.insert("uptime".into(), "6h24m21s".into());
+        row.insert("last-activity".into(), "0ms".into());
+        row.insert("authorized".into(), "true".into());
+        row.insert("auth-type".into(), "wpa2-psk".into());
+        row.insert("signal".into(), "-72".into());
+        row.insert("rx-rate".into(), "360.3Mbps".into());
+        row.insert("tx-rate".into(), "432.3Mbps".into());
+        row.insert("rx-bits-per-second".into(), "123456".into());
+        row.insert("tx-bits-per-second".into(), "654321".into());
+
+        let registration = crate::deserialize::<WifiRegistration>(&row).expect("WiFi registration should deserialize");
+
+        assert_eq!(
+            registration.interface.as_ref().map(InterfaceName::as_str),
+            Some("wifi1")
+        );
+        assert_eq!(registration.authorized, Some(true));
+        assert_eq!(registration.signal, Some(-72));
+        assert_eq!(registration.rx_bits_per_second, Some(123_456));
+        assert_eq!(registration.tx_bits_per_second, Some(654_321));
     }
 
     #[test]
@@ -983,7 +1172,7 @@ mod tests {
         row.insert("last-handshake".into(), "8s".into());
         row.insert("rx".into(), "3391440792".into());
 
-        let peer = crate::deserialize::<super::WireGuardPeer>(&row).expect("WireGuard peer should deserialize");
+        let peer = crate::deserialize::<WireGuardPeer>(&row).expect("WireGuard peer should deserialize");
 
         assert_eq!(peer.allowed_address.len(), 2);
         assert_eq!(peer.client_address.len(), 2);
@@ -993,5 +1182,32 @@ mod tests {
             "8s"
         );
         assert_eq!(peer.rx, Some(3_391_440_792));
+    }
+
+    #[test]
+    fn wireguard_secrets_are_not_formatted_or_serialized() {
+        let interface = WireGuardInterface {
+            private_key: Some("private-secret".to_string()),
+            ..WireGuardInterface::default()
+        };
+        let peer = WireGuardPeer {
+            preshared_key: Some("preshared-secret".to_string()),
+            ..WireGuardPeer::default()
+        };
+
+        let debug = format!("{interface:?} {peer:?}");
+        let serialized = format!(
+            "{} {}",
+            serde_json::to_string(&interface).unwrap(),
+            serde_json::to_string(&peer).unwrap()
+        );
+
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("private-secret"));
+        assert!(!debug.contains("preshared-secret"));
+        assert!(!serialized.contains("private-secret"));
+        assert!(!serialized.contains("preshared-secret"));
+        assert!(!serialized.contains("private-key"));
+        assert!(!serialized.contains("preshared-key"));
     }
 }

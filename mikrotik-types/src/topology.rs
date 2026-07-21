@@ -79,14 +79,50 @@ impl TopologyLink {
         )
     }
 
-    /// Return true when this link has neighbor-derived wireless/backhaul evidence.
+    /// Return true when this link has wireless/backhaul evidence.
     #[must_use]
     pub fn is_wireless(&self) -> bool {
+        self.is_registration_wireless() || self.is_heuristic_wireless()
+    }
+
+    /// Return true when this link has live registration-table evidence.
+    #[must_use]
+    pub fn is_registration_wireless(&self) -> bool {
+        self.discovered_by.iter().any(|protocol| {
+            matches!(
+                protocol,
+                DiscoveryProtocol::Unknown(protocol) if protocol.eq_ignore_ascii_case("wireless-registration")
+            )
+        })
+    }
+
+    /// Return true when this link has name/neighbor-derived wireless evidence.
+    #[must_use]
+    pub fn is_heuristic_wireless(&self) -> bool {
         self.discovered_by.iter().any(
             |protocol| {
                 matches!(protocol, DiscoveryProtocol::Unknown(protocol) if protocol.eq_ignore_ascii_case("wireless"))
             },
         )
+    }
+
+    /// Return true when this link has direct layer-3 adjacency evidence.
+    #[must_use]
+    pub fn is_l3(&self) -> bool {
+        self.discovered_by.iter().any(
+            |protocol| matches!(protocol, DiscoveryProtocol::Unknown(protocol) if protocol.eq_ignore_ascii_case("l3")),
+        )
+    }
+
+    /// Return true when reciprocal MNDP evidence identifies a physical router-radio attachment.
+    #[must_use]
+    pub fn is_mndp_attachment(&self) -> bool {
+        self.discovered_by.iter().any(|protocol| {
+            matches!(
+                protocol,
+                DiscoveryProtocol::Unknown(protocol) if protocol.eq_ignore_ascii_case("mndp-attachment")
+            )
+        })
     }
 }
 

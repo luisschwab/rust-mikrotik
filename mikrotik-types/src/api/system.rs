@@ -654,6 +654,7 @@ mod tests {
     use super::NtpClient;
     use super::Resource;
     use super::ResourceIrq;
+    use crate::RouterOsId;
     use crate::Row;
     use crate::primitives::system::RouterOsByteSize;
     use crate::primitives::system::RouterOsDate;
@@ -729,10 +730,7 @@ mod tests {
 
         let irq = crate::deserialize::<ResourceIrq>(&row).expect("resource IRQ row should deserialize");
 
-        assert_eq!(
-            irq.id.as_ref().map(alloc::string::ToString::to_string).as_deref(),
-            Some("*1")
-        );
+        assert_eq!(irq.id.as_ref().map(RouterOsId::as_str), Some("*1"));
         assert_eq!(irq.irq.as_deref(), Some("1"));
         assert_eq!(irq.count, Some(6));
         assert_eq!(irq.per_cpu_count.len(), 36);

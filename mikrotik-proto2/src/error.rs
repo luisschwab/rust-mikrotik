@@ -125,8 +125,6 @@ pub enum TrapCategoryError {
     InvalidAttribute {
         /// The key of the invalid attribute.
         key: String,
-        /// The value of the invalid attribute, if present.
-        value: Option<String>,
     },
     /// The required `message` attribute is missing from a trap response.
     MissingMessageAttribute,
@@ -137,9 +135,7 @@ impl fmt::Display for TrapCategoryError {
         match self {
             Self::Invalid(error) => write!(f, "Invalid trap category value: {error}"),
             Self::OutOfRange(value) => write!(f, "Trap category out of range: {value} (valid range: 0-7)"),
-            Self::InvalidAttribute { key, value } => {
-                write!(f, "Invalid trap attribute: key={key}, value={value:?}")
-            }
+            Self::InvalidAttribute { key } => write!(f, "Invalid trap attribute: key={key}"),
             Self::MissingMessageAttribute => write!(f, "Missing message attribute in trap response"),
         }
     }

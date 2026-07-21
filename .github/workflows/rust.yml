@@ -40,7 +40,7 @@ jobs:
             - name: Setup cargo-rbmt
               uses: ./.github/actions/setup-rbmt
 
-            - name: Run ${{ matrix.task }}
+            - name: Check ${{ matrix.task }}
               run: cargo rbmt ${{ matrix.task }}
 
     test:
@@ -74,5 +74,5 @@ jobs:
             - name: Setup cargo-rbmt
               uses: ./.github/actions/setup-rbmt
 
-            - name: Run Tests - ${{ matrix.name }}
+            - name: Test with ${{ matrix.name }}
               run: cargo rbmt test --toolchain ${{ matrix.toolchain }} --lockfile ${{ matrix.lockfile }}

@@ -192,6 +192,11 @@ impl LinkFilter {
             Self::BgpOnly => matches!(kind, LinkKind::Bgp),
         }
     }
+
+    /// Return whether a link kind or dedicated physical MNDP attachment is visible.
+    pub(crate) const fn includes_with_mndp_attachment(self, kind: LinkKind, is_mndp_attachment: bool) -> bool {
+        self.includes(kind) || (is_mndp_attachment && !matches!(self, Self::BgpOnly))
+    }
 }
 
 /// Graphviz output format.

@@ -569,6 +569,8 @@ pub struct FirewallRule {
     pub src_address_list: Option<String>,
     /// Destination address list matched by the firewall rule.
     pub dst_address_list: Option<String>,
+    /// Ingress interface matched by the firewall rule.
+    pub in_interface: Option<String>,
     /// Ingress interface list matched by the firewall rule.
     pub in_interface_list: Option<String>,
     /// Egress interface matched by the firewall rule.
@@ -579,6 +581,10 @@ pub struct FirewallRule {
     pub dst_port: Option<String>,
     /// Source ports matched by the firewall rule.
     pub src_port: Option<String>,
+    /// Address or address range used by NAT translation actions.
+    pub to_addresses: Option<String>,
+    /// Port or port range used by NAT translation actions.
+    pub to_ports: Option<String>,
     /// `IPsec` policy matcher used by the firewall rule.
     pub ipsec_policy: Option<String>,
     /// TCP flags matched by the firewall rule.
@@ -764,6 +770,12 @@ pub struct Ipv6Route {
     /// Whether this row was created dynamically by `RouterOS`.
     pub dynamic: Option<bool>,
     #[serde(deserialize_with = "crate::optional_bool")]
+    /// Whether this row is disabled.
+    pub disabled: Option<bool>,
+    #[serde(rename = "static", deserialize_with = "crate::optional_bool")]
+    /// Whether this is a static route.
+    pub static_route: Option<bool>,
+    #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this is a connected route.
     pub connect: Option<bool>,
     #[serde(deserialize_with = "crate::optional_bool")]
@@ -775,6 +787,8 @@ pub struct Ipv6Route {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether hardware offload is suppressed.
     pub suppress_hw_offload: Option<bool>,
+    /// Route comment.
+    pub comment: Option<String>,
 }
 
 /// Response row from `/ip/cloud/print`.
@@ -1459,6 +1473,7 @@ mod tests {
     use core::time::Duration;
 
     use super::DhcpLease;
+    use super::FirewallRule;
     use super::IpsecProfile;
     use super::Neighbor;
     use super::Route;
@@ -1594,5 +1609,22 @@ mod tests {
         assert_eq!(connection.timeout.expect("timeout should be present").to_string(), "1s");
         assert_eq!(connection.orig_bytes, Some(42));
         assert_eq!(connection.assured, Some(false));
+    }
+
+    #[test]
+    fn firewall_nat_rule_deserializes_translation_target() {
+        let mut row = Row::new();
+        row.insert("chain".into(), "dstnat".into());
+        row.insert("action".into(), "dst-nat".into());
+        row.insert("in-interface".into(), "ether1".into());
+        row.insert("dst-address".into(), "192.0.2.50".into());
+        row.insert("to-addresses".into(), "10.0.0.50".into());
+        row.insert("to-ports".into(), "443".into());
+
+        let rule = crate::deserialize::<FirewallRule>(&row).expect("NAT rule should deserialize");
+
+        assert_eq!(rule.in_interface.as_deref(), Some("ether1"));
+        assert_eq!(rule.to_addresses.as_deref(), Some("10.0.0.50"));
+        assert_eq!(rule.to_ports.as_deref(), Some("443"));
     }
 }

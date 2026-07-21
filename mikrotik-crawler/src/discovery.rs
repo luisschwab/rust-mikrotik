@@ -4,6 +4,7 @@ use core::time::Duration;
 use std::sync::Arc;
 
 use mikrotik_types::api::ip::Neighbor;
+use mikrotik_types::primitives::interface::InterfaceName;
 use tokio::sync::Notify;
 use tokio::sync::RwLock;
 use tokio::sync::broadcast;
@@ -14,6 +15,7 @@ use crate::config::AddressFamily;
 use crate::resolver::TargetResolver;
 use crate::state::CrawlerStateSnapshot;
 use crate::state::SnapshotEvent;
+use crate::state::publish_event;
 
 /// Discover new targets from latest neighbor snapshots on a fixed interval.
 pub(crate) async fn discovery_loop(
@@ -78,7 +80,7 @@ async fn discover_once(
         let address = target.address;
         if state.targets.insert(address, target).is_none() {
             inserted = true;
-            let _ = events.send(SnapshotEvent::TargetDiscovered { address });
+            publish_event(events, SnapshotEvent::TargetDiscovered { address });
         }
     }
     inserted
@@ -87,13 +89,10 @@ async fn discover_once(
 /// Return a compact log label for a neighbor row.
 pub(crate) fn neighbor_log_label(neighbor: &Neighbor) -> String {
     let identity = neighbor.identity.as_deref().unwrap_or("<unknown>");
-    let local_interface = neighbor.interface.as_ref().map_or(
-        "<unknown>",
-        mikrotik_types::primitives::interface::InterfaceName::as_str,
-    );
-    let remote_interface = neighbor.interface_name.as_ref().map_or(
-        "<unknown>",
-        mikrotik_types::primitives::interface::InterfaceName::as_str,
-    );
+    let local_interface = neighbor.interface.as_ref().map_or("<unknown>", InterfaceName::as_str);
+    let remote_interface = neighbor
+        .interface_name
+        .as_ref()
+        .map_or("<unknown>", InterfaceName::as_str);
     format!("{identity} local_if={local_interface} remote_if={remote_interface}")
 }

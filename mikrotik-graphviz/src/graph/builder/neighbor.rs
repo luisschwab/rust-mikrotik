@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use mikrotik_types::api::ip::Neighbor;
+use mikrotik_types::device::DeviceRole;
 use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::primitives::interface::InterfaceName;
 use mikrotik_types::primitives::ip::DiscoveryProtocol;
@@ -14,14 +15,107 @@ use mikrotik_types::topology::NetworkNode;
 use mikrotik_types::topology::NetworkNodeStatus;
 use mikrotik_types::topology::TopologyLink;
 
+use super::super::rank::is_radio_name;
 use super::super::rank::radio_name_parts;
+use super::registration::RegistrationTopology;
 use crate::snapshot::GraphSnapshot;
+
+/// Build physical router-radio attachments from unambiguous reciprocal MNDP rows.
+pub(super) fn reciprocal_mndp_radio_attachment_edges(snapshots: &[GraphSnapshot]) -> Vec<TopologyLink> {
+    let mac_nodes = interface_mac_nodes(snapshots);
+    let snapshots_by_key = snapshots
+        .iter()
+        .map(|snapshot| (snapshot.topology_node_key(), snapshot))
+        .collect::<HashMap<_, _>>();
+    let observations = snapshots
+        .iter()
+        .flat_map(|snapshot| {
+            let local_node = snapshot.topology_node_key();
+            let mac_nodes = &mac_nodes;
+            snapshot.ip.neighbors.data.iter().filter_map(move |neighbor| {
+                let local_interface = neighbor.interface.clone()?;
+                let remote_nodes = mac_nodes.get(&neighbor.mac_address?)?;
+                let remote_node = (remote_nodes.len() == 1)
+                    .then(|| remote_nodes.iter().next().cloned())
+                    .flatten()?;
+                (local_node != remote_node).then_some(ResolvedNeighborObservation {
+                    local_node: local_node.clone(),
+                    local_interface,
+                    remote_node,
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+    let directed_pairs = observations
+        .iter()
+        .map(|observation| (observation.local_node.clone(), observation.remote_node.clone()))
+        .collect::<BTreeSet<_>>();
+    let mut edges = Vec::new();
+
+    for radio in snapshots.iter().filter(|snapshot| snapshot_is_radio(snapshot)) {
+        let radio_node = radio.topology_node_key();
+        let candidates = observations
+            .iter()
+            .filter(|observation| observation.local_node == radio_node)
+            .filter(|observation| radio_interface_is_ethernet(radio, &observation.local_interface))
+            .filter(|observation| {
+                snapshots_by_key
+                    .get(&observation.remote_node)
+                    .is_some_and(|remote| !snapshot_is_radio(remote))
+            })
+            .filter(|observation| {
+                directed_pairs.contains(&(observation.remote_node.clone(), observation.local_node.clone()))
+            })
+            .filter_map(|observation| {
+                let remote_interfaces = observations
+                    .iter()
+                    .filter(|reverse| {
+                        reverse.local_node == observation.remote_node && reverse.remote_node == observation.local_node
+                    })
+                    .map(|reverse| reverse.local_interface.clone())
+                    .collect::<BTreeSet<_>>();
+                let remote_interface = (remote_interfaces.len() == 1)
+                    .then(|| remote_interfaces.into_iter().next())
+                    .flatten()?;
+                Some(RadioAttachmentCandidate {
+                    radio_interface: observation.local_interface.clone(),
+                    remote_node: observation.remote_node.clone(),
+                    remote_interface,
+                })
+            })
+            .collect::<BTreeSet<_>>();
+        let remote_nodes = candidates
+            .iter()
+            .map(|candidate| candidate.remote_node.clone())
+            .collect::<BTreeSet<_>>();
+        if candidates.len() != 1 || remote_nodes.len() != 1 {
+            continue;
+        }
+        let Some(candidate) = candidates.into_iter().next() else {
+            continue;
+        };
+        edges.push(TopologyLink {
+            local_node: radio_node,
+            local_interface: Some(candidate.radio_interface),
+            remote_node: candidate.remote_node,
+            remote_interface: Some(candidate.remote_interface),
+            discovered_by: vec![
+                DiscoveryProtocol::Mndp,
+                DiscoveryProtocol::Unknown("mndp-attachment".to_owned()),
+            ],
+            confidence: 100,
+        });
+    }
+
+    edges
+}
 
 /// Build real wireless/backhaul topology edges from neighbor evidence between collected radios.
 pub(super) fn wireless_neighbor_edges(
     nodes: &BTreeMap<TopologyNodeKey, NetworkNode>,
     neighbor_evidence: &[InferredNeighborEvidence],
     target_keys: &HashMap<String, TopologyNodeKey>,
+    registration: &RegistrationTopology,
 ) -> Vec<TopologyLink> {
     neighbor_evidence
         .iter()
@@ -34,6 +128,9 @@ pub(super) fn wireless_neighbor_edges(
             let local = nodes.get(&evidence.local_node)?;
             let remote = nodes.get(&remote_node)?;
             if local.status != NetworkNodeStatus::Collected || remote.status != NetworkNodeStatus::Collected {
+                return None;
+            }
+            if !registration.allows_heuristic(&evidence.local_node, &remote_node) {
                 return None;
             }
             if !neighbor_evidence_matches_radio_link(local, remote, evidence) {
@@ -255,6 +352,62 @@ fn normalized_endpoint_name(value: &str) -> String {
         .trim_start_matches("Rt-")
         .trim_start_matches("RT-")
         .to_ascii_lowercase()
+}
+
+/// One neighbor row whose MAC resolves to exactly one collected device.
+#[derive(Debug, Clone)]
+struct ResolvedNeighborObservation {
+    /// Device whose neighbor table contained the row.
+    local_node: TopologyNodeKey,
+    /// Local interface where the row was observed.
+    local_interface: InterfaceName,
+    /// Collected device that uniquely owns the reported MAC.
+    remote_node: TopologyNodeKey,
+}
+
+/// One unambiguous reciprocal router attachment candidate for a radio.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RadioAttachmentCandidate {
+    /// Physical interface on the radio.
+    radio_interface: InterfaceName,
+    /// Attached non-radio device.
+    remote_node: TopologyNodeKey,
+    /// Reciprocal local interface on the attached device.
+    remote_interface: InterfaceName,
+}
+
+/// Index interface MACs to distinct collected device identities.
+fn interface_mac_nodes(snapshots: &[GraphSnapshot]) -> HashMap<MacAddress, BTreeSet<TopologyNodeKey>> {
+    let mut index = HashMap::<MacAddress, BTreeSet<TopologyNodeKey>>::new();
+    for snapshot in snapshots {
+        let node = snapshot.topology_node_key();
+        for interface in &snapshot.interface.interfaces.data {
+            if let Some(mac_address) = interface.mac_address {
+                index.entry(mac_address).or_default().insert(node.clone());
+            }
+        }
+    }
+    index
+}
+
+/// Return whether typed role or the compatibility name heuristic identifies a radio.
+fn snapshot_is_radio(snapshot: &GraphSnapshot) -> bool {
+    match snapshot.role {
+        DeviceRole::Radio => true,
+        DeviceRole::Unknown => snapshot.system.identity.name.as_deref().is_some_and(is_radio_name),
+        DeviceRole::BgpRouter | DeviceRole::CoreRouter | DeviceRole::CustomerRouter | DeviceRole::Switch => false,
+    }
+}
+
+/// Return whether one local radio interface is a physical Ethernet port.
+fn radio_interface_is_ethernet(snapshot: &GraphSnapshot, interface_name: &InterfaceName) -> bool {
+    snapshot.interface.interfaces.data.iter().any(|interface| {
+        interface.name.as_ref() == Some(interface_name)
+            && interface
+                .interface_type
+                .as_ref()
+                .is_some_and(|interface_type| interface_type.to_string().eq_ignore_ascii_case("ether"))
+    })
 }
 
 /// Build a stable provisional key from a MAC address.

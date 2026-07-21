@@ -4,9 +4,11 @@ use std::path::Path;
 use std::sync::Once;
 
 use mikrotik_common::info_with_label;
+use mikrotik_common::logging::init_tracing;
 use mikrotik_qemu_runner::Result;
 use mikrotik_qemu_runner::Scenario;
 use mikrotik_qemu_runner::ScenarioConf;
+use tracing::Level;
 
 /// Initialize test logging once per test binary.
 static INIT_TRACING: Once = Once::new();
@@ -23,7 +25,7 @@ const SCENARIOS: &[&str] = &[
 
 /// Spawn one bundled scenario and let `Drop` clean it up.
 async fn spawn_scenario(file_name: &str) -> Result<()> {
-    INIT_TRACING.call_once(mikrotik_common::logging::init_tracing);
+    INIT_TRACING.call_once(|| init_tracing(Level::INFO));
 
     let scenario_conf = ScenarioConf::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios").join(file_name))?;
     info_with_label!(

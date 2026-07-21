@@ -14,17 +14,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 # Workspace Dependencies
-mikrotik-client = { path = "../mikrotik-client" }
 mikrotik-types = { path = "../mikrotik-types" }
 # External Dependencies
-serde.workspace = true
-time.workspace = true
+serde = { workspace = true }
 
 [lints]
 workspace = true
-
-[package.metadata.rbmt]
-lint = { allowed_duplicates = [
-  "getrandom",
-  "windows-sys",
-] }

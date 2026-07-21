@@ -44,7 +44,7 @@
 //!
 //! let interfaces = client
 //!     .print::<mikrotik_client::types::api::interface::Interface>(
-//!         commands::PrintCommand::Interface(commands::Interface::Interface),
+//!         commands::PrintCommand::Interface(commands::interface::Interface::Interface),
 //!     )
 //!     .await?;
 //! println!("interfaces: {}", interfaces.len());

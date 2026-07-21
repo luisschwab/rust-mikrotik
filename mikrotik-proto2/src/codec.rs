@@ -23,6 +23,7 @@
 //! `httparse::Status` pattern.
 
 use alloc::vec::Vec;
+use core::fmt;
 use core::num::NonZeroUsize;
 
 use crate::error::DecodeError;
@@ -65,12 +66,20 @@ impl<T> Decode<T> {
 ///
 /// This is a zero-copy type: all word data is referenced by offset and length
 /// within the original `&[u8]` that was passed to [`decode_sentence`].
-#[derive(Debug)]
 pub struct RawSentence<'a> {
     /// The source buffer this sentence was decoded from.
     data: &'a [u8],
     /// Spans of (offset, length) for each word in the sentence.
     words: Vec<(usize, usize)>,
+}
+
+impl fmt::Debug for RawSentence<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RawSentence")
+            .field("byte_len", &self.data.len())
+            .field("word_count", &self.words.len())
+            .finish()
+    }
 }
 
 impl<'a> RawSentence<'a> {
@@ -160,7 +169,6 @@ pub fn decode_length(data: &[u8]) -> Result<Decode<(u32, usize)>, DecodeError> {
             })
         }
         c if c & 0xF8 == 0xF0 => {
-            let _ = c; // first byte is just the marker
             if data.len() < 5 {
                 return Ok(Decode::Incomplete {
                     needed: NonZeroUsize::new(5 - data.len()),
@@ -248,32 +256,22 @@ pub fn decode_sentence(src: &[u8]) -> Result<Decode<RawSentence<'_>>, DecodeErro
 pub fn encode_length(len: u32, dst: &mut Vec<u8>) {
     match len {
         0x00..=0x7F => {
-            dst.push(len as u8);
+            dst.push(len.to_be_bytes()[3]);
         }
         0x80..=0x3FFF => {
-            let l = len | 0x8000;
-            dst.push(((l >> 8) & 0xFF) as u8);
-            dst.push((l & 0xFF) as u8);
+            let bytes = (len | 0x8000).to_be_bytes();
+            dst.extend_from_slice(&bytes[2..]);
         }
         0x4000..=0x001F_FFFF => {
-            let l = len | 0x00C0_0000;
-            dst.push(((l >> 16) & 0xFF) as u8);
-            dst.push(((l >> 8) & 0xFF) as u8);
-            dst.push((l & 0xFF) as u8);
+            let bytes = (len | 0x00C0_0000).to_be_bytes();
+            dst.extend_from_slice(&bytes[1..]);
         }
         0x0020_0000..=0x0FFF_FFFF => {
-            let l = len | 0xE000_0000;
-            dst.push(((l >> 24) & 0xFF) as u8);
-            dst.push(((l >> 16) & 0xFF) as u8);
-            dst.push(((l >> 8) & 0xFF) as u8);
-            dst.push((l & 0xFF) as u8);
+            dst.extend_from_slice(&(len | 0xE000_0000).to_be_bytes());
         }
         _ => {
             dst.push(0xF0);
-            dst.push(((len >> 24) & 0xFF) as u8);
-            dst.push(((len >> 16) & 0xFF) as u8);
-            dst.push(((len >> 8) & 0xFF) as u8);
-            dst.push((len & 0xFF) as u8);
+            dst.extend_from_slice(&len.to_be_bytes());
         }
     }
 }
@@ -287,7 +285,9 @@ pub fn encode_length(len: u32, dst: &mut Vec<u8>) {
 /// Panics if `word.len()` exceeds `u32::MAX` (4 GiB). This is not reachable
 /// in practice since `MikroTik` API words are limited to a few kilobytes.
 pub fn encode_word(word: &[u8], dst: &mut Vec<u8>) {
-    let len: u32 = word.len().try_into().expect("word length exceeds u32::MAX");
+    let Ok(len) = word.len().try_into() else {
+        panic!("word length exceeds u32::MAX");
+    };
     encode_length(len, dst);
     dst.extend_from_slice(word);
 }

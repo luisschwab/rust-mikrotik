@@ -86,9 +86,7 @@ impl Display for Word<'_> {
                 key,
                 value,
                 value_raw: _,
-            }) => {
-                write!(f, "={}={}", key, value.unwrap_or(""))
-            }
+            }) => write!(f, "={key}={}", value.unwrap_or("")),
             Word::Message(generic) => write!(f, "{generic}"),
         }
     }
@@ -315,6 +313,13 @@ mod tests {
 
         // Invalid UTF-8 sequence
         assert!(Word::try_from(b"\xFF\xFF".as_ref()).is_err());
+    }
+
+    #[test]
+    fn attribute_formatting_preserves_the_protocol_value() {
+        let word = Word::try_from(b"=name=ether1".as_ref()).unwrap();
+
+        assert_eq!(format!("{word}"), "=name=ether1");
     }
 
     #[test]

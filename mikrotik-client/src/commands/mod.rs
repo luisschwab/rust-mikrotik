@@ -10,24 +10,15 @@ pub mod system;
 pub mod tool;
 pub mod user;
 
-#[allow(clippy::wildcard_imports)]
-pub use interface::*;
-#[allow(clippy::wildcard_imports)]
-pub use ip::*;
-#[allow(clippy::wildcard_imports)]
-pub use queue::*;
-#[allow(clippy::wildcard_imports)]
-pub use routing::*;
-#[allow(clippy::wildcard_imports)]
-pub use service::*;
-#[allow(clippy::wildcard_imports)]
-pub use snmp::*;
-#[allow(clippy::wildcard_imports)]
-pub use system::*;
-#[allow(clippy::wildcard_imports)]
-pub use tool::*;
-#[allow(clippy::wildcard_imports)]
-pub use user::*;
+use interface::Interface;
+use ip::Ip;
+use queue::Queue;
+use routing::Routing;
+use service::Service;
+use snmp::Snmp;
+use system::System;
+use tool::Tool;
+use user::User;
 
 /// Typed print command path grouped by top-level command family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,13 +94,25 @@ mikrotik_common::impl_command_display!(PrintCommand);
 
 #[cfg(test)]
 mod tests {
+    use super::interface::Interface;
+    use super::ip::Ip;
+    use super::system::System;
+
     #[test]
     fn representative_print_commands_match_routeros_paths() {
-        assert_eq!(super::Ip::Route.as_path(), "/ip/route/print");
-        assert_eq!(super::System::Resource.to_string(), "/system/resource/print");
+        assert_eq!(Ip::Route.as_path(), "/ip/route/print");
+        assert_eq!(System::Resource.to_string(), "/system/resource/print");
         assert_eq!(
-            super::PrintCommand::Interface(super::Interface::WireGuardPeer).as_path(),
+            super::PrintCommand::Interface(Interface::WireGuardPeer).as_path(),
             "/interface/wireguard/peers/print"
+        );
+        assert_eq!(
+            Interface::WirelessRegistration.as_path(),
+            "/interface/wireless/registration-table/print"
+        );
+        assert_eq!(
+            Interface::WifiRegistration.as_path(),
+            "/interface/wifi/registration-table/print"
         );
     }
 }

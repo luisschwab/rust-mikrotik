@@ -1,14 +1,16 @@
 //! Connected client and raw command execution.
 
 use core::time::Duration;
-use std::io;
 use std::io::ErrorKind;
 use std::sync::Arc;
-use std::sync::Once;
 
 use mikrotik_common::row::Row;
+use mikrotik_common::serde::deserialize;
+use mikrotik_proto2::Command;
 use mikrotik_proto2::CommandBuilder;
 use mikrotik_proto2::Event;
+use mikrotik_proto2::HashMap;
+use mikrotik_proto2::response::TrapResponse;
 use serde::de::DeserializeOwned;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -52,7 +54,6 @@ impl Client {
     /// fails. Transient transport errors are retried with exponential backoff
     /// before the final error is returned.
     pub async fn connect(config: ClientBuilder) -> Result<Self> {
-        install_rustls_provider();
         let deadline = Instant::now() + config.connect_retry_timeout(CONNECT_RETRY_TIMEOUT);
         let attempt_timeout = config.connect_attempt_timeout(CONNECT_ATTEMPT_TIMEOUT);
         let retry_max_delay = config.connect_retry_max_delay(CONNECT_RETRY_MAX_DELAY);
@@ -119,7 +120,10 @@ impl Client {
         }
 
         let mut session = self.session.lock().await;
-        let rows = session.call(command_builder.build()).await?;
+        let rows = session
+            .call(command, command_builder.build())
+            .await
+            .map_err(|error| error.with_command(command))?;
 
         Ok(rows)
     }
@@ -135,19 +139,12 @@ impl Client {
     where
         T: DeserializeOwned,
     {
-        self.print_typed(command.as_path()).await
-    }
-
-    /// Execute a print command and deserialize every row into `T`.
-    pub(crate) async fn print_typed<T>(&self, command: &str) -> Result<Vec<T>>
-    where
-        T: DeserializeOwned,
-    {
+        let command = command.as_path();
         let rows = self.call(command, &[]).await?;
         let mut typed_rows = Vec::with_capacity(rows.len());
 
         for (row_index, row) in rows.iter().enumerate() {
-            let typed_row = mikrotik_common::serde::deserialize(row)
+            let typed_row = deserialize(row)
                 .map_err(|error| Error::Decode(DecodeError::new(command, row_index, error.to_string(), row)))?;
             typed_rows.push(typed_row);
         }
@@ -161,18 +158,18 @@ async fn connect_attempt(config: &ClientBuilder, deadline: Instant, attempt_time
     let timeout_for = attempt_timeout.min(deadline.saturating_duration_since(Instant::now()));
     match timeout(timeout_for, Session::connect(config)).await {
         Ok(result) => result,
-        Err(_) => Err(Error::Io(io::Error::new(
-            ErrorKind::TimedOut,
-            format!("connect attempt exceeded {attempt_timeout:?}"),
-        ))),
+        Err(_) => Err(Error::Timeout {
+            operation: "RouterOS connection attempt",
+            duration: attempt_timeout,
+        }),
     }
 }
 
 /// Return whether a connect error is likely caused by an API service that is not ready yet.
 fn is_transient_connect_error(error: &Error) -> bool {
     match error {
-        Error::Io(error) => matches!(
-            error.kind(),
+        Error::Transport { source, .. } => matches!(
+            source.kind(),
             ErrorKind::ConnectionRefused
                 | ErrorKind::ConnectionReset
                 | ErrorKind::ConnectionAborted
@@ -180,12 +177,14 @@ fn is_transient_connect_error(error: &Error) -> bool {
                 | ErrorKind::TimedOut
                 | ErrorKind::WouldBlock
         ),
-        Error::ConnectionClosed => true,
-        Error::Connection(_)
+        Error::ConnectionClosed { .. } | Error::Timeout { .. } => true,
+        Error::Connection { .. }
         | Error::Login(_)
         | Error::UnsupportedProtocol(_)
-        | Error::Trap(_)
-        | Error::Fatal(_)
+        | Error::PermissionDenied { .. }
+        | Error::UnsupportedCommand { .. }
+        | Error::Trap { .. }
+        | Error::Fatal { .. }
         | Error::Decode(_) => false,
     }
 }
@@ -197,7 +196,7 @@ fn next_connect_delay(delay: Duration, max_delay: Duration) -> Duration {
 
 impl Session {
     /// Send one encoded command and collect reply rows for its tag.
-    async fn call(&mut self, command: mikrotik_proto2::Command) -> Result<Vec<Row>> {
+    async fn call(&mut self, command_path: &str, command: Command) -> Result<Vec<Row>> {
         let tag = self.connection.send_command(command)?;
         let mut rows = Vec::new();
 
@@ -216,8 +215,13 @@ impl Session {
                     Event::Trap {
                         tag: event_tag,
                         response,
-                    } if event_tag == tag => return Err(Error::Trap(response.message)),
-                    Event::Fatal { reason } => return Err(Error::Fatal(reason)),
+                    } if event_tag == tag => return Err(classify_trap(command_path, response)),
+                    Event::Fatal { reason } => {
+                        return Err(Error::Fatal {
+                            command: command_path.to_owned(),
+                            reason,
+                        });
+                    }
                     Event::Reply { .. } | Event::Done { .. } | Event::Empty { .. } | Event::Trap { .. } => {}
                 }
             }
@@ -225,7 +229,9 @@ impl Session {
             let mut buffer = [0u8; 8192];
             let read = self.stream.read(&mut buffer).await?;
             if read == 0 {
-                return Err(Error::ConnectionClosed);
+                return Err(Error::ConnectionClosed {
+                    command: Some(command_path.to_owned()),
+                });
             }
 
             self.connection.receive(&buffer[..read])?;
@@ -242,31 +248,51 @@ impl Session {
     }
 }
 
+/// Convert a `RouterOS` trap into the most specific public client error.
+fn classify_trap(command: &str, response: TrapResponse) -> Error {
+    let message_lower = response.message.to_ascii_lowercase();
+    if message_lower.contains("not enough permissions")
+        || message_lower.contains("permission denied")
+        || message_lower.contains("not permitted")
+    {
+        return Error::PermissionDenied {
+            command: command.to_owned(),
+            message: response.message,
+        };
+    }
+    if message_lower.contains("no such command") || message_lower.contains("unknown command") {
+        return Error::UnsupportedCommand {
+            command: command.to_owned(),
+            message: response.message,
+        };
+    }
+
+    Error::Trap {
+        command: command.to_owned(),
+        category: response.category,
+        message: response.message,
+    }
+}
+
 /// Convert protocol attributes into a `Row`, dropping absent values.
-fn row_from_attributes(attributes: mikrotik_proto2::HashMap<String, Option<String>>) -> Row {
+fn row_from_attributes(attributes: HashMap<String, Option<String>>) -> Row {
     attributes
         .into_iter()
         .filter_map(|(key, value)| value.map(|value| (key, value)))
         .collect()
 }
 
-/// Install the process-wide `rustls` crypto provider used by `mikrotik-client`.
-fn install_rustls_provider() {
-    static RUSTLS_PROVIDER: Once = Once::new();
-    RUSTLS_PROVIDER.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Error as IoError;
+
+    use mikrotik_proto2::Tag;
 
     use super::*;
 
     #[test]
     fn row_conversion_drops_none_values() {
-        let attributes = mikrotik_proto2::HashMap::from([
+        let attributes = HashMap::from([
             ("dst-address".to_owned(), Some("0.0.0.0/0".to_owned())),
             ("comment".to_owned(), None),
         ]);
@@ -299,16 +325,52 @@ mod tests {
 
     #[test]
     fn connect_backoff_retries_only_transient_errors() {
-        assert!(is_transient_connect_error(&Error::Io(IoError::from(
-            ErrorKind::ConnectionRefused
-        ))));
-        assert!(is_transient_connect_error(&Error::Io(IoError::from(
-            ErrorKind::TimedOut
-        ))));
-        assert!(is_transient_connect_error(&Error::ConnectionClosed));
-        assert!(!is_transient_connect_error(&Error::Io(IoError::from(
-            ErrorKind::PermissionDenied
-        ))));
-        assert!(!is_transient_connect_error(&Error::Trap("bad command".to_owned())));
+        assert!(is_transient_connect_error(&Error::Transport {
+            command: None,
+            source: IoError::from(ErrorKind::ConnectionRefused),
+        }));
+        assert!(is_transient_connect_error(&Error::Timeout {
+            operation: "test connection",
+            duration: Duration::from_secs(1),
+        }));
+        assert!(is_transient_connect_error(&Error::ConnectionClosed { command: None }));
+        assert!(!is_transient_connect_error(&Error::Transport {
+            command: None,
+            source: IoError::from(ErrorKind::PermissionDenied),
+        }));
+        assert!(!is_transient_connect_error(&Error::Trap {
+            command: "/test/print".to_owned(),
+            category: None,
+            message: "bad command".to_owned(),
+        }));
+    }
+
+    #[test]
+    fn traps_are_classified_without_losing_command_context() {
+        let permission = classify_trap(
+            "/ip/address/print",
+            TrapResponse {
+                tag: Tag::new(),
+                category: None,
+                message: "not enough permissions (9)".to_owned(),
+            },
+        );
+        assert!(matches!(
+            permission,
+            Error::PermissionDenied { command, .. } if command == "/ip/address/print"
+        ));
+
+        let unsupported = classify_trap(
+            "/interface/wifi/print",
+            TrapResponse {
+                tag: Tag::new(),
+                category: None,
+                message: "no such command".to_owned(),
+            },
+        );
+        assert!(matches!(
+            unsupported,
+            Error::UnsupportedCommand { command, .. } if command == "/interface/wifi/print"
+        ));
     }
 }

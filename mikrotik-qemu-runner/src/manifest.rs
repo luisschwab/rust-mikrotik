@@ -16,14 +16,20 @@ use crate::ScenarioConf;
 
 /// Load a scenario config from a TOML scenario manifest.
 pub(crate) fn read_scenario_conf(path: &Path) -> Result<ScenarioConf> {
-    let contents = fs::read_to_string(path)?;
-    parse_scenario_conf(&contents)
+    let contents = fs::read_to_string(path).map_err(|source| Error::io("read scenario manifest", path, source))?;
+    match parse_scenario_conf(&contents) {
+        Err(Error::Config(message)) => Err(Error::Config(format!(
+            "scenario manifest {}: {message}",
+            path.display()
+        ))),
+        result => result,
+    }
 }
 
 /// Parse a scenario config from a TOML scenario manifest.
 pub(crate) fn parse_scenario_conf(contents: &str) -> Result<ScenarioConf> {
     let manifest = toml::from_str::<ScenarioManifest>(contents)
-        .map_err(|error| Error::Config(format!("invalid scenario TOML: {error}")))?;
+        .map_err(|error| Error::Config(format!("invalid scenario TOML: {}", error.message())))?;
     manifest.try_into_scenario_conf()
 }
 
@@ -34,7 +40,7 @@ struct ScenarioManifest {
     /// Human-readable scenario name.
     name: String,
     /// Allow software QEMU emulation when hardware acceleration is unavailable.
-    #[serde(default)]
+    #[serde(default = "default_allow_software_emulation")]
     allow_software_emulation: bool,
     /// Device manifests.
     #[serde(default, alias = "routers")]
@@ -72,6 +78,7 @@ struct DeviceManifest {
     /// Stable device name.
     name: String,
     /// `RouterOS` version used for the CHR image.
+    #[serde(default)]
     version: RouterOsVersion,
     /// Memory in MiB.
     #[serde(default = "default_memory_mib")]
@@ -87,14 +94,18 @@ struct DeviceManifest {
 impl DeviceManifest {
     /// Convert the TOML shape into a device config.
     fn try_into_mikrotikd_conf(self) -> Result<MikrotikDConf> {
-        let mut config = MikrotikDConf::new(self.name).with_version(self.version);
-        config.memory_mib = self.memory_mib;
-        config.cpus = self.cpus;
-        config.bootstrap = self
+        let mut config = MikrotikDConf::new(self.name)
+            .with_version(self.version)
+            .with_memory_mib(self.memory_mib)
+            .with_cpus(self.cpus);
+        let bootstrap = self
             .bootstrap
             .iter()
             .map(|command| parse_router_command(command))
             .collect::<Result<Vec<_>>>()?;
+        for command in bootstrap {
+            config = config.with_bootstrap(command);
+        }
         Ok(config)
     }
 }
@@ -137,6 +148,11 @@ const fn default_memory_mib() -> u16 {
 /// Default device CPU count.
 const fn default_cpus() -> u8 {
     crate::DEFAULT_CPUS
+}
+
+/// Default software-emulation policy.
+const fn default_allow_software_emulation() -> bool {
+    crate::DEFAULT_ALLOW_SOFTWARE_EMULATION
 }
 
 /// Parse a `device:interface` endpoint string.
@@ -208,6 +224,24 @@ mod tests {
             Some("ether2")
         );
         assert_eq!(scenario.links.len(), 1);
+    }
+
+    #[test]
+    fn manifest_uses_code_configuration_defaults() {
+        let scenario = parse_scenario_conf(
+            r#"
+name = "defaults"
+
+[[devices]]
+name = "R01"
+"#,
+        )
+        .expect("minimal scenario should parse");
+
+        assert!(scenario.allow_software_emulation);
+        assert_eq!(scenario.devices[0].version, crate::DEFAULT_ROUTEROS_VERSION);
+        assert_eq!(scenario.devices[0].memory_mib, crate::DEFAULT_MEMORY_MIB);
+        assert_eq!(scenario.devices[0].cpus, crate::DEFAULT_CPUS);
     }
 
     #[test]

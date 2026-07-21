@@ -54,6 +54,12 @@ const INTERFACE_WIRE_GUARD_PEER_PRINT: &str = "/interface/wireguard/peers/print"
 /// `RouterOS` print command `/interface/wireless/security-profiles/print`.
 const INTERFACE_WIRELESS_SECURITY_PROFILE_PRINT: &str = "/interface/wireless/security-profiles/print";
 
+/// `RouterOS` print command `/interface/wireless/registration-table/print`.
+const INTERFACE_WIRELESS_REGISTRATION_PRINT: &str = "/interface/wireless/registration-table/print";
+
+/// `RouterOS` print command `/interface/wifi/registration-table/print`.
+const INTERFACE_WIFI_REGISTRATION_PRINT: &str = "/interface/wifi/registration-table/print";
+
 /// `RouterOS` print commands in this command family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Interface {
@@ -93,6 +99,10 @@ pub enum Interface {
     WireGuardPeer,
     /// `RouterOS` print command.
     WirelessSecurityProfile,
+    /// `RouterOS` print command.
+    WirelessRegistration,
+    /// `RouterOS` print command.
+    WifiRegistration,
 }
 
 impl Interface {
@@ -116,6 +126,8 @@ impl Interface {
         Self::WireGuardInterface,
         Self::WireGuardPeer,
         Self::WirelessSecurityProfile,
+        Self::WirelessRegistration,
+        Self::WifiRegistration,
     ];
 
     /// Return the `RouterOS` API command path.
@@ -139,6 +151,8 @@ impl Interface {
             Self::WireGuardInterface => INTERFACE_WIRE_GUARD_INTERFACE_PRINT,
             Self::WireGuardPeer => INTERFACE_WIRE_GUARD_PEER_PRINT,
             Self::WirelessSecurityProfile => INTERFACE_WIRELESS_SECURITY_PROFILE_PRINT,
+            Self::WirelessRegistration => INTERFACE_WIRELESS_REGISTRATION_PRINT,
+            Self::WifiRegistration => INTERFACE_WIFI_REGISTRATION_PRINT,
         }
     }
 }

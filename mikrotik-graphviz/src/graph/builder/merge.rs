@@ -28,13 +28,22 @@ pub(super) fn merge_duplicate_edges(edges: Vec<TopologyLink>) -> Vec<TopologyLin
 
 /// Upgrade edges with reciprocal evidence to full confidence.
 pub(super) fn mark_reciprocal_edges(edges: &mut [TopologyLink]) {
-    let pairs = edges
+    let ordinary_pairs = edges
         .iter()
+        .filter(|edge| !edge.is_wireless())
+        .map(|edge| (edge.local_node.clone(), edge.remote_node.clone()))
+        .collect::<BTreeSet<_>>();
+    let registration_pairs = edges
+        .iter()
+        .filter(|edge| edge.is_registration_wireless())
         .map(|edge| (edge.local_node.clone(), edge.remote_node.clone()))
         .collect::<BTreeSet<_>>();
 
     for edge in edges {
-        if pairs.contains(&(edge.remote_node.clone(), edge.local_node.clone())) {
+        let reverse = (edge.remote_node.clone(), edge.local_node.clone());
+        if (!edge.is_wireless() && ordinary_pairs.contains(&reverse))
+            || (edge.is_registration_wireless() && registration_pairs.contains(&reverse))
+        {
             edge.confidence = 100;
         }
     }

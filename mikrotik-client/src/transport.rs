@@ -97,7 +97,7 @@ async fn login(mut stream: Box<dyn AsyncStream>, config: &ClientBuilder) -> Resu
     let connection = loop {
         let read = stream.read(&mut buffer).await?;
         if read == 0 {
-            return Err(Error::ConnectionClosed);
+            return Err(Error::ConnectionClosed { command: None });
         }
 
         handshaking.receive(&buffer[..read])?;
@@ -161,11 +161,11 @@ impl ServerCertVerifier for NoVerifier {
 
 /// Build a TLS client configuration matching `RouterOS` API-SSL's local-test needs.
 fn insecure_client_config() -> Arc<ClientConfig> {
-    let provider = CryptoProvider::get_default()
-        .cloned()
-        .expect("rustls AWS-LC crypto provider should be installed before connecting");
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
 
-    let config = ClientConfig::builder()
+    let config = ClientConfig::builder_with_provider(Arc::clone(&provider))
+        .with_safe_default_protocol_versions()
+        .expect("the ring provider supports rustls default protocol versions")
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(NoVerifier(provider)))
         .with_no_client_auth();

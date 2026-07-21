@@ -77,6 +77,8 @@ print commands. The snapshot includes, when supported by the RouterOS version:
 - `/system/resource/print`
 - `/system/routerboard/print`
 - `/interface/print`
+- `/interface/wireless/registration-table/print`
+- `/interface/wifi/registration-table/print`
 - `/ip/address/print`
 - `/ip/neighbor/print`
 - `/ip/route/print`
@@ -88,6 +90,13 @@ Older RouterOS versions may return a trap for commands that do not exist. Those
 command-specific traps are treated as unsupported command results, not as a
 device collection failure. The snapshot simply has an empty vector for that
 unsupported state.
+
+The two registration tables are collected opportunistically rather than by
+branching on the RouterOS version. The legacy Wireless endpoint supports
+RouterOS v6 and v7 devices using the `wireless` package; the WiFi endpoint
+supports v7 devices using `wifi-qcom` or `wifi-qcom-ac`. A current row proves
+that an RF association exists even when authorization or 802.1X state prevents
+data-plane traffic.
 
 Each snapshot stores the target address used to collect it. That target address
 is later used as the node management address in tooltips.
@@ -264,9 +273,29 @@ Visual link kinds are:
 - `fallback`: neighbor-discovery anchor for otherwise disconnected nodes;
 - `unknown`: no stronger classification available.
 
+Wireless links retain their evidence source. `wireless-registration` identifies
+live registration-table evidence at confidence 95, or 100 with reciprocal
+registration rows. The older `wireless` marker identifies confidence-70
+MNDP/name inference used when registration evidence is unavailable or cannot
+be resolved to one collected interface MAC.
+
+Reciprocal MNDP rows can also identify a physical router-to-radio attachment
+when both reported MACs resolve uniquely to collected devices. This stricter
+`mndp-attachment` evidence is created only when exactly one non-radio peer is
+seen reciprocally through the radio's physical Ethernet interface. Rows seen
+through the wireless interface and ambiguous Ethernet-side peers are ignored,
+so a transparent broadcast domain does not turn into a topology clique.
+
+Structured graphs keep direct L3 relationships even when a radio path describes
+the physical topology between the same routers. Graphviz alone omits a direct
+L3 shortcut when exactly one visible path connects those routers through only
+radio nodes, uses L3/route or reciprocal-MNDP evidence for its outer
+attachments, and contains a registration-backed wireless edge. Incomplete,
+ambiguous, or filtered paths retain the shortcut.
+
 `LinkFilter` controls which link kinds are rendered. The CLI default is
 `routing`, which excludes ordinary management links but keeps route, L3, BGP,
-customer/internal, and fallback links.
+customer/internal, fallback, and dedicated physical MNDP attachment links.
 
 ## Link Address Rendering
 

@@ -2,11 +2,11 @@
 
 use core::fmt;
 use core::net::IpAddr;
+use core::net::SocketAddr;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::io::Error as IoError;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use mikrotik_common::debug_with_label;
@@ -27,7 +27,7 @@ use tokio::task::JoinSet;
 
 use crate::CollectedSnapshot;
 use crate::config::CrawlConfig;
-use crate::connector::BinaryApiFactory;
+use crate::connector::RouterOsApiConnector;
 use crate::connector::SnapshotClientConnector;
 use crate::discovery::neighbor_log_label;
 use crate::error::Error;
@@ -126,7 +126,7 @@ pub struct Crawler {
 
 impl Default for Crawler {
     fn default() -> Self {
-        Self::new(Arc::new(BinaryApiFactory::default()))
+        Self::new(Arc::new(RouterOsApiConnector::default()))
     }
 }
 

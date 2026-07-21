@@ -111,6 +111,26 @@ impl IpPrefix {
             .parse()
             .expect("IpPrefix stores only validated IP addresses")
     }
+
+    /// Return the validated network prefix length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stored value is not a valid IP prefix. Values are validated
+    /// when constructing or deserializing `IpPrefix`.
+    #[must_use]
+    pub fn prefix_length(&self) -> u8 {
+        self.0
+            .rsplit_once('/')
+            .and_then(|(_, prefix)| prefix.parse().ok())
+            .expect("IpPrefix stores only validated prefix lengths")
+    }
+
+    /// Return whether this prefix identifies exactly one host address.
+    #[must_use]
+    pub fn is_host(&self) -> bool {
+        self.prefix_length() == if self.address().is_ipv4() { 32 } else { 128 }
+    }
 }
 
 impl FromStr for IpPrefix {

@@ -4,11 +4,13 @@ use std::io;
 use std::path::PathBuf;
 
 use mikrotik_common::info_with_label;
+use mikrotik_common::logging::init_tracing;
 use mikrotik_crawler::Crawler;
 use mikrotik_crawler::error::Error;
 use mikrotik_crawler::error::Result;
 use mikrotik_qemu_runner::Scenario;
 use mikrotik_qemu_runner::ScenarioConf;
+use tracing::Level;
 
 /// Worker stack size for large `RouterOS` snapshot futures.
 const TOKIO_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
@@ -24,7 +26,7 @@ fn main() -> Result<()> {
 
 /// Run the example crawl.
 async fn run() -> Result<()> {
-    mikrotik_common::logging::init_tracing();
+    init_tracing(Level::INFO);
 
     let scenario_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../mikrotik-qemu-runner/scenarios")

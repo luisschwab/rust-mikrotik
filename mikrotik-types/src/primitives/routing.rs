@@ -10,6 +10,7 @@ use alloc::string::String;
 use alloc::string::ToString as _;
 use core::convert::Infallible;
 use core::fmt;
+use core::net::IpAddr;
 use core::str::FromStr;
 
 use serde::Deserialize;
@@ -68,6 +69,19 @@ impl RouteGateway {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Return the first IP next hop and optional interface scope.
+    #[must_use]
+    pub fn next_hop(&self) -> Option<(IpAddr, Option<InterfaceName>)> {
+        let candidate = self.0.split(',').next()?.trim();
+        let candidate = candidate.split_once('@').map_or(candidate, |(gateway, _table)| gateway);
+        let (address, interface) = candidate
+            .split_once('%')
+            .map_or((candidate, None), |(address, interface)| (address, Some(interface)));
+        let address = address.parse::<IpAddr>().ok()?;
+        let interface = interface.and_then(|interface| interface.parse().ok());
+        Some((address, interface))
     }
 }
 
@@ -147,7 +161,10 @@ impl<'de> Deserialize<'de> for RouteDestination {
 
 #[cfg(test)]
 mod tests {
+    use core::net::IpAddr;
+
     use super::RouteDestination;
+    use super::RouteGateway;
 
     #[test]
     fn route_destination_accepts_prefixes_and_interfaces() {
@@ -160,6 +177,14 @@ mod tests {
             Ok(RouteDestination::Interface(_))
         ));
         assert!("".parse::<RouteDestination>().is_err());
+    }
+
+    #[test]
+    fn route_gateway_extracts_scoped_and_table_qualified_next_hops() {
+        let gateway = "192.0.2.1%ether1@main,192.0.2.2".parse::<RouteGateway>().unwrap();
+        let (address, interface) = gateway.next_hop().unwrap();
+        assert_eq!(address, "192.0.2.1".parse::<IpAddr>().unwrap());
+        assert_eq!(interface.unwrap().as_str(), "ether1");
     }
 }
 

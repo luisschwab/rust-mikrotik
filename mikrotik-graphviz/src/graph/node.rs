@@ -1,6 +1,7 @@
 use core::net::SocketAddr;
 
 use mikrotik_types::device::DeviceRole;
+use mikrotik_types::device::RouterOsSnapshot;
 use mikrotik_types::device::TopologyNodeKey;
 use mikrotik_types::topology::InferredDevice;
 use mikrotik_types::topology::InferredDeviceFailure;
@@ -150,10 +151,7 @@ fn graphviz_node_tooltip(node: &NetworkNode) -> Option<String> {
 }
 
 /// Build tooltip text for a collected router.
-fn collected_node_tooltip(
-    snapshot: &mikrotik_types::device::RouterOsSnapshot,
-    target_address: Option<SocketAddr>,
-) -> String {
+fn collected_node_tooltip(snapshot: &RouterOsSnapshot, target_address: Option<SocketAddr>) -> String {
     let routerboard = &snapshot.system.routerboard;
     let mut tooltip = String::new();
     push_tooltip_line(

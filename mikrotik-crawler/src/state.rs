@@ -1,10 +1,10 @@
 //! In-memory state for the long-running crawler service.
 
+use core::net::IpAddr;
+use core::net::SocketAddr;
 use core::time::Duration;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
-use std::net::IpAddr;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -101,6 +101,17 @@ pub enum SnapshotEvent {
     },
 }
 
+/// Publish a best-effort state event.
+///
+/// A broadcast send only fails when there are no active subscribers. State is
+/// already committed before publication, so this condition is diagnostic and
+/// must not fail collection.
+pub(crate) fn publish_event(events: &broadcast::Sender<SnapshotEvent>, event: SnapshotEvent) {
+    if events.send(event).is_err() {
+        tracing::trace!("crawler state event had no active subscribers");
+    }
+}
+
 /// Return retry-eligible snapshot targets with currently failed targets first.
 pub(crate) fn snapshot_targets_by_retry_priority(
     state: &CrawlerStateSnapshot,
@@ -152,10 +163,13 @@ pub(crate) async fn record_snapshot_result(
             state.retry.retain(|address, _| !target_aliases.contains(&address.ip()));
             state.snapshots.insert(topology_node_key.clone(), snapshot);
             drop(state);
-            let _ = events.send(SnapshotEvent::SnapshotUpdated {
-                topology_node_key,
-                snapshot: Box::new(event_snapshot),
-            });
+            publish_event(
+                events,
+                SnapshotEvent::SnapshotUpdated {
+                    topology_node_key,
+                    snapshot: Box::new(event_snapshot),
+                },
+            );
         }
         Err(error) => {
             let kind = error.failure_kind();
@@ -165,10 +179,13 @@ pub(crate) async fn record_snapshot_result(
             state.failures.insert(target.address, error.clone());
             state.retry.insert(target.address, retry);
             drop(state);
-            let _ = events.send(SnapshotEvent::SnapshotFailed {
-                address: target.address,
-                error,
-            });
+            publish_event(
+                events,
+                SnapshotEvent::SnapshotFailed {
+                    address: target.address,
+                    error,
+                },
+            );
         }
     }
 }

@@ -50,6 +50,7 @@ use self::edge::collapsed_graphviz_edges;
 use self::edge::graphviz_link_kind;
 use self::edge::orient_graphviz_edge;
 use self::edge::push_graphviz_edge;
+use self::edge::suppress_redundant_l3_shortcuts;
 use self::export::graphviz_visible_nodes;
 use self::export::push_graphviz_graph_attributes;
 use self::layout::recursive_radial_positions;
@@ -89,17 +90,7 @@ pub const GRAPHVIZ_RANK_UNKNOWN: u8 = 5;
 impl NetworkGraph {
     /// Build a graph from collected device snapshots.
     #[must_use]
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "the owned snapshot keeps the public constructor consistent with the other graph constructors"
-    )]
-    pub fn from_snapshots(snapshots: Vec<GraphSnapshot>) -> Self {
-        build_graph(&snapshots, [])
-    }
-
-    /// Build a graph from borrowed collected device snapshots.
-    #[must_use]
-    pub fn from_snapshot_refs(snapshots: &[GraphSnapshot]) -> Self {
+    pub fn from_snapshots(snapshots: &[GraphSnapshot]) -> Self {
         build_graph(snapshots, [])
     }
 
@@ -155,8 +146,13 @@ impl NetworkGraph {
             }
         });
         let graphviz_edges = graphviz_edges
-            .filter(|edge| options.link_filter.includes(edge.link_kind))
+            .filter(|edge| {
+                options
+                    .link_filter
+                    .includes_with_mndp_attachment(edge.link_kind, edge.has_mndp_attachment_evidence)
+            })
             .collect::<Vec<_>>();
+        let graphviz_edges = suppress_redundant_l3_shortcuts(graphviz_edges, self);
         let visible_nodes = graphviz_visible_nodes(self, &graphviz_edges, options);
         let node_positions = if options.is_recursive_radial_layout() {
             recursive_radial_positions(self, &graphviz_edges, &visible_nodes, options)
@@ -226,6 +222,9 @@ impl NetworkGraph {
         if edge.is_route() {
             return LinkKind::Route;
         }
+        if edge.is_mndp_attachment() {
+            return LinkKind::Management;
+        }
 
         let visual = GraphvizEdge {
             local_node: edge.local_node.clone(),
@@ -233,6 +232,9 @@ impl NetworkGraph {
             remote_node: edge.remote_node.clone(),
             remote_interface: edge.remote_interface.clone(),
             link_kind: LinkKind::Unknown,
+            has_l3_or_route_evidence: false,
+            has_registration_evidence: false,
+            has_mndp_attachment_evidence: false,
         };
         graphviz_link_kind(&visual, self)
     }
@@ -242,7 +244,7 @@ impl NetworkGraph {
     pub fn filtered_edges(&self, filter: LinkFilter) -> Vec<&TopologyLink> {
         self.edges
             .iter()
-            .filter(|edge| filter.includes(self.link_kind(edge)))
+            .filter(|edge| filter.includes_with_mndp_attachment(self.link_kind(edge), edge.is_mndp_attachment()))
             .collect()
     }
 }

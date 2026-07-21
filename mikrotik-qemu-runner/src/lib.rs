@@ -7,11 +7,14 @@
 use core::time::Duration;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::env;
 use std::fs;
+use std::io::ErrorKind;
 use std::net::TcpListener;
 use std::path::Path;
 use std::path::PathBuf;
-use std::thread;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use mikrotik_client::client::Client;
 use mikrotik_common::debug_with_label;
@@ -49,6 +52,9 @@ pub use scenario::EthernetInterface;
 pub use scenario::EthernetLink;
 pub use scenario::Scenario;
 pub use scenario::ScenarioConf;
+
+/// Whether QEMU may use software emulation when acceleration is unavailable.
+pub const DEFAULT_ALLOW_SOFTWARE_EMULATION: bool = true;
 
 use crate::catalog::ChrArch as RuntimeArch;
 use crate::chr::IMAGES_DIR;
@@ -177,12 +183,12 @@ pub(crate) async fn spawn_mikrotikds(
 
     let sh = Shell::new()?;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    prepare_state_dirs(&sh, &root)?;
+    prepare_state_dirs(&root)?;
     ensure_tool(&sh, "qemu-img")?;
 
     let host_arch = RuntimeArch::host()?;
-    let run_dir = run_dir(&sh, &root, &config.name)?;
-    let socket_dir = socket_dir(&sh, &run_dir)?;
+    let run_dir = run_dir(&root, &config.name)?;
+    let socket_dir = socket_dir(&run_dir)?;
     let socket_dir_guard = RuntimeSocketDir(socket_dir.clone());
     let mut api_ports = allocate_api_ports(&config)?;
     let mut prepared = Vec::new();
@@ -239,9 +245,7 @@ pub(crate) async fn spawn_mikrotikds(
 
 /// Validate scenario config before touching runtime state.
 fn validate_scenario(config: &ScenarioConf) -> Result<()> {
-    if config.name.trim().is_empty() {
-        return Err(Error::Config("scenario name cannot be empty".to_owned()));
-    }
+    validate_runtime_name("scenario", &config.name)?;
     if config.devices.is_empty() {
         return Err(Error::Config("scenario must contain at least one device".to_owned()));
     }
@@ -280,9 +284,7 @@ fn validate_scenario(config: &ScenarioConf) -> Result<()> {
 
 /// Validate one router config.
 fn validate_router(router: &MikrotikDConf) -> Result<()> {
-    if router.name.trim().is_empty() {
-        return Err(Error::Config("router name cannot be empty".to_owned()));
-    }
+    validate_runtime_name("router", &router.name)?;
     if router.memory_mib == 0 {
         return Err(Error::Config(format!(
             "router `{}` memory_mib cannot be zero",
@@ -303,6 +305,23 @@ fn validate_router(router: &MikrotikDConf) -> Result<()> {
     Ok(())
 }
 
+/// Validate a name that is used in artifact paths and QEMU identifiers.
+fn validate_runtime_name(kind: &str, name: &str) -> Result<()> {
+    if name.is_empty() {
+        return Err(Error::Config(format!("{kind} name cannot be empty")));
+    }
+    if matches!(name, "." | "..")
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(Error::Config(format!(
+            "{kind} name `{name}` may only contain ASCII letters, numbers, dots, dashes, and underscores"
+        )));
+    }
+    Ok(())
+}
+
 /// Validate one link endpoint.
 fn validate_link_endpoint(endpoint: &scenario::EthernetEndpoint) -> Result<()> {
     if endpoint.router.trim().is_empty() {
@@ -313,27 +332,31 @@ fn validate_link_endpoint(endpoint: &scenario::EthernetEndpoint) -> Result<()> {
 }
 
 /// Create persistent image and per-run state directories.
-fn prepare_state_dirs(sh: &Shell, root: &Path) -> Result<()> {
-    sh.create_dir(root.join(CACHE_DIR))?;
-    sh.create_dir(root.join(IMAGES_DIR))?;
-    sh.create_dir(root.join(RUNS_DIR))?;
+fn prepare_state_dirs(root: &Path) -> Result<()> {
+    for path in [root.join(CACHE_DIR), root.join(IMAGES_DIR), root.join(RUNS_DIR)] {
+        fs::create_dir_all(&path).map_err(|source| Error::io("create QEMU runner state directory", path, source))?;
+    }
     Ok(())
 }
 
 /// Create and return a unique run directory for this scenario invocation.
-fn run_dir(sh: &Shell, root: &Path, scenario_name: &str) -> Result<PathBuf> {
-    for _ in 0..3 {
-        let timestamp = sh
-            .cmd("date")
-            .arg("+%Y%m%d-%H%M%S")
-            .read()
-            .map_err(|error| Error::Tool(format!("format local timestamp with `date`: {error}")))?;
-        let path = root.join(RUNS_DIR).join(format!("{timestamp}-{scenario_name}"));
-        if !path.exists() {
-            sh.create_dir(&path)?;
-            return Ok(path);
+fn run_dir(root: &Path, scenario_name: &str) -> Result<PathBuf> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| Error::Tool(format!("read system time for run directory: {error}")))?;
+    let timestamp = format!("{}-{:09}", elapsed.as_secs(), elapsed.subsec_nanos());
+    for collision in 0..100_u8 {
+        let suffix = if collision == 0 {
+            String::new()
+        } else {
+            format!("-{collision}")
+        };
+        let path = root.join(RUNS_DIR).join(format!("{timestamp}-{scenario_name}{suffix}"));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(source) => return Err(Error::io("create scenario run directory", path, source)),
         }
-        thread::sleep(Duration::from_secs(1));
     }
     Err(Error::Tool(format!(
         "could not create a unique timestamped run directory for scenario `{scenario_name}`"
@@ -341,16 +364,16 @@ fn run_dir(sh: &Shell, root: &Path, scenario_name: &str) -> Result<PathBuf> {
 }
 
 /// Create a short path for QEMU Unix sockets.
-fn socket_dir(sh: &Shell, run_dir: &Path) -> Result<PathBuf> {
+fn socket_dir(run_dir: &Path) -> Result<PathBuf> {
     let run_name = run_dir
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| Error::Tool(format!("read run directory name from {}", run_dir.display())))?;
-    let path = PathBuf::from("/tmp").join(format!("mikrotik-qemu-runner-{run_name}"));
+    let path = env::temp_dir().join(format!("mikrotik-qemu-runner-{run_name}"));
     if path.exists() {
-        fs::remove_dir_all(&path)?;
+        fs::remove_dir_all(&path).map_err(|source| Error::io("remove stale QEMU socket directory", &path, source))?;
     }
-    sh.create_dir(&path)?;
+    fs::create_dir(&path).map_err(|source| Error::io("create QEMU socket directory", &path, source))?;
     Ok(path)
 }
 
@@ -455,10 +478,9 @@ fn write_scenario_report(run_dir: &Path, config: &ScenarioConf, routers: &[Prepa
         );
     }
 
-    fs::write(
-        run_dir.join(SCENARIO_REPORT_FILENAME),
-        format!("{}\n", lines.join("\n")),
-    )?;
+    let path = run_dir.join(SCENARIO_REPORT_FILENAME);
+    fs::write(&path, format!("{}\n", lines.join("\n")))
+        .map_err(|source| Error::io("write scenario report", path, source))?;
     Ok(())
 }
 
@@ -473,12 +495,7 @@ fn allocate_api_ports(scenario: &ScenarioConf) -> Result<ApiPortAllocations> {
             .local_addr()
             .map_err(|error| Error::Tool(format!("read reserved API port for {}: {error}", router.name)))?
             .port();
-        info_with_label!(
-            router.name,
-            "API localhost:{port} Username={} Password={}",
-            DEFAULT_USERNAME,
-            display_password(DEFAULT_PASSWORD)
-        );
+        info_with_label!(router.name, "API localhost:{port} Username={}", DEFAULT_USERNAME);
         ports.insert(
             router.name.clone(),
             ApiPortAllocation {
@@ -489,11 +506,6 @@ fn allocate_api_ports(scenario: &ScenarioConf) -> Result<ApiPortAllocations> {
     }
 
     Ok(ApiPortAllocations { ports })
-}
-
-/// Return a readable password value for operator logs.
-const fn display_password(password: &str) -> &str {
-    if password.is_empty() { "<empty>" } else { password }
 }
 
 /// Escape a value for the CSV report format.
@@ -577,5 +589,17 @@ mod tests {
         assert_eq!(target.address.to_string(), "127.0.0.1:18728");
         assert_eq!(target.credentials.username, DEFAULT_USERNAME);
         assert_eq!(target.credentials.password.as_deref(), Some(DEFAULT_PASSWORD));
+    }
+
+    #[test]
+    fn bootstrap_command_debug_redacts_sensitive_attributes() {
+        let command = RouterCommand::new("/user/add")
+            .with_attribute("name", "observer")
+            .with_attribute("password", "highly-secret");
+
+        let debug = format!("{command:?}");
+        assert!(debug.contains("observer"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("highly-secret"));
     }
 }

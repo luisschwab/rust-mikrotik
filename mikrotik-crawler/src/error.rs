@@ -1,35 +1,36 @@
-//! Error and result types shared by the ISP tools modules.
+//! Crawler error and retry classification types.
 
 use core::error;
 use core::fmt;
+use core::time::Duration;
 use std::io;
 use std::io::ErrorKind;
-use std::process::ExitStatus;
+
+use mikrotik_client::error::Error as ClientError;
+use mikrotik_types::target::ObserverError;
 
 /// Errors returned by ISP tools operations.
 #[derive(Debug)]
 pub enum Error {
     /// A lower-level `RouterOS` client operation failed.
-    Client(mikrotik_client::error::Error),
+    Client(ClientError),
 
-    /// A non-optional `RouterOS` command returned a trap response.
-    CommandTrap {
+    /// A required `RouterOS` command exceeded its deadline.
+    CommandTimeout {
         /// Exact `RouterOS` API command path.
         command: String,
-        /// Trap message returned by the device.
-        message: String,
+        /// Configured command deadline.
+        duration: Duration,
+    },
+
+    /// A required `RouterOS` endpoint returned no rows.
+    RequiredEndpointEmpty {
+        /// Exact `RouterOS` API command path.
+        command: String,
     },
 
     /// A filesystem or process I/O operation failed.
     Io(io::Error),
-
-    /// Graphviz exited unsuccessfully while rendering an artifact.
-    Graphviz {
-        /// Requested output format.
-        format: String,
-        /// Process exit status.
-        status: ExitStatus,
-    },
 
     /// A target address from the input or a neighbor row could not be used.
     InvalidTarget {
@@ -40,7 +41,7 @@ pub enum Error {
     },
 
     /// A target could not be constructed.
-    Target(mikrotik_types::target::ObserverError),
+    Target(ObserverError),
 }
 
 /// Retry-relevant category for a crawler failure.
@@ -67,17 +68,20 @@ impl fmt::Display for Error {
                 FailureKind::InvalidCredentials => f.write_str("Invalid Credentials"),
                 FailureKind::ApiRefused => f.write_str("API Refused Connection"),
                 FailureKind::NetworkUnreachable => f.write_str("Network Unreachable"),
-                FailureKind::Timeout => write!(f, "Timed Out After {} seconds", self.timeout_seconds().unwrap_or(0)),
+                FailureKind::Timeout => match self.timeout_duration() {
+                    Some(duration) => write!(f, "Timed Out After {} seconds", duration.as_secs()),
+                    None => f.write_str("Timed Out"),
+                },
                 FailureKind::ConnectionReset => f.write_str("Connection Reset"),
                 FailureKind::Other => match self {
                     Self::Client(error) => write!(f, "{error}"),
-                    Self::CommandTrap { command, message } => {
-                        write!(f, "RouterOS trap while running {command}: {message}")
+                    Self::CommandTimeout { command, duration } => {
+                        write!(f, "RouterOS command {command} exceeded {duration:?}")
+                    }
+                    Self::RequiredEndpointEmpty { command } => {
+                        write!(f, "required RouterOS command {command} returned no rows")
                     }
                     Self::Io(error) => write!(f, "{error}"),
-                    Self::Graphviz { format, status } => {
-                        write!(f, "Graphviz failed while rendering {format}: {status}")
-                    }
                     Self::InvalidTarget { address, message } => {
                         write!(f, "invalid target address {address:?}: {message}")
                     }
@@ -88,17 +92,17 @@ impl fmt::Display for Error {
 
         match self {
             Self::Client(error) => write!(f, "{error}"),
-            Self::CommandTrap { command, message } => {
-                write!(f, "RouterOS trap while running {command}: {message}")
+            Self::CommandTimeout { command, duration } => {
+                write!(f, "RouterOS command {command} exceeded {duration:?}")
+            }
+            Self::RequiredEndpointEmpty { command } => {
+                write!(f, "required RouterOS command {command} returned no rows")
             }
             Self::Io(error) => write!(f, "{error}"),
-            Self::Graphviz { format, status } => {
-                write!(f, "Graphviz failed while rendering {format}: {status}")
-            }
             Self::InvalidTarget { address, message } => {
-                write!(f, "Invalid Target Address {address:?}: {message}")
+                write!(f, "invalid target address {address:?}: {message}")
             }
-            Self::Target(error) => write!(f, "Target Error: {error}"),
+            Self::Target(error) => write!(f, "target error: {error}"),
         }
     }
 }
@@ -108,19 +112,22 @@ impl error::Error for Error {
         match self {
             Self::Client(error) => Some(error),
             Self::Io(error) => Some(error),
-            Self::CommandTrap { .. } | Self::Graphviz { .. } | Self::InvalidTarget { .. } | Self::Target(_) => None,
+            Self::CommandTimeout { .. }
+            | Self::RequiredEndpointEmpty { .. }
+            | Self::InvalidTarget { .. }
+            | Self::Target(_) => None,
         }
     }
 }
 
-impl From<mikrotik_client::error::Error> for Error {
-    fn from(error: mikrotik_client::error::Error) -> Self {
+impl From<ClientError> for Error {
+    fn from(error: ClientError) -> Self {
         Self::Client(error)
     }
 }
 
-impl From<mikrotik_types::target::ObserverError> for Error {
-    fn from(error: mikrotik_types::target::ObserverError) -> Self {
+impl From<ObserverError> for Error {
+    fn from(error: ObserverError) -> Self {
         Self::Target(error)
     }
 }
@@ -154,13 +161,10 @@ impl Error {
     #[must_use]
     pub fn is_authentication_failure(&self) -> bool {
         match self {
-            Self::Client(mikrotik_client::error::Error::Login(error)) => {
-                error.to_string().starts_with("authentication failed:")
-            }
-            Self::Client(_)
-            | Self::CommandTrap { .. }
+            Self::Client(error) => error.is_authentication_failure(),
+            Self::CommandTimeout { .. }
+            | Self::RequiredEndpointEmpty { .. }
             | Self::Io(_)
-            | Self::Graphviz { .. }
             | Self::InvalidTarget { .. }
             | Self::Target(_) => false,
         }
@@ -170,13 +174,12 @@ impl Error {
     #[must_use]
     pub fn is_timeout_failure(&self) -> bool {
         match self {
-            Self::Client(mikrotik_client::error::Error::Io(error)) => error.kind() == ErrorKind::TimedOut,
+            Self::CommandTimeout { .. } | Self::Client(ClientError::Timeout { .. }) => true,
+            Self::Client(ClientError::Transport { source, .. }) => source.kind() == ErrorKind::TimedOut,
             Self::Io(error) => error.kind() == ErrorKind::TimedOut,
-            Self::Client(_)
-            | Self::CommandTrap { .. }
-            | Self::Graphviz { .. }
-            | Self::InvalidTarget { .. }
-            | Self::Target(_) => false,
+            Self::Client(_) | Self::RequiredEndpointEmpty { .. } | Self::InvalidTarget { .. } | Self::Target(_) => {
+                false
+            }
         }
     }
 
@@ -201,22 +204,22 @@ impl Error {
             .is_some_and(|error| error.kind() == ErrorKind::ConnectionReset)
     }
 
-    /// Return the configured timeout duration in seconds when it is embedded in the error text.
-    fn timeout_seconds(&self) -> Option<u64> {
-        let message = self.io_error()?.to_string();
-        message
-            .split_whitespace()
-            .find_map(|token| token.strip_suffix('s')?.parse::<f64>().ok())
-            .map(|seconds| seconds.round() as u64)
+    /// Return the configured deadline for a structured timeout failure.
+    fn timeout_duration(&self) -> Option<Duration> {
+        match self {
+            Self::CommandTimeout { duration, .. } => Some(*duration),
+            Self::Client(error) => error.timeout_duration(),
+            Self::RequiredEndpointEmpty { .. } | Self::Io(_) | Self::InvalidTarget { .. } | Self::Target(_) => None,
+        }
     }
 
     /// Return the wrapped I/O error, if any.
     fn io_error(&self) -> Option<&io::Error> {
         match self {
-            Self::Client(mikrotik_client::error::Error::Io(error)) | Self::Io(error) => Some(error),
-            Self::Client(_)
-            | Self::CommandTrap { .. }
-            | Self::Graphviz { .. }
+            Self::Client(error) => error.transport_error(),
+            Self::Io(error) => Some(error),
+            Self::CommandTimeout { .. }
+            | Self::RequiredEndpointEmpty { .. }
             | Self::InvalidTarget { .. }
             | Self::Target(_) => None,
         }
@@ -231,8 +234,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn alternate_display_formats_compact_timeout_reason() {
-        let error = Error::Io(io::Error::new(ErrorKind::TimedOut, "connect attempt exceeded 5s"));
+    fn alternate_display_formats_structured_timeout_reason() {
+        let error = Error::CommandTimeout {
+            command: "/system/resource/print".to_owned(),
+            duration: Duration::from_secs(5),
+        };
 
         assert_eq!(format!("{error:#}"), "Timed Out After 5 seconds");
     }
@@ -245,15 +251,15 @@ mod tests {
     }
 
     #[test]
-    fn command_trap_display_includes_the_exact_command() {
-        let error = Error::CommandTrap {
+    fn command_timeout_display_includes_the_exact_command() {
+        let error = Error::CommandTimeout {
             command: "/ip/firewall/filter/print".to_owned(),
-            message: "not allowed".to_owned(),
+            duration: Duration::from_secs(15),
         };
 
         assert_eq!(
-            format!("{error:#}"),
-            "RouterOS trap while running /ip/firewall/filter/print: not allowed"
+            format!("{error}"),
+            "RouterOS command /ip/firewall/filter/print exceeded 15s"
         );
     }
 }

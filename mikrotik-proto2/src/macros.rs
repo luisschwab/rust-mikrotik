@@ -16,6 +16,7 @@
 /// Panics (at compile time when used in a const context) if the command
 /// path is empty, doesn't start with `/`, contains invalid characters,
 /// has empty segments (`//`), consecutive delimiters, or a trailing delimiter.
+#[allow(clippy::cast_lossless)]
 pub const fn check_mikrotik_command(cmd: &str) -> &str {
     let bytes = cmd.as_bytes();
     let len = bytes.len();
@@ -72,21 +73,31 @@ pub const fn check_mikrotik_command(cmd: &str) -> &str {
 /// ```
 #[macro_export]
 macro_rules! command {
-    // Case: command literal plus optional attributes (with or without `= value`)
-    ($cmd:literal $(, $key:ident $(= $value:expr)? )* $(,)?) => {{
+    // Case: command literal without attributes.
+    ($cmd:literal $(,)?) => {{
         const VALIDATED: &str = $crate::macros::check_mikrotik_command($cmd);
 
-        #[allow(
-            unused_mut,
-            reason = "the generated builder supports commands with and without query fields"
-        )]
+        $crate::command::CommandBuilder::new()
+            .command(VALIDATED)
+            .build()
+    }};
+
+    // Case: command literal plus one or more attributes (with or without `= value`).
+    ($cmd:literal, $key:ident $(= $value:expr)? $(, $rest_key:ident $(= $rest_value:expr)? )* $(,)?) => {{
+        const VALIDATED: &str = $crate::macros::check_mikrotik_command($cmd);
+
         let mut builder = $crate::command::CommandBuilder::new()
             .command(VALIDATED);
 
+        builder = builder.attribute(
+            stringify!($key),
+            command!(@opt $($value)?)
+        );
+
         $(
             builder = builder.attribute(
-                stringify!($key),
-                command!(@opt $($value)?)
+                stringify!($rest_key),
+                command!(@opt $($rest_value)?)
             );
         )*
 

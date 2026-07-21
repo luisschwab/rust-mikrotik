@@ -1,29 +1,32 @@
 <div align="center">
+    <h1>Rust MikroTik</h1>
+</div>
 
-<h1>Rust MikroTik</h1>
+<div align="center">
+    <img src="./assets/image/rust-mikrotik.png" width="300" />
+    <p>A suite of Rust crates for simulating, interacting and managing MikroTik™ devices</p>
+</div>
 
-<p>
-    A suite of Rust crates for simulating, interacting and managing MikroTik™ devices
-</p>
+<div align="center">
 
-<p>
-<a href="https://blog.rust-lang.org/2025/02/20/Rust-1.85.0/">
-    <img src="https://img.shields.io/badge/rustc-1.85.0%2B-orange.svg?label=MSRV"/>
-</a>
-<a href="https://github.com/luisschwab/rust-mikrotik/blob/master/LICENSE-MIT">
-    <img src="https://img.shields.io/badge/License-MIT%2FApache--2.0-red.svg"/>
-</a>
-<a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml">
-    <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg">
-</a>
-<a href="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml">
-    <img src="https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml/badge.svg">
-</a>
-</p>
+[![rustc][rustc-badge]][rustc-url]
+[![license-mit-apache][license-badge]][license-url]
+[![rust][rust-badge]][rust-url]
+[![simulation][simulation-badge]][simulation-url]
 
 </div>
 
-TBD
+[rustc-badge]: https://img.shields.io/badge/rustc-1.85.0%2B-orange.svg?label=MSRV
+[rustc-url]: https://blog.rust-lang.org/2025/02/20/Rust-1.85.0/
+[license-badge]: https://img.shields.io/badge/License-MIT%2FApache--2.0-red.svg
+[license-url]: https://github.com/luisschwab/rust-mikrotik/blob/master/LICENSE-MIT
+[rust-badge]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg
+[rust-url]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml
+[simulation-badge]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml/badge.svg
+[simulation-url]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml
+
+> [!NOTE]
+> This project is independent of, and has no affiliation with [_SIA Mikrotīkls_](https://mikrotik.com/).
 
 ## Minimum Supported Rust Version
 
@@ -38,7 +41,6 @@ Licensed under either of
 
 - Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
-
 at your option.
 
 ### Contribution

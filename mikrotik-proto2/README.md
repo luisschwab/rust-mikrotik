@@ -1,10 +1,15 @@
 # mikrotik-proto2
 
-<p>
-    <a href="https://crates.io/crates/mikrotik-proto2"><img src="https://img.shields.io/crates/v/mikrotik-proto2.svg"/></a>
-    <a href="https://docs.rs/mikrotik-proto2"><img src="https://img.shields.io/badge/docs.rs-mikrotik--proto2-blue"/></a>
-    <a href="https://github.com/luisschwab/rust-mikrotik/blob/master/mikrotik-proto2/Cargo.toml"><img src="https://img.shields.io/badge/License-AGPL--3.0--only-yellow.svg"/></a>
-</p>
+[![crates.io][crates-io-badge]][crates-io-url]
+[![docs.rs][docs-rs-badge]][docs-rs-url]
+[![license-agpl][license-badge]][license-url]
+
+[crates-io-badge]: https://img.shields.io/crates/v/mikrotik-proto2.svg
+[crates-io-url]: https://crates.io/crates/mikrotik-proto2
+[docs-rs-badge]: https://img.shields.io/badge/docs.rs-mikrotik--proto2-blue
+[docs-rs-url]: https://docs.rs/mikrotik-proto2
+[license-badge]: https://img.shields.io/badge/License-AGPL--3.0--only-yellow.svg
+[license-url]: https://github.com/luisschwab/rust-mikrotik/blob/master/mikrotik-proto2/Cargo.toml
 
 Sans-IO protocol implementation for the [MikroTik RouterOS API](https://help.mikrotik.com/docs/spaces/ROS/pages/47579160/API).
 

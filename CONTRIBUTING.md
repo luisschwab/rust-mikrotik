@@ -78,11 +78,6 @@ Prefer these recipes for routine work:
 | `just one-device` | Spawn one RouterOS CHR. |
 | `just two-devices` | Spawn two linked RouterOS CHRs. |
 
-The current `pre-push` sequence references a `shellcheck` recipe that is not
-defined in this Justfile, so it stops at that step until the recipe is restored
-or the stale invocation is removed. The individual formatting, check, test,
-Zizmor, and audit recipes remain usable directly.
-
 Frequently used aliases are `just f`, `just c`, `just t`, `just l`, `just a`,
 `just z`, and `just p`. Run `just --list` for the authoritative recipe list.
 

@@ -28,6 +28,7 @@ jobs:
                       task: fmt --check
                     - name: Linting
                       task: lint
+
         steps:
             - name: Checkout Repository
               uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -95,13 +96,10 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - name: Stable Toolchain + Recent Lockfile
+                    - name: Stable + Cargo-recent.lock
                       toolchain: stable
                       lockfile: recent
-                    - name: Stable Toolchain + Minimal Lockfile
-                      toolchain: stable
-                      lockfile: minimal
-                    - name: MSRV Toolchain + Minimal Lockfile
+                    - name: MSRV + Cargo-minimal.lock
                       toolchain: msrv
                       lockfile: minimal
 

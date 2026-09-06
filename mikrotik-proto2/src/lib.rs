@@ -49,14 +49,18 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-// Re-export the appropriate HashMap type based on feature flags.
+// Cargo's unused-dependency lint only considers the active feature set.
+// Keep the `no_std`-only dependency visible when linting with `--all-features`.
+// Re-export the appropriate `HashMap` type based on feature flags.
 //
-// When the `std` feature is enabled (default), public types use
+// When the `std` feature is enabled, public types use
 // `std::collections::HashMap`. When disabled (for `no_std` environments),
 // they fall back to `hashbrown::HashMap`.
 #[cfg(feature = "std")]
 pub use std::collections::HashMap;
 
+#[cfg(feature = "std")]
+use hashbrown as _;
 #[cfg(not(feature = "std"))]
 pub use hashbrown::HashMap;
 

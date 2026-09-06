@@ -31,7 +31,7 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 [workspace.metadata.rbmt]
 version = "0.5.3"
 toolchains = { stable = "1.98.1", nightly = "nightly-2026-09-06" }
-tools = { cargo-audit = "0.22.2", zizmor = "1.30.0" }
+tools = { cargo-audit = "0.22.2", cargo-llvm-cov = "0.9.0", zizmor = "1.30.0" }
 test = { sample_strategy = "all" }
 
 [workspace.lints.rust]

@@ -10,6 +10,7 @@ alias cr := crawler-scenario
 alias od := one-device
 alias td := two-devices
 
+stable := `cargo rbmt toolchains --stable`
 export RBMT_LOG_LEVEL := env("RBMT_LOG_LEVEL", "progress")
 
 _default:
@@ -75,6 +76,19 @@ docs-open:
     cargo rbmt docs --open
 
 # Testing
+
+[doc("Generate code coverage (pass `open` to open the HTML report)")]
+[env("CARGO_LLVM_COV_SETUP", "yes")]
+[group("Testing")]
+coverage open="":
+    cargo +{{ stable }} llvm-cov {{ if open == "" { "" } else { "--open" } }} \
+        --all-features \
+        --html \
+        --ignore-filename-regex '(^|/)test[.]rs$'
+    cargo +{{ stable }} llvm-cov report \
+        --lcov \
+        --output-path target/llvm-cov/lcov.info \
+        --ignore-filename-regex '(^|/)test[.]rs$'
 
 [doc("Run all examples for one package")]
 [group("Testing")]

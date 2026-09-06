@@ -40,7 +40,7 @@ cargo rbmt lock
 Restrict a task to one crate with `-p`:
 
 ```text
-cargo rbmt -p mikrotik-fleet test
+cargo rbmt -p mikrotik-crawler test
 cargo rbmt -p mikrotik-graphviz lint
 ```
 
@@ -86,13 +86,6 @@ Zizmor, and audit recipes remain usable directly.
 Frequently used aliases are `just f`, `just c`, `just t`, `just l`, `just a`,
 `just z`, and `just p`. Run `just --list` for the authoritative recipe list.
 
-For example, start the fleet application with its mandatory configuration
-path using:
-
-```text
-just fleet mikrotik-fleet/data/mikrotik-fleet.toml
-```
-
 ## Before submitting
 
 At minimum, format and verify the workspace:
@@ -122,8 +115,7 @@ crate's ignored `data` directory.
   repeating identical attributes in every child module.
 - Keep shared domain types in the lowest appropriate crate. RouterOS API data
   belongs in `mikrotik-types`, collection envelopes and crawler behavior belong
-  in `mikrotik-crawler`, and fleet-specific inventory and application state
-  belong in `mikrotik-fleet`.
+  in `mikrotik-crawler`.
 - Avoid compatibility layers for unreleased interfaces unless they are
   explicitly required.
 

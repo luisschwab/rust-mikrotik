@@ -59,7 +59,7 @@ jobs:
                       qemu-runner-chr-images-${{ runner.os }}-
 
             - name: Setup cargo-rbmt
-              uses: ./.github/actions/setup-rbmt
+              uses: $/.github/actions/setup-rbmt
 
             - name: 'Run ${{ matrix.name }} Scenario'
               run: cargo rbmt -p mikrotik-qemu-runner run -- test --test scenarios ${{ matrix.test }} -- --ignored --exact --nocapture

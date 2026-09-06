@@ -28,6 +28,7 @@ jobs:
                       task: fmt --check
                     - name: Linting
                       task: lint
+
         steps:
             - name: Checkout Repository
               uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -43,6 +44,49 @@ jobs:
             - name: Check ${{ matrix.task }}
               run: cargo rbmt ${{ matrix.task }}
 
+    coverage:
+        name: Coverage
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  persist-credentials: false
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            - name: Setup cargo-rbmt
+              uses: $/.github/actions/setup-rbmt
+
+            - name: Collect Coverage Data
+              shell: bash
+              run: |
+                  cargo rbmt run --toolchain stable -- llvm-cov \
+                      --all-features \
+                      --no-report \
+                      --ignore-filename-regex '(^|/)test[.]rs$'
+
+            - name: Generate LCOV Coverage Report
+              shell: bash
+              run: |
+                  mkdir -p target/llvm-cov
+                  cargo rbmt run --toolchain stable -- llvm-cov report \
+                      --lcov \
+                      --output-path target/llvm-cov/lcov.info \
+                      --ignore-filename-regex '(^|/)test[.]rs$'
+
+            - name: Upload Coverage Report to Codecov
+              uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  files: target/llvm-cov/lcov.info
+                  disable_search: true
+                  fail_ci_if_error: true
+
     test:
         name: Test - ${{ matrix.name }}
         runs-on: ubuntu-latest
@@ -52,13 +96,10 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - name: Stable Toolchain + Recent Lockfile
+                    - name: Stable + Cargo-recent.lock
                       toolchain: stable
                       lockfile: recent
-                    - name: Stable Toolchain + Minimal Lockfile
-                      toolchain: stable
-                      lockfile: minimal
-                    - name: MSRV Toolchain + Minimal Lockfile
+                    - name: MSRV + Cargo-minimal.lock
                       toolchain: msrv
                       lockfile: minimal
 

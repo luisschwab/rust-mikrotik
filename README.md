@@ -12,6 +12,7 @@
 [![rustc][rustc-badge]][rustc-url]
 [![license-mit-apache][license-badge]][license-url]
 [![rust][rust-badge]][rust-url]
+[![codecov][coverage-badge]][coverage-url]
 [![simulation][simulation-badge]][simulation-url]
 
 </div>
@@ -22,6 +23,8 @@
 [license-url]: https://github.com/luisschwab/rust-mikrotik/blob/master/LICENSE-MIT
 [rust-badge]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml/badge.svg
 [rust-url]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/rust.yml
+[coverage-badge]: https://codecov.io/github/luisschwab/rust-mikrotik/graph/badge.svg
+[coverage-url]: https://codecov.io/github/luisschwab/rust-mikrotik
 [simulation-badge]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml/badge.svg
 [simulation-url]: https://github.com/luisschwab/rust-mikrotik/actions/workflows/simulation.yml
 

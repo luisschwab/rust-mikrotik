@@ -19,7 +19,6 @@ edition = "2024"
 
 [workspace.dependencies]
 argh = { version = "0.1.13" }
-rand = { version = "0.10.2" }
 serde = { version = "1.0.228", default-features = false, features = ["alloc", "derive"] }
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
 time = { version = "0.3.41", default-features = false }
@@ -31,7 +30,7 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 [workspace.metadata.rbmt]
 version = "0.5.3"
 toolchains = { stable = "1.98.1", nightly = "nightly-2026-09-06" }
-tools = { cargo-audit = "0.22.2", zizmor = "1.30.0" }
+tools = { cargo-audit = "0.22.2", cargo-llvm-cov = "0.9.0", zizmor = "1.30.0" }
 test = { sample_strategy = "all" }
 
 [workspace.lints.rust]

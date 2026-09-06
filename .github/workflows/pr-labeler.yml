@@ -29,6 +29,9 @@ jobs:
 
                       // Paths of all the managed labels
                       const filePathsToLabels = {
+                        '.github/': 'ci',
+                        'justfile': 'ci',
+
                         'mikrotik-client/': 'C-client',
                         'mikrotik-common/': 'C-common',
                         'mikrotik-crawler/': 'C-crawler',

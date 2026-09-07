@@ -541,6 +541,7 @@ mod tests {
 
     use super::BgpConnection;
     use super::BgpPeer;
+    use super::BgpRemoteAddress;
     use super::BgpSession;
     use super::RoutingNexthop;
     use super::RoutingRoute;
@@ -635,6 +636,19 @@ mod tests {
             Some("198.51.100.9/32")
         );
         assert_eq!(connection.remote_as, Some(64501));
+    }
+
+    #[test]
+    fn bgp_remote_addresses_validate_bare_prefix_and_json_values() {
+        let bare = "198.51.100.9".parse::<BgpRemoteAddress>().unwrap();
+        assert_eq!(bare.as_str(), "198.51.100.9");
+        assert_eq!(bare.address().to_string(), "198.51.100.9");
+
+        let prefix: BgpRemoteAddress = serde_json::from_str(r#""2001:db8::1/128""#).unwrap();
+        assert_eq!(prefix.as_str(), "2001:db8::1/128");
+        assert_eq!(prefix.address().to_string(), "2001:db8::1");
+        assert!("not-an-address".parse::<BgpRemoteAddress>().is_err());
+        assert!(serde_json::from_str::<BgpRemoteAddress>(r#""not-an-address""#).is_err());
     }
 
     #[test]

@@ -325,3 +325,144 @@ impl FromStr for LanHostSource {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloc::borrow::ToOwned;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    use super::*;
+    use crate::api::system::Identity;
+    use crate::api::system::Routerboard;
+    use crate::device::SystemSnapshot;
+
+    fn link_with(protocols: &[&str]) -> TopologyLink {
+        TopologyLink {
+            local_node: TopologyNodeKey::from("local".to_owned()),
+            local_interface: None,
+            remote_node: TopologyNodeKey::from("remote".to_owned()),
+            remote_interface: None,
+            discovered_by: protocols
+                .iter()
+                .map(|protocol| DiscoveryProtocol::Unknown((*protocol).to_owned()))
+                .collect(),
+            confidence: 100,
+        }
+    }
+
+    fn node(snapshot: Option<RouterOsSnapshot>, inferred: Option<InferredDevice>) -> NetworkNode {
+        NetworkNode {
+            key: TopologyNodeKey::from("node-key".to_owned()),
+            status: NetworkNodeStatus::Collected,
+            role: Some(DeviceRole::CoreRouter),
+            target_address: None,
+            management_addresses: vec![],
+            snapshot,
+            inferred,
+        }
+    }
+
+    #[test]
+    fn topology_links_classify_each_evidence_marker_case_insensitively() {
+        assert!(link_with(&["BGP"]).is_bgp());
+        assert!(link_with(&["management"]).is_management());
+        assert!(link_with(&["fallback"]).is_fallback());
+        assert!(link_with(&["route"]).is_route());
+        assert!(link_with(&["WIRELESS-REGISTRATION"]).is_registration_wireless());
+        assert!(link_with(&["wireless"]).is_heuristic_wireless());
+        assert!(link_with(&["wireless"]).is_wireless());
+        assert!(link_with(&["l3"]).is_l3());
+        assert!(link_with(&["MNDP-ATTACHMENT"]).is_mndp_attachment());
+
+        let ordinary = link_with(&["lldp"]);
+        assert!(!ordinary.is_bgp());
+        assert!(!ordinary.is_management());
+        assert!(!ordinary.is_fallback());
+        assert!(!ordinary.is_route());
+        assert!(!ordinary.is_wireless());
+        assert!(!ordinary.is_l3());
+        assert!(!ordinary.is_mndp_attachment());
+    }
+
+    #[test]
+    fn network_node_labels_prefer_collected_then_inferred_identity() {
+        let snapshot = RouterOsSnapshot {
+            system: SystemSnapshot {
+                identity: Identity {
+                    name: Some("core".to_owned()),
+                }
+                .into(),
+                routerboard: Routerboard {
+                    serial_number: Some("ABC123".to_owned()),
+                    ..Routerboard::default()
+                }
+                .into(),
+                ..SystemSnapshot::default()
+            },
+            ..RouterOsSnapshot::default()
+        };
+        let collected = node(Some(snapshot), None);
+        assert_eq!(collected.label(), "core");
+        assert_eq!(collected.graphviz_label(), "core\nABC123");
+        assert_eq!(collected.role(), Some(DeviceRole::CoreRouter));
+
+        let inferred = node(
+            None,
+            Some(InferredDevice {
+                management_address: None,
+                identity: Some("neighbor".to_owned()),
+                board: None,
+                platform: None,
+                version: None,
+                mac_address: None,
+                failure: None,
+            }),
+        );
+        assert_eq!(inferred.label(), "neighbor");
+        assert_eq!(inferred.graphviz_label(), "neighbor");
+
+        let fallback = node(None, None);
+        assert_eq!(fallback.label(), "node-key");
+    }
+
+    #[test]
+    fn graphviz_label_omits_missing_serial_number() {
+        let snapshot = RouterOsSnapshot {
+            system: SystemSnapshot {
+                identity: Identity {
+                    name: Some("edge".to_owned()),
+                }
+                .into(),
+                ..SystemSnapshot::default()
+            },
+            ..RouterOsSnapshot::default()
+        };
+        assert_eq!(node(Some(snapshot), None).graphviz_label(), "edge");
+    }
+
+    #[test]
+    fn lan_host_sources_parse_display_and_reject_unknown_values() {
+        for (wire, source) in [
+            ("arp", LanHostSource::Arp),
+            ("dhcp", LanHostSource::DhcpLease),
+            ("bridge", LanHostSource::BridgeHost),
+        ] {
+            assert_eq!(wire.parse::<LanHostSource>().unwrap(), source);
+            assert_eq!(source.to_string(), wire);
+        }
+        assert_eq!("unknown".parse::<LanHostSource>(), Err(ParseError::LanHostSource));
+    }
+
+    #[test]
+    fn api_refused_accepts_its_legacy_serialized_name() {
+        assert_eq!(
+            serde_json::from_str::<InferredDeviceFailure>(r#""api_disabled""#).unwrap(),
+            InferredDeviceFailure::ApiRefused
+        );
+        assert_eq!(
+            serde_json::to_string(&InferredDeviceFailure::ApiRefused).unwrap(),
+            r#""api_refused""#
+        );
+    }
+}

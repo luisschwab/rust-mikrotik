@@ -938,11 +938,11 @@ impl RouterOsSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use alloc::borrow::ToOwned as _;
+    use alloc::string::String;
+    use alloc::string::ToString;
+    use alloc::vec;
 
-    use super::InterfaceSnapshot;
-    use super::RouterOsSnapshot;
-    use super::SystemSnapshot;
+    use super::*;
     use crate::api::system::Identity;
     use crate::api::system::Routerboard;
 
@@ -965,14 +965,11 @@ mod tests {
         };
 
         assert_eq!(
-            snapshot.device_serial().as_ref().map(super::DeviceSerial::as_str),
+            snapshot.device_serial().as_ref().map(DeviceSerial::as_str),
             Some("abc123")
         );
         assert_eq!(
-            snapshot
-                .topology_node_key()
-                .as_ref()
-                .map(super::TopologyNodeKey::as_str),
+            snapshot.topology_node_key().as_ref().map(TopologyNodeKey::as_str),
             Some("abc123")
         );
     }
@@ -990,5 +987,117 @@ mod tests {
         assert!(snapshot.wifi_registrations.data.is_empty());
         assert!(snapshot.wireless_registrations.error.is_none());
         assert!(snapshot.wifi_registrations.error.is_none());
+    }
+
+    #[test]
+    fn serial_and_topology_keys_support_owned_string_conversions() {
+        let serial = DeviceSerial::try_from(String::from("ABC123")).unwrap();
+        assert_eq!(serial.as_ref(), "ABC123");
+        assert_eq!(&*serial, "ABC123");
+        assert_eq!(serial.to_string(), "ABC123");
+        assert_eq!(serde_json::to_string(&serial).unwrap(), r#""ABC123""#);
+        assert_eq!(
+            serde_json::from_str::<DeviceSerial>(r#""XYZ""#).unwrap().into_string(),
+            "XYZ"
+        );
+        assert!(DeviceSerial::try_from(String::new()).is_err());
+
+        let key = TopologyNodeKey::from(serial);
+        assert_eq!(key.as_str(), "ABC123");
+        assert_eq!(key.to_string(), "ABC123");
+        assert_eq!(TopologyNodeKey::from(String::from("inferred")).as_str(), "inferred");
+        assert!(serde_json::from_str::<TopologyNodeKey>(r#""""#).is_err());
+    }
+
+    #[test]
+    fn device_status_kind_and_role_parse_display_and_classify() {
+        for (wire, value) in [
+            ("reachable", DeviceStatus::Reachable),
+            ("unreachable", DeviceStatus::Unreachable),
+            ("auth_failed", DeviceStatus::AuthFailed),
+            ("unsupported", DeviceStatus::Unsupported),
+        ] {
+            assert_eq!(wire.parse::<DeviceStatus>().unwrap(), value);
+            assert_eq!(value.to_string(), wire);
+        }
+        assert_eq!("invalid".parse::<DeviceStatus>(), Err(ParseError::DeviceStatus));
+
+        for (wire, label, value) in [
+            ("router", "ROUTER", DeviceKind::Router),
+            ("switch", "SWITCH", DeviceKind::Switch),
+            ("radio", "RADIO", DeviceKind::Radio),
+        ] {
+            assert_eq!(wire.parse::<DeviceKind>().unwrap(), value);
+            assert_eq!(value.to_string(), wire);
+            assert_eq!(value.label(), label);
+        }
+        assert_eq!("invalid".parse::<DeviceKind>(), Err(ParseError::DeviceKind));
+
+        for (wire, kind, value) in [
+            ("unknown", None, DeviceRole::Unknown),
+            ("bgp_router", Some(DeviceKind::Router), DeviceRole::BgpRouter),
+            ("core_router", Some(DeviceKind::Router), DeviceRole::CoreRouter),
+            ("customer_router", Some(DeviceKind::Router), DeviceRole::CustomerRouter),
+            ("switch", Some(DeviceKind::Switch), DeviceRole::Switch),
+            ("radio", Some(DeviceKind::Radio), DeviceRole::Radio),
+        ] {
+            assert_eq!(wire.parse::<DeviceRole>().unwrap(), value);
+            assert_eq!(value.to_string(), wire);
+            assert_eq!(value.kind(), kind);
+        }
+        assert_eq!("invalid".parse::<DeviceRole>(), Err(ParseError::DeviceRole));
+    }
+
+    #[test]
+    fn endpoint_snapshots_support_defaults_conversions_and_mutation() {
+        let mut snapshot = EndpointSnapshot::from(vec![1_u8, 2]);
+        assert_eq!(&*snapshot, &[1, 2]);
+        snapshot.push(3);
+        assert_eq!(snapshot.data, vec![1, 2, 3]);
+        assert_eq!(snapshot.error, None);
+
+        let default = EndpointSnapshot::<Vec<u8>>::default();
+        assert!(default.is_empty());
+        assert_eq!(default.error, None);
+    }
+
+    #[test]
+    fn topology_identity_falls_back_to_router_identity() {
+        let named = RouterOsSnapshot {
+            system: SystemSnapshot {
+                identity: Identity {
+                    name: Some("edge".to_owned()),
+                }
+                .into(),
+                ..SystemSnapshot::default()
+            },
+            ..RouterOsSnapshot::default()
+        };
+        assert_eq!(named.device_serial(), None);
+        assert_eq!(named.topology_node_key().unwrap().as_str(), "edge");
+        assert_eq!(RouterOsSnapshot::default().topology_node_key(), None);
+    }
+
+    #[test]
+    fn routerboard_firmware_comparison_requires_both_versions() {
+        let current_only = Routerboard {
+            current_firmware: Some("7.21".parse().unwrap()),
+            ..Routerboard::default()
+        };
+        assert!(!RouterOsSnapshot::routerboard_fw_update_pending(&current_only));
+
+        let current = Routerboard {
+            current_firmware: Some("7.21".parse().unwrap()),
+            upgrade_firmware: Some("7.21".parse().unwrap()),
+            ..Routerboard::default()
+        };
+        assert!(!RouterOsSnapshot::routerboard_fw_update_pending(&current));
+
+        let pending = Routerboard {
+            current_firmware: Some("7.21".parse().unwrap()),
+            upgrade_firmware: Some("7.22".parse().unwrap()),
+            ..Routerboard::default()
+        };
+        assert!(RouterOsSnapshot::routerboard_fw_update_pending(&pending));
     }
 }

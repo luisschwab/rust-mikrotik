@@ -158,3 +158,60 @@ pub(crate) fn parse_non_empty(value: &str) -> Result<String, ParseError> {
         Ok(value.to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloc::format;
+    use alloc::string::ToString;
+
+    use super::*;
+
+    #[test]
+    fn parse_errors_have_specific_messages() {
+        let cases = [
+            (ParseError::RouterOsId, "invalid RouterOS row id"),
+            (ParseError::NonEmptyString, "value must not be empty"),
+            (ParseError::MacAddress, "invalid MAC address"),
+            (ParseError::Mtu, "invalid MTU"),
+            (ParseError::RouterOsDuration, "invalid RouterOS duration"),
+            (ParseError::RouterOsDurationRange, "invalid RouterOS duration range"),
+            (ParseError::RouterOsByteSize, "invalid RouterOS byte size"),
+            (ParseError::RouterOsTimeZoneOffset, "invalid RouterOS timezone offset"),
+            (ParseError::RouterOsDateTime, "invalid RouterOS date/time"),
+            (ParseError::RouterOsDate, "invalid RouterOS date"),
+            (ParseError::RouterOsTime, "invalid RouterOS time"),
+            (ParseError::IpPrefix, "invalid IP prefix"),
+            (ParseError::ScopedIpAddress, "invalid scoped IP address"),
+            (ParseError::IpEndpointAddress, "invalid IP endpoint address"),
+            (ParseError::DeviceStatus, "invalid device status"),
+            (ParseError::DeviceKind, "invalid device kind"),
+            (ParseError::DeviceRole, "invalid device role"),
+            (ParseError::LanHostSource, "invalid LAN host source"),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(format!("{error}"), message);
+        }
+    }
+
+    #[test]
+    fn routeros_ids_validate_and_round_trip_through_json() {
+        let id = "*8000000D".parse::<RouterOsId>().unwrap();
+        assert_eq!(id.as_str(), "*8000000D");
+        assert_eq!(id.to_string(), "*8000000D");
+        assert_eq!(serde_json::to_string(&id).unwrap(), r#""*8000000D""#);
+        assert_eq!(serde_json::from_str::<RouterOsId>(r#""*1""#).unwrap().as_str(), "*1");
+
+        for invalid in ["", "*", "1"] {
+            assert_eq!(invalid.parse::<RouterOsId>(), Err(ParseError::RouterOsId));
+        }
+        assert!(serde_json::from_str::<RouterOsId>(r#""invalid""#).is_err());
+    }
+
+    #[test]
+    fn non_empty_parser_only_rejects_empty_text() {
+        assert_eq!(parse_non_empty("value").unwrap(), "value");
+        assert_eq!(parse_non_empty(" ").unwrap(), " ");
+        assert_eq!(parse_non_empty(""), Err(ParseError::NonEmptyString));
+    }
+}

@@ -254,6 +254,9 @@ fn parse_router_os_date(value: &str) -> Result<Date, ParseError> {
 
 /// Parse `YYYY-MM-DD HH:MM:SS` date-time text.
 fn parse_iso_like_datetime(value: &str) -> Result<PrimitiveDateTime, ParseError> {
+    if value.as_bytes().get(10) != Some(&b' ') {
+        return Err(ParseError::RouterOsDateTime);
+    }
     let time = parse_time_hms(value.get(11..19).ok_or(ParseError::RouterOsDateTime)?)?;
     let date = parse_iso_like_date_as(&value[..10], ParseError::RouterOsDateTime)?;
 
@@ -771,4 +774,229 @@ fn write_router_os_duration(duration: Duration, f: &mut fmt::Formatter<'_>) -> f
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::format;
+    use alloc::string::ToString;
+    use core::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn versions_are_non_empty_string_newtypes() {
+        let version = "7.21.1 (stable)".parse::<RouterOsVersion>().unwrap();
+        assert_eq!(version.as_str(), "7.21.1 (stable)");
+        assert_eq!(version.to_string(), "7.21.1 (stable)");
+        assert_eq!(serde_json::to_string(&version).unwrap(), r#""7.21.1 (stable)""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsVersion>(r#""7.22""#).unwrap().as_str(),
+            "7.22"
+        );
+        assert!("".parse::<RouterOsVersion>().is_err());
+    }
+
+    #[test]
+    fn date_times_accept_current_and_legacy_routeros_formats() {
+        let current = "2026-09-06 17:30:45".parse::<RouterOsDateTime>().unwrap();
+        let legacy = "sep/06/2026 17:30:45".parse::<RouterOsDateTime>().unwrap();
+        assert_eq!(current, legacy);
+        assert_eq!(current.to_string(), "2026-09-06 17:30:45");
+        assert_eq!(RouterOsDateTime::from(current.as_datetime()), current);
+        assert_eq!(PrimitiveDateTime::from(current), legacy.into_datetime());
+        assert_eq!(serde_json::to_string(&legacy).unwrap(), r#""2026-09-06 17:30:45""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsDateTime>(r#""2026-09-06 17:30:45""#).unwrap(),
+            legacy
+        );
+    }
+
+    #[test]
+    fn legacy_dates_accept_every_case_insensitive_month_name() {
+        for (month, number) in [
+            ("JAN", 1),
+            ("feb", 2),
+            ("mar", 3),
+            ("apr", 4),
+            ("may", 5),
+            ("jun", 6),
+            ("jul", 7),
+            ("aug", 8),
+            ("sep", 9),
+            ("oct", 10),
+            ("nov", 11),
+            ("dec", 12),
+        ] {
+            let date = format!("{month}/01/2026").parse::<RouterOsDate>().unwrap();
+            assert_eq!(date.to_string(), format!("2026-{number:02}-01"));
+        }
+    }
+
+    #[test]
+    fn dates_and_times_round_trip_through_accessors_and_json() {
+        let date = "2024-02-29".parse::<RouterOsDate>().unwrap();
+        assert_eq!(date.as_date().day(), 29);
+        assert_eq!(serde_json::to_string(&date).unwrap(), r#""2024-02-29""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsDate>(r#""jan/02/2025""#)
+                .unwrap()
+                .to_string(),
+            "2025-01-02"
+        );
+
+        let time = "01:02:03".parse::<RouterOsTime>().unwrap();
+        assert_eq!(time.as_time().hour(), 1);
+        assert_eq!(time.to_string(), "01:02:03");
+        assert_eq!(serde_json::to_string(&time).unwrap(), r#""01:02:03""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsTime>(r#""23:59:59""#)
+                .unwrap()
+                .as_time()
+                .second(),
+            59
+        );
+    }
+
+    #[test]
+    fn date_and_time_parsers_reject_malformed_or_out_of_range_values() {
+        for invalid in [
+            "",
+            "2026-13-01 00:00:00",
+            "2026-01-32 00:00:00",
+            "2026-01-01T00:00:00",
+            "2026/01/01 00:00:00",
+            "2026-01/01 00:00:00",
+            "bad/01/2026 00:00:00",
+            "jan/01/2026",
+            "jan/01/2026 25:00:00",
+            "jan/01/2026 00:00:00:00",
+        ] {
+            assert_eq!(invalid.parse::<RouterOsDateTime>(), Err(ParseError::RouterOsDateTime));
+        }
+        for invalid in [
+            "2026-00-01",
+            "2026-01-32",
+            "2026/01/01",
+            "2026-01/01",
+            "bad/01/2026",
+            "jan/01/2026/extra",
+        ] {
+            assert_eq!(invalid.parse::<RouterOsDate>(), Err(ParseError::RouterOsDate));
+        }
+        for invalid in ["", "24:00:00", "00:60:00", "00:00:60", "00:00:00:00"] {
+            assert_eq!(invalid.parse::<RouterOsTime>(), Err(ParseError::RouterOsTime));
+        }
+    }
+
+    #[test]
+    fn durations_parse_all_units_and_convert_to_standard_duration() {
+        let duration = "1w2d3h4m5s6ms7us8ns".parse::<RouterOsDuration>().unwrap();
+        assert_eq!(duration.as_duration(), Duration::new(788_645, 6_007_008));
+        assert_eq!(Duration::from(duration), duration.as_duration());
+        assert_eq!(
+            RouterOsDuration::from(Duration::from_secs(5)),
+            RouterOsDuration::Finite(Duration::from_secs(5))
+        );
+        assert_eq!(
+            "60".parse::<RouterOsDuration>().unwrap().as_duration(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            "1min".parse::<RouterOsDuration>().unwrap().as_duration(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            "never".parse::<RouterOsDuration>().unwrap().as_duration(),
+            Duration::MAX
+        );
+    }
+
+    #[test]
+    fn durations_format_compactly_and_round_trip_through_json() {
+        let duration = RouterOsDuration::from(Duration::from_millis(788_645_006));
+        assert_eq!(duration.to_string(), "1w2d3h4m5s6ms");
+        assert_eq!(RouterOsDuration::from(Duration::ZERO).to_string(), "0s");
+        assert_eq!(RouterOsDuration::Never.to_string(), "never");
+        assert_eq!(serde_json::to_string(&duration).unwrap(), r#""1w2d3h4m5s6ms""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsDuration>(r#""2h30m""#)
+                .unwrap()
+                .as_duration(),
+            Duration::from_secs(9_000)
+        );
+
+        for invalid in ["", "ms", "1x", "1.5s", "18446744073709551615w"] {
+            assert_eq!(invalid.parse::<RouterOsDuration>(), Err(ParseError::RouterOsDuration));
+        }
+    }
+
+    #[test]
+    fn duration_ranges_expose_bounds_and_validate_both_sides() {
+        let range = "1s..2m".parse::<RouterOsDurationRange>().unwrap();
+        assert_eq!(range.start().as_duration(), Duration::from_secs(1));
+        assert_eq!(range.end().as_duration(), Duration::from_secs(120));
+        assert_eq!(range.to_string(), "1s..2m");
+        assert_eq!(serde_json::to_string(&range).unwrap(), r#""1s..2m""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsDurationRange>(r#""never..1h""#)
+                .unwrap()
+                .start(),
+            RouterOsDuration::Never
+        );
+        for invalid in ["1s", "bad..1s", "1s..bad"] {
+            assert_eq!(
+                invalid.parse::<RouterOsDurationRange>(),
+                Err(ParseError::RouterOsDurationRange)
+            );
+        }
+    }
+
+    #[test]
+    fn byte_sizes_accept_binary_suffixes_and_detect_overflow() {
+        for (wire, bytes) in [
+            ("0", 0),
+            ("16k", 16 * 1024),
+            ("2M", 2 * 1024 * 1024),
+            ("1g", 1024 * 1024 * 1024),
+        ] {
+            let size = wire.parse::<RouterOsByteSize>().unwrap();
+            assert_eq!(size.bytes(), bytes);
+            assert_eq!(size.to_string(), bytes.to_string());
+        }
+        assert_eq!(
+            serde_json::to_string(&"1k".parse::<RouterOsByteSize>().unwrap()).unwrap(),
+            r#""1024""#
+        );
+        assert_eq!(
+            serde_json::from_str::<RouterOsByteSize>(r#""2048""#).unwrap().bytes(),
+            2048
+        );
+        for invalid in ["", "k", "1t", "18446744073709551615k"] {
+            assert_eq!(invalid.parse::<RouterOsByteSize>(), Err(ParseError::RouterOsByteSize));
+        }
+    }
+
+    #[test]
+    fn timezone_offsets_parse_format_and_validate_bounds() {
+        let positive = "+05:30".parse::<RouterOsTimeZoneOffset>().unwrap();
+        let negative = "-04:00".parse::<RouterOsTimeZoneOffset>().unwrap();
+        assert_eq!(positive.minutes(), 330);
+        assert_eq!(negative.minutes(), -240);
+        assert_eq!(positive.to_string(), "+05:30");
+        assert_eq!(negative.to_string(), "-04:00");
+        assert_eq!(serde_json::to_string(&positive).unwrap(), r#""+05:30""#);
+        assert_eq!(
+            serde_json::from_str::<RouterOsTimeZoneOffset>(r#""-00:30""#)
+                .unwrap()
+                .minutes(),
+            -30
+        );
+        for invalid in ["", "05:30", "+24:00", "+01:60", "+x:00", "+01:x", "+0100"] {
+            assert_eq!(
+                invalid.parse::<RouterOsTimeZoneOffset>(),
+                Err(ParseError::RouterOsTimeZoneOffset)
+            );
+        }
+    }
 }

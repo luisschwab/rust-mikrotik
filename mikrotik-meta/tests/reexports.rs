@@ -10,7 +10,7 @@
     feature = "types"
 ))]
 use core::any::type_name;
-#[cfg(feature = "common-tracing-subscriber")]
+#[cfg(feature = "common-log")]
 use core::any::type_name_of_val;
 
 #[cfg(feature = "client")]
@@ -61,8 +61,8 @@ fn reexports_types() {
     let _ = type_name::<mikrotik_meta::types::RouterOsId>();
 }
 
-#[cfg(feature = "common-tracing-subscriber")]
+#[cfg(feature = "common-log")]
 #[test]
-fn forwards_common_tracing_subscriber() {
+fn forwards_common_log() {
     let _ = type_name_of_val(&mikrotik_meta::common::logging::init_tracing);
 }

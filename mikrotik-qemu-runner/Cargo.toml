@@ -11,7 +11,7 @@ repository.workspace = true
 [dependencies]
 # Workspace Dependencies
 mikrotik-client = { path = "../mikrotik-client" }
-mikrotik-common = { path = "../mikrotik-common", features = ["tracing-subscriber"] }
+mikrotik-common = { path = "../mikrotik-common", features = ["log"] }
 mikrotik-types = { path = "../mikrotik-types" }
 # External Dependencies
 bitreq = { version = "0.3.7", default-features = false, features = ["std", "https"] }

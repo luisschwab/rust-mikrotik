@@ -19,7 +19,7 @@ path = "src/bin/crawler.rs"
 [dependencies]
 # Workspace Dependencies
 mikrotik-client = { path = "../mikrotik-client" }
-mikrotik-common = { path = "../mikrotik-common", features = ["tracing-subscriber"] }
+mikrotik-common = { path = "../mikrotik-common", features = ["log"] }
 mikrotik-graphviz = { path = "../mikrotik-graphviz" }
 mikrotik-qemu-runner = { path = "../mikrotik-qemu-runner" }
 mikrotik-types = { path = "../mikrotik-types" }

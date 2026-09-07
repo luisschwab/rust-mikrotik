@@ -20,7 +20,7 @@ client = ["dep:mikrotik-client"]
 
 # mikrotik-common
 common = ["dep:mikrotik-common"]
-common-tracing-subscriber = ["common", "mikrotik-common/tracing-subscriber"]
+common-log = ["common", "mikrotik-common/log"]
 
 # mikrotik-crawler
 crawler = ["dep:mikrotik-crawler"]

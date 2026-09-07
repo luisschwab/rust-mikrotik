@@ -21,10 +21,10 @@
 //!
 //! ## Forwarded features
 //!
-//! | Feature                     | Enables                             |
-//! |-----------------------------|-------------------------------------|
-//! | `common-tracing-subscriber` | mikrotik-common/tracing-subscriber` |
-//! | `proto2-std`                | mikrotik-proto2/std`                |
+//! | Feature      | Enables                   |
+//! |--------------|---------------------------|
+//! | `common-log` | `mikrotik-common/log`     |
+//! | `proto2-std` | `mikrotik-proto2/std`     |
 //!
 //! This crate is `#![no_std]` when no features are enabled. Individual
 //! features may select crates that require `std`.

@@ -183,3 +183,142 @@ fn validate_chr_archive(archive_path: &Path, archive_member: &str) -> Result<()>
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read as _;
+    use std::io::Write as _;
+    use std::net::TcpListener;
+    use std::process;
+
+    use zip::ZipWriter;
+    use zip::write::SimpleFileOptions;
+
+    use super::*;
+
+    fn temporary_root(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("mikrotik-chr-test-{}-{name}", process::id()))
+    }
+
+    fn serve_once(status: &str, headers: &str, body: Vec<u8>) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let status = status.to_owned();
+        let headers = headers.to_owned();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            write!(stream, "HTTP/1.1 {status}\r\nConnection: close\r\n{headers}\r\n").unwrap();
+            stream.write_all(&body).unwrap();
+        });
+        (format!("http://{address}/chr.zip"), server)
+    }
+
+    #[test]
+    fn image_names_and_urls_follow_mikrotik_download_conventions() {
+        assert_eq!(chr_image_filename("7.23.1", ChrArch::X86_64), "chr-7.23.1.img");
+        assert_eq!(chr_image_filename("7.23.1", ChrArch::Aarch64), "chr-7.23.1-arm64.img");
+        assert_eq!(chr_archive_filename("7.23.1", ChrArch::X86_64), "chr-7.23.1.img.zip");
+        assert_eq!(
+            chr_url("7.23.1", ChrArch::Aarch64),
+            "https://download.mikrotik.com/routeros/7.23.1/chr-7.23.1-arm64.img.zip"
+        );
+    }
+
+    #[test]
+    fn existing_cached_image_is_returned_without_downloading() {
+        let root = temporary_root("cached");
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        let image = root.join(IMAGES_DIR).join("chr-7.23.1.img");
+        fs::create_dir_all(image.parent().unwrap()).unwrap();
+        fs::write(&image, b"cached image").unwrap();
+
+        assert_eq!(ensure_chr_image(&root, "7.23.1", ChrArch::X86_64).unwrap(), image);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archive_validation_and_extraction_require_the_named_member() {
+        let root = temporary_root("extract");
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let archive_path = root.join("chr.zip");
+        let image_path = root.join("chr.img");
+        let file = fs::File::create(&archive_path).unwrap();
+        let mut archive = ZipWriter::new(file);
+        archive
+            .start_file("chr-7.23.1.img", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(b"router image").unwrap();
+        archive.finish().unwrap();
+
+        validate_chr_archive(&archive_path, "chr-7.23.1.img").unwrap();
+        assert!(validate_chr_archive(&archive_path, "missing.img").is_err());
+        unpack_chr_archive(&archive_path, "chr-7.23.1.img", &image_path).unwrap();
+        assert_eq!(fs::read(&image_path).unwrap(), b"router image");
+        assert!(unpack_chr_archive(&archive_path, "missing.img", &image_path).is_err());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_and_missing_archives_report_validation_errors() {
+        let root = temporary_root("invalid");
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let invalid = root.join("invalid.zip");
+        fs::write(&invalid, b"not a zip archive").unwrap();
+
+        assert!(validate_chr_archive(&root.join("missing.zip"), "chr.img").is_err());
+        assert!(validate_chr_archive(&invalid, "chr.img").is_err());
+        assert!(unpack_chr_archive(&root.join("missing.zip"), "chr.img", &root.join("image")).is_err());
+        assert!(unpack_chr_archive(&invalid, "chr.img", &root.join("image")).is_err());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_http_download_validates_status_length_and_zip_contents() {
+        let root = temporary_root("download");
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.zip");
+        let file = fs::File::create(&source).unwrap();
+        let mut archive = ZipWriter::new(file);
+        archive
+            .start_file("chr-7.23.1.img", SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(b"router image").unwrap();
+        archive.finish().unwrap();
+        let body = fs::read(&source).unwrap();
+
+        let (url, server) = serve_once("200 OK", &format!("Content-Length: {}\r\n", body.len()), body.clone());
+        let partial = root.join("download.part");
+        try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2).unwrap();
+        server.join().unwrap();
+        assert_eq!(fs::read(&partial).unwrap(), body);
+
+        let (url, server) = serve_once("404 Not Found", "Content-Length: 0\r\n", Vec::new());
+        assert!(try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2).is_err());
+        server.join().unwrap();
+
+        let invalid_body = b"not a zip".to_vec();
+        let (url, server) = serve_once(
+            "200 OK",
+            &format!("Content-Length: {}\r\n", invalid_body.len()),
+            invalid_body,
+        );
+        assert!(try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2).is_err());
+        server.join().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+}

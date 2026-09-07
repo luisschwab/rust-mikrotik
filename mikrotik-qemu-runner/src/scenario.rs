@@ -278,3 +278,95 @@ impl Drop for Scenario {
         self.shutdown();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::process;
+
+    use super::*;
+
+    #[test]
+    fn ethernet_interfaces_validate_parse_and_display_routeros_names() {
+        let interface = EthernetInterface::new(12).unwrap();
+        assert_eq!(interface.index(), 12);
+        assert_eq!(interface.to_string(), "ether12");
+        assert_eq!("ether12".parse::<EthernetInterface>().unwrap(), interface);
+        assert!(EthernetInterface::new(0).is_err());
+        for invalid in ["", "ether", "ether0", "wlan1", "etherx"] {
+            assert!(invalid.parse::<EthernetInterface>().is_err());
+        }
+    }
+
+    #[test]
+    fn ethernet_links_capture_both_named_endpoints() {
+        let a = MikrotikDConf::new("R01");
+        let b = MikrotikDConf::new("R02");
+        let link = EthernetLink::create(
+            &a,
+            EthernetInterface::new(2).unwrap(),
+            &b,
+            EthernetInterface::new(3).unwrap(),
+        );
+        assert_eq!(link.a.router, "R01");
+        assert_eq!(link.a.interface.index(), 2);
+        assert_eq!(link.b.router, "R02");
+        assert_eq!(link.b.interface.index(), 3);
+    }
+
+    #[test]
+    fn scenario_configuration_builders_preserve_order_and_options() {
+        let a = MikrotikDConf::new("R01");
+        let b = MikrotikDConf::new("R02");
+        let link = EthernetLink::create(
+            &a,
+            EthernetInterface::new(2).unwrap(),
+            &b,
+            EthernetInterface::new(2).unwrap(),
+        );
+        let config = ScenarioConf::new("two")
+            .with_software_emulation(false)
+            .with_device(&a)
+            .with_device(&b)
+            .with_ethernet_link(link.clone());
+        assert_eq!(config.name, "two");
+        assert!(!config.allow_software_emulation);
+        assert_eq!(config.devices, [a, b]);
+        assert_eq!(config.links, [link]);
+
+        let default = ScenarioConf::default();
+        assert_eq!(default.name, "scenario");
+        assert_eq!(default.devices.len(), 1);
+    }
+
+    #[test]
+    fn empty_live_scenario_accessors_and_shutdown_are_noops() {
+        let socket_dir = std::env::temp_dir().join(format!("mikrotik-qemu-scenario-test-{}", process::id()));
+        if socket_dir.exists() {
+            fs::remove_dir_all(&socket_dir).unwrap();
+        }
+        fs::create_dir(&socket_dir).unwrap();
+        {
+            let mut scenario = Scenario {
+                name: "empty".to_owned(),
+                run_dir: PathBuf::from("run"),
+                devices: Vec::new(),
+                _socket_dir_guard: RuntimeSocketDir(socket_dir.clone()),
+            };
+            assert_eq!(scenario.name(), "empty");
+            assert!(scenario.devices().is_empty());
+            assert!(scenario.device("missing").is_none());
+            assert!(scenario.targets().is_empty());
+            assert_eq!(scenario.run_dir(), Path::new("run"));
+            scenario.shutdown();
+        }
+        assert!(!socket_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn spawn_wrappers_reject_invalid_configuration_before_preparing_qemu() {
+        let invalid = ScenarioConf::new("empty");
+        assert!(Scenario::new_with_conf(&invalid).await.is_err());
+        assert!(Scenario::spawn(&invalid).await.is_err());
+    }
+}

@@ -339,3 +339,178 @@ fn aarch64_firmware_paths() -> Result<Aarch64Firmware> {
     }
     Err(Error::Tool("missing aarch64 EDK2 firmware files for QEMU".to_owned()))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::process::Command;
+
+    use super::*;
+
+    fn target(host_arch: ChrArch, guest_arch: ChrArch, accelerator: Accelerator) -> RuntimeTarget {
+        RuntimeTarget {
+            host_arch,
+            guest_arch,
+            accelerator,
+        }
+    }
+
+    #[test]
+    fn target_for_port_uses_localhost_and_default_credentials() {
+        let target = target_for_port(18_728).unwrap();
+        assert_eq!(target.address.to_string(), "127.0.0.1:18728");
+        assert_eq!(target.credentials.username, DEFAULT_USERNAME);
+        assert_eq!(target.credentials.password.as_deref(), Some(DEFAULT_PASSWORD));
+    }
+
+    #[test]
+    fn runtime_target_reports_architecture_and_accelerator_names() {
+        for (accelerator, name) in [
+            (Accelerator::Hvf, "hvf"),
+            (Accelerator::Kvm, "kvm"),
+            (Accelerator::Software, "tcg"),
+        ] {
+            let target = target(ChrArch::X86_64, ChrArch::X86_64, accelerator);
+            assert_eq!(target.host_arch(), ChrArch::X86_64);
+            assert_eq!(target.accelerator_name(), name);
+        }
+    }
+
+    #[test]
+    fn accelerator_arguments_distinguish_hardware_native_and_cross_arch_tcg() {
+        let mut args = Vec::new();
+        append_accelerator_args(&mut args, target(ChrArch::X86_64, ChrArch::X86_64, Accelerator::Hvf));
+        assert_eq!(args, ["-accel", "hvf"]);
+
+        let mut args = Vec::new();
+        append_accelerator_args(&mut args, target(ChrArch::X86_64, ChrArch::X86_64, Accelerator::Kvm));
+        assert_eq!(args, ["-accel", "kvm"]);
+
+        let mut args = Vec::new();
+        append_accelerator_args(
+            &mut args,
+            target(ChrArch::X86_64, ChrArch::X86_64, Accelerator::Software),
+        );
+        assert_eq!(args, ["-accel", "tcg"]);
+
+        let mut args = Vec::new();
+        append_accelerator_args(
+            &mut args,
+            target(ChrArch::Aarch64, ChrArch::X86_64, Accelerator::Software),
+        );
+        assert_eq!(args, ["-accel", "tcg,tb-size=256"]);
+    }
+
+    #[test]
+    fn cross_arch_runtime_detection_always_selects_software_emulation() {
+        let shell = Shell::new().unwrap();
+        let runtime = RuntimeTarget::detect(&shell, ChrArch::Aarch64, RouterOsVersion::V6_49_19, false).unwrap();
+        assert_eq!(runtime.guest_arch, ChrArch::X86_64);
+        assert_eq!(runtime.accelerator_name(), "tcg");
+    }
+
+    #[test]
+    fn x86_disk_arguments_use_a_q35_virtio_drive() {
+        let mut args = Vec::new();
+        append_disk_args(
+            &mut args,
+            target(ChrArch::X86_64, ChrArch::X86_64, Accelerator::Software),
+            Path::new("router.qcow2"),
+            "R01",
+            Path::new("run"),
+            &Shell::new().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(args[0..2], ["-M", "q35"]);
+        assert!(args.iter().any(|arg| arg == "file=router.qcow2,if=virtio,format=qcow2"));
+    }
+
+    #[test]
+    fn host_tool_probe_accepts_existing_and_rejects_missing_commands() {
+        let shell = Shell::new().unwrap();
+        assert!(ensure_tool(&shell, "sh").is_ok());
+        assert!(ensure_tool(&shell, "definitely-not-a-real-command").is_err());
+        let _ = host_kvm_available();
+        let _ = host_hvf_available(&shell);
+        let _ = aarch64_firmware_paths();
+
+        let mut isolated = Shell::new().unwrap();
+        isolated.set_var("PATH", "/definitely/not/a/tool/directory");
+        assert!(qemu_system_binary(&isolated, ChrArch::X86_64).is_err());
+        assert!(qemu_system_binary(&isolated, ChrArch::Aarch64).is_err());
+    }
+
+    #[test]
+    fn installed_qemu_tools_create_an_overlay_and_resolve_system_binaries() {
+        let shell = Shell::new().unwrap();
+        if ensure_tool(&shell, "qemu-img").is_err() {
+            return;
+        }
+        assert!(qemu_system_binary(&shell, ChrArch::X86_64).is_ok());
+        assert!(qemu_system_binary(&shell, ChrArch::Aarch64).is_ok());
+
+        let root = std::env::temp_dir().join(format!("mikrotik-qemu-overlay-test-{}", std::process::id()));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let base = root.join("base.img");
+        let overlay = root.join("overlay.qcow2");
+        fs::write(&base, [0; 512]).unwrap();
+        create_overlay(&shell, &base, &overlay).unwrap();
+        assert!(overlay.exists());
+        assert!(create_overlay(&shell, &base, &root.join("missing/overlay.qcow2")).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn native_aarch64_detection_and_firmware_arguments_cover_host_constraints() {
+        let shell = Shell::new().unwrap();
+        if cfg!(target_os = "macos") {
+            assert!(RuntimeTarget::detect(&shell, ChrArch::Aarch64, RouterOsVersion::V7_23_1, false).is_err());
+            let runtime = RuntimeTarget::detect(&shell, ChrArch::Aarch64, RouterOsVersion::V7_23_1, true).unwrap();
+            assert_eq!(runtime.accelerator_name(), "tcg");
+        }
+
+        let Ok(firmware) = aarch64_firmware_paths() else {
+            return;
+        };
+        assert!(firmware.code.exists());
+        assert!(firmware.vars.exists());
+        let root = std::env::temp_dir().join(format!("mikrotik-qemu-firmware-test-{}", std::process::id()));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let mut args = Vec::new();
+        append_disk_args(
+            &mut args,
+            target(ChrArch::Aarch64, ChrArch::Aarch64, Accelerator::Software),
+            Path::new("router.qcow2"),
+            "R01",
+            &root,
+            &shell,
+        )
+        .unwrap();
+        assert!(args.iter().any(|arg| arg == "virt,acpi=on"));
+        assert!(args.iter().any(|arg| arg == "cortex-a710"));
+        assert!(root.join("R01.vars.fd").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn qemu_vm_accessors_and_shutdown_manage_the_child_process() {
+        let child = Command::new("sh").args(["-c", "sleep 60"]).spawn().unwrap();
+        let socket_dir = std::env::temp_dir().join(format!("mikrotik-qemu-vm-test-{}", child.id()));
+        fs::create_dir(&socket_dir).unwrap();
+        let mut vm = QemuVm::new("R01".to_owned(), 18_728, PathBuf::from("run"), child).unwrap();
+        vm.set_socket_dir_guard(RuntimeSocketDir(socket_dir.clone()));
+        assert_eq!(vm.api_socket().to_string(), "127.0.0.1:18728");
+        assert_eq!(vm.target().address, vm.api_socket());
+        assert_eq!(vm.run_dir(), Path::new("run"));
+        vm.shutdown();
+        vm.shutdown();
+        drop(vm);
+        assert!(!socket_dir.exists());
+    }
+}

@@ -1,10 +1,12 @@
 //! Live scenario tests for bundled QEMU runner scenario files.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Once;
 
 use mikrotik_common::info_with_label;
 use mikrotik_common::logging::init_tracing;
+use mikrotik_qemu_runner::ROUTEROS_VERSIONS;
 use mikrotik_qemu_runner::Result;
 use mikrotik_qemu_runner::Scenario;
 use mikrotik_qemu_runner::ScenarioConf;
@@ -49,6 +51,29 @@ fn bundled_scenarios_parse() {
         assert!(!scenario_conf.name.is_empty());
         assert!(!scenario_conf.devices.is_empty());
     }
+}
+
+#[test]
+fn version_stress_manifest_covers_catalog_exactly() {
+    let scenario = ScenarioConf::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("scenarios")
+            .join("version-stress-test.toml"),
+    )
+    .expect("version stress scenario should parse");
+    let manifest_versions = scenario
+        .devices
+        .iter()
+        .map(|device| device.version)
+        .collect::<BTreeSet<_>>();
+    let catalog_versions = ROUTEROS_VERSIONS.iter().copied().collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        scenario.devices.len(),
+        manifest_versions.len(),
+        "scenario versions must be unique"
+    );
+    assert_eq!(manifest_versions, catalog_versions);
 }
 
 #[tokio::test]

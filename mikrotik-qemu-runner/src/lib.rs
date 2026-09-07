@@ -579,7 +579,8 @@ mod tests {
         assert_eq!(
             versions,
             [
-                "7.23.1", "7.23", "7.22.3", "7.22.2", "7.22.1", "7.21.4", "7.20.8", "7.20.7", "6.49.19", "6.49.18",
+                "7.24.2", "7.24.1", "7.24", "7.23.5", "7.23.4", "7.23.3", "7.23.2", "7.23.1", "7.23", "7.22.3",
+                "7.22.2", "7.22.1", "7.21.5", "7.21.4", "7.20.8", "7.20.7", "6.49.21", "6.49.20", "6.49.19", "6.49.18",
                 "6.49.17", "6.49.16", "6.49.15", "6.49.13", "6.49.10",
             ]
         );
@@ -730,7 +731,7 @@ mod tests {
         let report = fs::read_to_string(root.join(SCENARIO_REPORT_FILENAME)).unwrap();
         assert!(report.starts_with("scenario,routers,links,index"));
         assert!(report.contains(r#""report,scenario""#));
-        assert!(report.contains(",1,0,0,R01,7.23.1,"));
+        assert!(report.contains(",1,0,0,R01,7.24.2,"));
         assert!(report.contains("Aarch64,X86_64,tcg,qemu-system-x86_64,18728,0"));
         fs::remove_dir_all(root).unwrap();
     }

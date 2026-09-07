@@ -344,6 +344,106 @@ bootstrap = [
   "/ip/route/add dst-address=10.100.14.0/24 gateway=172.16.14.1",
 ]
 
+[[routers]]
+name = "R16"
+version = "7.24.2"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R16",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R17"
+version = "7.24.1"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R17",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R18"
+version = "7.24"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R18",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R19"
+version = "7.23.5"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R19",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R20"
+version = "7.23.4"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R20",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R21"
+version = "7.23.3"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R21",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R22"
+version = "7.23.2"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R22",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R23"
+version = "7.21.5"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R23",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R24"
+version = "6.49.21"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R24",
+  "/ip/service/enable numbers=api",
+]
+
+[[routers]]
+name = "R25"
+version = "6.49.20"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=R25",
+  "/ip/service/enable numbers=api",
+]
+
 [[links]]
 a = "R01:ether2"
 b = "R02:ether2"

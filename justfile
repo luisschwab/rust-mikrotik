@@ -144,7 +144,7 @@ run package +args:
 [doc("Run the crawler binary against a scenario manifest")]
 [group("Simulation")]
 crawl scenario="mikrotik-qemu-runner/scenarios/isp-network.toml":
-    cargo run -p mikrotik-crawler --bin crawler -- --run-kind scenario --scenario {{ scenario }} --mode one-shot --protocol api
+    cargo run -p mikrotik-crawler --bin crawler -- --run-kind scenario --scenario {{ scenario }} --mode one-shot --protocol api --user admin
 
 [doc("Run the crawler against the default QEMU runner scenario example")]
 [group("Simulation")]

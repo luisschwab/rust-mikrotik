@@ -219,6 +219,277 @@ bootstrap = [
   "/ppp/secret/add name=old password=old service=pppoe profile=old-ppp",
 ]
 
+[[routers]]
+name = "CFG_7242_SYSTEM"
+version = "7.24.2"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7242_SYSTEM",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/system/note/set note=config-stress-7242",
+  "/system/logging/action/add name=compatmemory target=memory memory-lines=128",
+  "/system/logging/add topics=info action=compatmemory prefix=compat",
+  "/system/script/add name=compat-script policy=read,write,test source=:log-info-compat",
+  "/system/scheduler/add name=compat-scheduler interval=10m on-event=compat-script disabled=yes",
+  "/interface/bridge/add name=br-compat protocol-mode=rstp vlan-filtering=yes comment=compat-7242",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=742",
+  "/interface/bridge/vlan/add bridge=br-compat vlan-ids=742 tagged=br-compat",
+  "/ip/address/add address=10.42.10.1/24 interface=vlan-compat comment=compat-v4",
+  "/ipv6/address/add address=2001:db8:42::1/64 interface=vlan-compat advertise=yes",
+  "/ipv6/nd/add interface=vlan-compat ra-interval=20s-1m ra-lifetime=30m",
+  "/ip/pool/add name=compat-pool ranges=10.42.10.100-10.42.10.150",
+  "/ip/dhcp-server/network/add address=10.42.10.0/24 gateway=10.42.10.1 dns-server=10.42.10.1 domain=compat.test",
+  "/ip/dhcp-server/add name=compat-dhcp interface=vlan-compat address-pool=compat-pool lease-time=1h disabled=no",
+]
+
+[[routers]]
+name = "CFG_7241_FIREWALL"
+version = "7.24.1"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7241_FIREWALL",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=none comment=compat-7241",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=741",
+  "/ip/address/add address=10.41.10.1/24 interface=vlan-compat",
+  "/ip/firewall/address-list/add list=compat-v4 address=10.41.10.0/24 comment=cidr-entry",
+  "/ip/firewall/address-list/add list=compat-v4 address=example.invalid comment=dns-entry",
+  "/ip/firewall/filter/add chain=input action=accept protocol=tcp dst-port=8728 src-address-list=compat-v4 comment=api-input",
+  "/ip/firewall/filter/add chain=forward action=drop connection-state=invalid comment=drop-invalid",
+  "/ip/firewall/nat/add chain=srcnat action=masquerade out-interface=ether1 comment=compat-nat",
+  "/ip/firewall/mangle/add chain=prerouting action=mark-connection new-connection-mark=compat_conn passthrough=yes src-address=10.41.10.0/24 comment=compat-mangle",
+  "/ip/firewall/raw/add chain=prerouting action=notrack src-address=10.41.10.0/24 comment=compat-raw",
+  "/ip/firewall/connection/tracking/set enabled=auto tcp-established-timeout=1h udp-timeout=20s",
+  "/ip/proxy/set enabled=yes port=8041 cache-administrator=compat@example.invalid",
+  "/ip/socks/set enabled=yes port=1041 connection-idle-timeout=2m",
+  "/ip/traffic-flow/set enabled=yes active-flow-timeout=30m inactive-flow-timeout=15s interfaces=ether1",
+  "/ip/upnp/set enabled=yes allow-disable-external-interface=no show-dummy-rule=yes",
+]
+
+[[routers]]
+name = "CFG_7240_ROUTING"
+version = "7.24"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7240_ROUTING",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=none comment=compat-7240",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=740",
+  "/ip/address/add address=10.40.10.1/24 interface=vlan-compat",
+  "/ip/address/add address=172.40.0.1/30 interface=br-compat",
+  "/ip/route/add dst-address=10.240.0.0/16 gateway=172.40.0.2 distance=4 comment=compat-route",
+  "/ip/vrf/add name=compat-vrf interfaces=vlan-compat",
+  "/routing/table/add name=compat-fib fib",
+  "/routing/rule/add action=lookup-only-in-table table=compat-fib src-address=10.40.10.0/24",
+  "/routing/bgp/instance/add name=compat-as as=64740 router-id=10.40.10.1",
+  "/routing/bgp/template/add name=compat-template as=64740 routing-table=main",
+  "/routing/bgp/connection/add name=compat-peer instance=compat-as remote.address=172.40.0.2 remote.as=64741 local.role=ebgp disabled=yes",
+]
+
+[[routers]]
+name = "CFG_7235_INTERFACES"
+version = "7.23.5"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7235_INTERFACES",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=mstp vlan-filtering=yes comment=compat-7235",
+  "/interface/bridge/add name=br-guest protocol-mode=none",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=735",
+  "/interface/bridge/vlan/add bridge=br-compat vlan-ids=735 tagged=br-compat",
+  "/interface/list/add name=COMPAT_WAN",
+  "/interface/list/add name=COMPAT_LAN",
+  "/interface/list/member/add list=COMPAT_WAN interface=ether1",
+  "/interface/list/member/add list=COMPAT_LAN interface=br-compat",
+  "/interface/detect-internet/set detect-interface-list=COMPAT_WAN lan-interface-list=COMPAT_LAN wan-interface-list=COMPAT_WAN internet-interface-list=COMPAT_WAN",
+  "/interface/wireguard/add name=wg-compat listen-port=17335 mtu=1420",
+  "/interface/gre/add name=gre-compat local-address=10.35.10.1 remote-address=10.35.10.2 disabled=no",
+  "/interface/ipip/add name=ipip-compat local-address=10.35.10.1 remote-address=10.35.10.2 disabled=no",
+  "/interface/eoip/add name=eoip-compat tunnel-id=735 local-address=10.35.10.1 remote-address=10.35.10.2 disabled=no",
+  "/interface/vxlan/add name=vxlan-compat vni=10735 port=4789",
+  "/ip/address/add address=10.35.10.1/24 interface=vlan-compat",
+  "/ip/address/add address=10.35.20.1/24 interface=wg-compat",
+  "/ipv6/address/add address=2001:db8:35::1/64 interface=vlan-compat advertise=no",
+]
+
+[[routers]]
+name = "CFG_7234_IPSEC"
+version = "7.23.4"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7234_IPSEC",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=none comment=compat-7234",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=734",
+  "/ip/address/add address=10.34.20.1/24 interface=vlan-compat",
+  "/ip/ipsec/profile/add name=compat-main dh-group=modp1024,modp2048 enc-algorithm=aes-256,3des hash-algorithm=sha256 dpd-interval=disable-dpd lifetime=8h nat-traversal=yes proposal-check=obey",
+  "/ip/ipsec/profile/add name=compat-fast dh-group=ecp256 enc-algorithm=aes-128 hash-algorithm=sha256 dpd-interval=30s dpd-maximum-failures=3 lifetime=1h nat-traversal=no",
+  "/ip/ipsec/proposal/add name=compat-proposal auth-algorithms=sha256,sha1 enc-algorithms=aes-256-cbc,3des lifetime=30m pfs-group=modp1024",
+  "/ip/ipsec/proposal/add name=compat-null auth-algorithms=sha1 enc-algorithms=null lifetime=10m pfs-group=none disabled=yes",
+  "/ip/ipsec/peer/add name=compat-peer address=198.51.100.34/32 profile=compat-main exchange-mode=ike2 disabled=yes",
+  "/ip/ipsec/policy/add src-address=10.34.20.0/24 dst-address=10.34.30.0/24 tunnel=yes action=encrypt proposal=compat-proposal peer=compat-peer disabled=yes comment=compat-policy",
+  "/ip/firewall/filter/add chain=input action=accept protocol=udp dst-port=500,4500 comment=ipsec-ike",
+  "/ip/firewall/filter/add chain=input action=accept protocol=ipsec-esp comment=ipsec-esp",
+  "/ip/firewall/nat/add chain=srcnat action=accept src-address=10.34.20.0/24 dst-address=10.34.30.0/24 comment=no-nat-ipsec",
+]
+
+[[routers]]
+name = "CFG_7233_PPP"
+version = "7.23.3"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7233_PPP",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=rstp comment=compat-7233",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=733",
+  "/ip/address/add address=10.33.30.1/24 interface=vlan-compat",
+  "/ip/pool/add name=compat-pool ranges=10.33.30.100-10.33.30.150",
+  "/ppp/profile/add name=compat-ppp local-address=10.33.30.1 remote-address=compat-pool use-encryption=yes only-one=no",
+  "/ppp/secret/add name=compat-user password=compat-password service=any profile=compat-ppp local-address=10.33.30.1 remote-address=10.33.30.100",
+  "/interface/pppoe-server/server/add service-name=compat-pppoe interface=br-compat default-profile=compat-ppp authentication=pap,chap disabled=no",
+  "/interface/l2tp-server/server/set enabled=yes default-profile=compat-ppp authentication=chap,mschap2 use-ipsec=no",
+  "/interface/pptp-server/server/set enabled=yes default-profile=compat-ppp authentication=mschap2",
+  "/interface/sstp-server/server/set enabled=yes default-profile=compat-ppp authentication=mschap2 certificate=none",
+  "/interface/ovpn-server/server/add name=compat-ovpn disabled=no default-profile=compat-ppp auth=sha1 cipher=aes128-cbc mode=ip netmask=24 require-client-certificate=no",
+]
+
+[[routers]]
+name = "CFG_7232_SERVICES"
+version = "7.23.2"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7232_SERVICES",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=rstp comment=compat-7232",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=732",
+  "/ip/address/add address=10.32.30.1/24 interface=vlan-compat",
+  "/ip/pool/add name=compat-pool ranges=10.32.30.100-10.32.30.180",
+  "/ip/dhcp-server/network/add address=10.32.30.0/24 gateway=10.32.30.1 dns-server=10.32.30.1 domain=services.test",
+  "/ip/dhcp-server/add name=compat-dhcp interface=vlan-compat address-pool=compat-pool lease-time=30m disabled=no",
+  "/ip/hotspot/profile/add name=compat-hotspot hotspot-address=10.32.30.1 dns-name=login.example.invalid html-directory=hotspot",
+  "/ip/hotspot/user/add name=compat-guest password=compat-guest profile=default",
+  "/ip/dns/set allow-remote-requests=yes cache-max-ttl=1d servers=1.1.1.1,8.8.8.8 doh-timeout=5s",
+  "/queue/type/add name=compat-pcq kind=pcq pcq-rate=10M pcq-classifier=src-address",
+  "/queue/simple/add name=compat-simple target=10.32.30.0/24 max-limit=20M/20M queue=compat-pcq/compat-pcq",
+  "/queue/interface/set numbers=ether1 queue=only-hardware-queue",
+  "/snmp/set enabled=yes contact=compat location=config-stress trap-version=2",
+  "/snmp/community/add name=compat-community addresses=10.32.30.0/24 security=none",
+  "/tool/e-mail/set server=192.0.2.32 port=587 from=compat@example.invalid tls=starttls",
+  "/tool/graphing/set store-every=5m",
+  "/tool/graphing/interface/add interface=vlan-compat allow-address=10.32.30.0/24 store-on-disk=no",
+  "/tool/mac-server/ping/set enabled=yes",
+  "/tool/romon/set enabled=yes id=00:00:00:00:32:32",
+  "/tool/romon/port/add interface=vlan-compat disabled=no forbid=no",
+  "/tool/sniffer/set filter-interface=vlan-compat filter-ip-protocol=tcp memory-limit=100KiB",
+]
+
+[[routers]]
+name = "CFG_7215_LEGACY"
+version = "7.21.5"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_7215_LEGACY",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/interface/bridge/add name=br-compat protocol-mode=none comment=compat-7215",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=715",
+  "/ip/address/add address=10.21.50.1/24 interface=vlan-compat",
+  "/ipv6/address/add address=2001:db8:21:5::1/64 interface=vlan-compat advertise=no",
+  "/ip/pool/add name=compat-pool ranges=10.21.50.10-10.21.50.40",
+  "/ip/dhcp-server/network/add address=10.21.50.0/24 gateway=10.21.50.1 dns-server=9.9.9.9",
+  "/ip/dhcp-server/add name=compat-dhcp interface=vlan-compat address-pool=compat-pool lease-time=1d disabled=no",
+  "/ip/ipsec/profile/add name=compat-profile dh-group=modp1024 enc-algorithm=3des hash-algorithm=sha1 dpd-interval=disable-dpd lifetime=8h proposal-check=obey",
+  "/ip/ipsec/proposal/add name=compat-proposal auth-algorithms=sha1 enc-algorithms=3des lifetime=1h pfs-group=modp1024",
+  "/ip/firewall/address-list/add list=compat-list address=198.51.100.15 timeout=1d",
+  "/ip/firewall/filter/add chain=input action=accept src-address-list=compat-list comment=compat-list",
+  "/ip/firewall/nat/add chain=dstnat action=dst-nat protocol=tcp dst-port=2215 to-addresses=10.21.50.10 to-ports=22",
+  "/ip/route/add dst-address=0.0.0.0/0 gateway=10.21.50.254 distance=2 comment=compat-default",
+  "/routing/bgp/instance/add name=compat-as as=64715 router-id=10.21.50.1",
+  "/routing/bgp/connection/add name=compat-disabled instance=compat-as remote.address=10.21.50.254 remote.as=64716 local.role=ebgp disabled=yes",
+  "/ppp/profile/add name=compat-ppp local-address=10.21.50.1 remote-address=compat-pool",
+  "/ppp/secret/add name=compat-user password=compat-password service=pppoe profile=compat-ppp",
+]
+
+[[routers]]
+name = "CFG_64921_NETWORK"
+version = "6.49.21"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_64921_NETWORK",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/system/note/set note=config-stress-64921",
+  "/interface/bridge/add name=br-compat protocol-mode=rstp comment=compat-64921",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=649",
+  "/ip/address/add address=10.49.21.1/24 interface=vlan-compat",
+  "/ip/pool/add name=compat-pool ranges=10.49.21.100-10.49.21.150",
+  "/ip/dhcp-server/network/add address=10.49.21.0/24 gateway=10.49.21.1 dns-server=9.9.9.9",
+  "/ip/dhcp-server/add name=compat-dhcp interface=vlan-compat address-pool=compat-pool lease-time=1h disabled=no",
+  "/ip/firewall/address-list/add list=compat-list address=10.49.21.0/24 timeout=1d",
+  "/ip/firewall/filter/add chain=input action=accept src-address-list=compat-list comment=compat-input",
+  "/ip/firewall/nat/add chain=srcnat action=masquerade out-interface=ether1 comment=compat-nat",
+  "/ip/firewall/mangle/add chain=prerouting action=mark-connection new-connection-mark=compat_conn passthrough=yes src-address=10.49.21.0/24",
+  "/ip/firewall/raw/add chain=prerouting action=notrack src-address=10.49.21.0/24",
+  "/ip/route/add dst-address=10.149.0.0/16 gateway=10.49.21.254 distance=4 comment=compat-route",
+  "/routing/bgp/instance/add name=compat-as as=64921 router-id=10.49.21.1",
+  "/routing/bgp/peer/add name=compat-peer instance=compat-as remote-address=10.49.21.254 remote-as=64512 disabled=yes",
+  "/queue/type/add name=compat-pcq kind=pcq pcq-rate=10M pcq-classifier=src-address",
+  "/queue/simple/add name=compat-simple target=10.49.21.0/24 max-limit=20M/20M queue=compat-pcq/compat-pcq",
+  "/snmp/set enabled=yes contact=compat location=config-stress trap-version=2",
+  "/snmp/community/add name=compat-community addresses=10.49.21.0/24 security=none",
+]
+
+[[routers]]
+name = "CFG_64920_SERVICES"
+version = "6.49.20"
+memory_mib = 384
+cpus = 1
+bootstrap = [
+  "/system/identity/set name=CFG_64920_SERVICES",
+  "/ip/service/enable numbers=api",
+  "/ip/neighbor/discovery-settings/set discover-interface-list=all",
+  "/system/logging/action/add name=compatmemory target=memory memory-lines=128",
+  "/system/logging/add topics=info action=compatmemory prefix=compat",
+  "/system/script/add name=compat-script policy=read,write,test source=:log-info-compat",
+  "/system/scheduler/add name=compat-scheduler interval=10m on-event=compat-script disabled=yes",
+  "/interface/bridge/add name=br-compat protocol-mode=none comment=compat-64920",
+  "/interface/vlan/add name=vlan-compat interface=br-compat vlan-id=648",
+  "/ip/address/add address=10.49.20.1/24 interface=vlan-compat",
+  "/ip/pool/add name=compat-pool ranges=10.49.20.100-10.49.20.150",
+  "/ip/hotspot/profile/add name=compat-hotspot hotspot-address=10.49.20.1 dns-name=login.example.invalid html-directory=hotspot",
+  "/ip/hotspot/user/add name=compat-guest password=compat-guest profile=default",
+  "/ppp/profile/add name=compat-ppp local-address=10.49.20.1 remote-address=compat-pool use-encryption=yes only-one=no",
+  "/ppp/secret/add name=compat-user password=compat-password service=any profile=compat-ppp local-address=10.49.20.1 remote-address=10.49.20.100",
+  "/ip/dns/set allow-remote-requests=yes cache-max-ttl=1d servers=1.1.1.1,8.8.8.8",
+  "/ip/proxy/set enabled=yes port=8020 cache-administrator=compat@example.invalid",
+  "/ip/socks/set enabled=yes port=1020 connection-idle-timeout=2m",
+  "/ip/traffic-flow/set enabled=yes active-flow-timeout=30m inactive-flow-timeout=15s interfaces=ether1",
+  "/ip/upnp/set enabled=yes allow-disable-external-interface=no show-dummy-rule=yes",
+  "/tool/e-mail/set address=192.0.2.20 port=587",
+  "/tool/graphing/set store-every=5m",
+  "/tool/graphing/interface/add interface=vlan-compat allow-address=10.49.20.0/24 store-on-disk=no",
+  "/tool/mac-server/ping/set enabled=yes",
+  "/tool/romon/set enabled=yes id=00:00:00:00:49:20",
+  "/tool/romon/port/add interface=vlan-compat disabled=no forbid=no",
+  "/tool/sniffer/set filter-interface=vlan-compat filter-ip-protocol=tcp memory-limit=100KiB",
+]
+
 [[links]]
 a = "CFG_EDGE:ether2"
 b = "CFG_CORE:ether2"

@@ -33,8 +33,8 @@ jobs:
                       test: isp_network_scenario
                     - name: Config Stress
                       test: config_stress_scenario
-                    - name: RouterOS Version Stress
-                      test: stress_test_scenario
+                    - name: Version Stress
+                      test: version_stress_test_scenario
 
         steps:
             - name: Checkout Repository

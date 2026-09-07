@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-common"
-description = "Shared internals for rust-mikrotik crates"
+description = "Shared utilities for rust-mikrotik crates"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true

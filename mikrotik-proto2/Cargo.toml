@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-proto2"
-description = "Sans-IO protocol implementation for MikroTik RouterOS API (vendored from the original mikrotik-proto crate)"
+description = "Sans-IO protocol implementation for MikroTik RouterOS binary API (vendored from the original mikrotik-proto crate)"
 version = "0.2.0"
 authors = ["Alessandro Ferrara", "Luis Schwab <dev@luisschwab.net>"]
 edition.workspace = true

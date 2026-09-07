@@ -31,6 +31,20 @@
 > [!NOTE]
 > This project is independent of, and has no affiliation with [_SIA Mikrotīkls_](https://mikrotik.com/).
 
+# Crates
+
+This project is comprised of multiple crates, each accomplishing a different goal:
+
+| Crate | Description |
+|-------|-------------|
+| [`mikrotik-common`](./mikrotik-common) | Shared utilities for `rust-mikrotik` crates |
+| [`mikrotik-types`](./mikrotik-types) | Versionless data models for MikroTik's API |
+| [`mikrotik-proto2`](./mikrotik-proto2) | Sans-IO protocol implementation for MikroTik RouterOS binary API |
+| [`mikrotik-client`](./mikrotik-client) | Binary RouterOS API client for MikroTik devices |
+| [`mikrotik-crawler`](./mikrotik-crawler) | MikroTik network crawler and snapshot collector |
+| [`mikrotik-qemu-runner`](./mikrotik-qemu-runner) | QEMU-powered MikroTik CHR simulation harness |
+| [`mikrotik-graphviz`](./mikrotik-graphviz) | Graphviz constructor and exporter for MikroTik device snapshots |
+
 ## Minimum Supported Rust Version
 
 This set of libraries should compile with any combination of features on 

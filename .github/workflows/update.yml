@@ -140,28 +140,31 @@ jobs:
                       const withV = (version) => version.startsWith('v')
                           ? version
                           : `v${version}`;
+                      const toolChanges = tools.map(({ name, oldVersion, version }) =>
+                          `* Bump \`${name}\` from ${withV(oldVersion)} to ${withV(version)}`);
+                      const toolchainChanges = toolchains.map(({ name, oldVersion, version }) =>
+                          `* Bump ${name} from ${oldVersion} to ${version}`);
                       const sections = [];
                       if (tools.length > 0) {
                           sections.push([
                               '## Tools',
-                              ...tools.map(({ name, oldVersion, version }) =>
-                                  `* Bump \`${name}\` from ${withV(oldVersion)} to ${withV(version)}`),
+                              ...toolChanges,
                           ].join('\n'));
                       }
                       if (toolchains.length > 0) {
                           sections.push([
                               '## Toolchains',
-                              ...toolchains.map(({ name, oldVersion, version }) =>
-                                  `* Bump ${name} from ${oldVersion} to ${version}`),
+                              ...toolchainChanges,
                           ].join('\n'));
                       }
                       const changelog = sections.join('\n\n');
                       const prBody = changelog.length > 0
                           ? ['## Changelog', '', '```', changelog, '```'].join('\n')
                           : '';
-                      const commitBody = changelog.length > 0
-                          ? `## Changelog\n\n${changelog}`
-                          : '';
+                      const commitBody = [toolChanges, toolchainChanges]
+                          .filter((section) => section.length > 0)
+                          .map((section) => section.join('\n'))
+                          .join('\n\n');
 
                       core.setOutput('pr_title', prTitle);
                       core.setOutput('pr_body', prBody);

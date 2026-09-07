@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-client"
-description = "A binary RouterOS API client for MikroTik devices"
+description = "Binary RouterOS API client for MikroTik devices"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true

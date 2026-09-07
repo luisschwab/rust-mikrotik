@@ -1,6 +1,6 @@
 [package]
 name = "mikrotik-qemu-runner"
-description = "Rust-first QEMU-powered MikroTik CHR simulation harness"
+description = "QEMU-powered MikroTik CHR simulation harness"
 version = "0.0.0"
 authors.workspace = true
 edition.workspace = true

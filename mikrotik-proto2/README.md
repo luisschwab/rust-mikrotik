@@ -11,11 +11,17 @@
 [license-badge]: https://img.shields.io/badge/License-AGPL--3.0--only-yellow.svg
 [license-url]: https://github.com/luisschwab/rust-mikrotik/blob/master/mikrotik-proto2/Cargo.toml
 
+> [!NOTE]
+> This crate is a fork of [`ferrohd/mikrotik-proto`](https://crates.io/crates/mikrotik-proto),
+> in order to make dependency control and customizability easier.
+
 Sans-IO protocol implementation for the [MikroTik RouterOS API](https://help.mikrotik.com/docs/spaces/ROS/pages/47579160/API).
 
-This crate provides a runtime-agnostic, `#![no_std]`-compatible implementation of the MikroTik wire protocol. It handles encoding, decoding, command building, response parsing, and connection state management.
+This crate provides a runtime-agnostic, `#![no_std]`-compatible implementation of the MikroTik wire protocol.
+It handles encoding, decoding, command building, response parsing, and connection state management.
 
-**If you just want to talk to a router**, use [`mikrotik-rs`](https://crates.io/crates/mikrotik-rs) instead. This crate is for building your own runtime adapter or embedding the protocol in constrained environments.
+**If you just want to talk to a router**, use [`mikrotik-client`](https://crates.io/crates/mikrotik-client)
+instead. This crate is for building your own runtime adapter or embedding the protocol in constrained environments.
 
 ## Highlights
 
@@ -29,7 +35,8 @@ This crate provides a runtime-agnostic, `#![no_std]`-compatible implementation o
 
 ## Usage pattern
 
-The `Connection` type mirrors the design of [`quinn-proto`](https://docs.rs/quinn-proto): you feed it bytes, poll for outbound data, and poll for application events.
+The `Connection` type mirrors the design of [`quinn-proto`](https://docs.rs/quinn-proto): you feed it bytes,
+poll for outbound data, and poll for application events.
 
 ```rust
 use mikrotik_proto::connection::{Connection, Event};
@@ -118,11 +125,11 @@ while let Some(transmit) = hs.poll_transmit() {
                         │      │                                    │
                         ├──────┼────────────────────────────────────┤
                         │      ▼                                    │
-                        │  poll_transmit() ──▶ Vec<u8> to transport |
-                        │  poll_event()   ──▶ Event to application  |
+                        │  poll_transmit() ──▶ Vec<u8> to transport │
+                        │  poll_event()   ──▶ Event to application  │
                         └───────────────────────────────────────────┘
 ```
 
 ## License
 
-Licensed under either of [MIT](../LICENSE-MIT) or [Apache-2.0](../LICENSE-APACHE) at your option.
+Licensed under [AGPL-3.0-Only](LICENSE).

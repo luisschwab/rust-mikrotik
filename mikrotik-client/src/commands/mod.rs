@@ -94,6 +94,8 @@ mikrotik_common::impl_command_display!(PrintCommand);
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::interface::Interface;
     use super::ip::Ip;
     use super::system::System;
@@ -114,5 +116,20 @@ mod tests {
             Interface::WifiRegistration.as_path(),
             "/interface/wifi/registration-table/print"
         );
+    }
+
+    #[test]
+    fn all_print_commands_are_counted_unique_and_display_their_paths() {
+        let commands = super::PrintCommand::all();
+        assert_eq!(commands.len(), super::PrintCommand::count());
+
+        let paths: HashSet<_> = commands.iter().map(|command| command.as_path()).collect();
+        assert_eq!(paths.len(), commands.len());
+        for command in commands {
+            let path = command.as_path();
+            assert!(path.starts_with('/'));
+            assert!(path.ends_with("/print"));
+            assert_eq!(command.to_string(), path);
+        }
     }
 }

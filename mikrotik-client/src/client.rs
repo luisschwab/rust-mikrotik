@@ -287,8 +287,78 @@ mod tests {
     use std::io::Error as IoError;
 
     use mikrotik_proto2::Tag;
+    use mikrotik_proto2::codec;
+    use mikrotik_proto2::codec::Decode;
+    use mikrotik_proto2::word::Word;
+    use mikrotik_types::target::Credentials;
+    use serde::Deserialize;
+    use tokio::io::DuplexStream;
 
     use super::*;
+    use crate::builder::Protocol;
+    use crate::commands::system::System;
+
+    fn config() -> ClientBuilder {
+        ClientBuilder::new(
+            "192.0.2.1",
+            Protocol::Api,
+            Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        )
+    }
+
+    fn test_client(stream: DuplexStream) -> Client {
+        Client {
+            config: config(),
+            session: Arc::new(Mutex::new(Session {
+                stream: Box::new(stream),
+                connection: mikrotik_proto2::Connection::new(),
+            })),
+        }
+    }
+
+    async fn read_command_tag(stream: &mut DuplexStream) -> Tag {
+        let mut data = Vec::new();
+        loop {
+            let mut buffer = [0; 512];
+            let read = stream.read(&mut buffer).await.unwrap();
+            assert_ne!(read, 0, "client closed before sending a command");
+            data.extend_from_slice(&buffer[..read]);
+
+            let Decode::Complete { value: sentence, .. } = codec::decode_sentence(&data).unwrap() else {
+                continue;
+            };
+            return sentence
+                .typed_words()
+                .find_map(|word| match word.unwrap() {
+                    Word::Tag(tag) => Some(tag),
+                    _ => None,
+                })
+                .expect("command should contain a tag");
+        }
+    }
+
+    fn sentence(words: &[&[u8]]) -> Vec<u8> {
+        let mut data = Vec::new();
+        for word in words {
+            codec::encode_word(word, &mut data);
+        }
+        codec::encode_terminator(&mut data);
+        data
+    }
+
+    async fn send_reply_and_done(stream: &mut DuplexStream, attributes: &[&[u8]]) {
+        let tag = read_command_tag(stream).await;
+        let tag_word = format!(".tag={tag}");
+        let mut reply_words = vec![b"!re".as_ref(), tag_word.as_bytes()];
+        reply_words.extend_from_slice(attributes);
+
+        let mut response = sentence(&reply_words);
+        response.extend_from_slice(&sentence(&[b"!done", tag_word.as_bytes()]));
+        stream.write_all(&response).await.unwrap();
+    }
 
     #[test]
     fn row_conversion_drops_none_values() {
@@ -371,6 +441,251 @@ mod tests {
         assert!(matches!(
             unsupported,
             Error::UnsupportedCommand { command, .. } if command == "/interface/wifi/print"
+        ));
+
+        for message in ["permission denied", "operation not permitted"] {
+            assert!(matches!(
+                classify_trap(
+                    "/test/print",
+                    TrapResponse {
+                        tag: Tag::new(),
+                        category: None,
+                        message: message.to_owned(),
+                    },
+                ),
+                Error::PermissionDenied { .. }
+            ));
+        }
+        assert!(matches!(
+            classify_trap(
+                "/test/print",
+                TrapResponse {
+                    tag: Tag::new(),
+                    category: None,
+                    message: "unknown command name".to_owned(),
+                },
+            ),
+            Error::UnsupportedCommand { .. }
+        ));
+        assert!(matches!(
+            classify_trap(
+                "/test/print",
+                TrapResponse {
+                    tag: Tag::new(),
+                    category: Some(mikrotik_proto2::response::TrapCategory::GeneralFailure),
+                    message: "generic failure".to_owned(),
+                },
+            ),
+            Error::Trap {
+                category: Some(mikrotik_proto2::response::TrapCategory::GeneralFailure),
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn raw_call_writes_a_command_and_collects_rows() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            send_reply_and_done(&mut server_stream, &[b"=name=router", b"=flag="]).await;
+        });
+        let client = test_client(client_stream);
+
+        assert_eq!(client.config().socket_address(), "192.0.2.1:8728");
+        let rows = client
+            .call("/system/identity/print", &[("detail", None)])
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("name").map(String::as_str), Some("router"));
+        assert!(!rows[0].contains_key("flag"));
+        server.await.unwrap();
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct TestIdentity {
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn typed_print_deserializes_reply_rows() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            send_reply_and_done(&mut server_stream, &[b"=name=router"]).await;
+        });
+        let client = test_client(client_stream);
+
+        let rows = client
+            .print::<TestIdentity>(PrintCommand::System(System::Identity))
+            .await
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![TestIdentity {
+                name: "router".to_owned()
+            }]
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn generic_print_runner_returns_the_reply_row_count() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            send_reply_and_done(&mut server_stream, &[b"=name=router"]).await;
+        });
+        let client = test_client(client_stream);
+
+        assert_eq!(
+            crate::print::run(&client, PrintCommand::System(System::Identity))
+                .await
+                .unwrap(),
+            1
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn typed_print_reports_the_failing_row_and_command() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            send_reply_and_done(&mut server_stream, &[b"=unexpected=value"]).await;
+        });
+        let client = test_client(client_stream);
+
+        let error = client
+            .print::<TestIdentity>(PrintCommand::System(System::Identity))
+            .await
+            .unwrap_err();
+        let Error::Decode(error) = error else {
+            panic!("expected row decode error");
+        };
+        assert_eq!(error.command(), "/system/identity/print");
+        assert_eq!(error.row_index(), 0);
+        assert_eq!(error.row().get("unexpected").map(String::as_str), Some("value"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn call_reports_empty_trap_fatal_and_transport_close_outcomes() {
+        async fn run(words: &[&[u8]]) -> Result<Vec<Row>> {
+            let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+            let response_words = words.iter().map(|word| word.to_vec()).collect::<Vec<_>>();
+            let server = tokio::spawn(async move {
+                let tag = read_command_tag(&mut server_stream).await;
+                let tag_word = format!(".tag={tag}");
+                let mut borrowed = Vec::with_capacity(response_words.len() + 1);
+                borrowed.push(response_words[0].as_slice());
+                if response_words[0].as_slice() != b"!fatal" {
+                    borrowed.push(tag_word.as_bytes());
+                }
+                borrowed.extend(response_words[1..].iter().map(Vec::as_slice));
+                server_stream.write_all(&sentence(&borrowed)).await.unwrap();
+            });
+            let result = test_client(client_stream).call("/test/print", &[]).await;
+            server.await.unwrap();
+            result
+        }
+
+        assert!(run(&[b"!empty"]).await.unwrap().is_empty());
+        assert!(matches!(
+            run(&[b"!trap", b"=message=generic failure"]).await,
+            Err(Error::Trap { command, .. }) if command == "/test/print"
+        ));
+        assert!(matches!(
+            run(&[b"!fatal", b"shutdown"]).await,
+            Err(Error::Fatal { command, reason }) if command == "/test/print" && reason == "shutdown"
+        ));
+
+        let (client_stream, server_stream) = tokio::io::duplex(64);
+        drop(server_stream);
+        assert!(matches!(
+            test_client(client_stream).call("/test/print", &[]).await,
+            Err(Error::Transport { command: Some(command), .. }) if command == "/test/print"
+        ));
+    }
+
+    #[tokio::test]
+    async fn call_ignores_other_command_events_and_reports_a_clean_transport_close() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            let tag = read_command_tag(&mut server_stream).await;
+            let wrong_tag = Tag::new();
+            assert_ne!(wrong_tag, tag);
+            let wrong_tag_word = format!(".tag={wrong_tag}");
+            let tag_word = format!(".tag={tag}");
+            let mut response = sentence(&[b"!done", wrong_tag_word.as_bytes()]);
+            response.extend_from_slice(&sentence(&[b"!empty", wrong_tag_word.as_bytes()]));
+            response.extend_from_slice(&sentence(&[
+                b"!trap",
+                wrong_tag_word.as_bytes(),
+                b"=message=other command failed",
+            ]));
+            response.extend_from_slice(&sentence(&[b"!done", tag_word.as_bytes()]));
+            server_stream.write_all(&response).await.unwrap();
+        });
+        assert!(
+            test_client(client_stream)
+                .call("/test/print", &[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        server.await.unwrap();
+
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            read_command_tag(&mut server_stream).await;
+        });
+        assert!(matches!(
+            test_client(client_stream).call("/test/print", &[]).await,
+            Err(Error::ConnectionClosed { command: Some(command) }) if command == "/test/print"
+        ));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn expired_attempts_and_refused_connections_exercise_retry_deadlines() {
+        let expired = connect_attempt(&config(), Instant::now(), Duration::from_secs(1)).await;
+        assert!(matches!(expired, Err(Error::Timeout { .. })));
+
+        for label in [None, Some("R01")] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+
+            let mut retry = ClientBuilder::new(
+                "127.0.0.1",
+                Protocol::Api,
+                Credentials {
+                    username: "admin".to_owned(),
+                    password: None,
+                },
+            )
+            .with_port(port)
+            .with_connect_retry_timeout(Duration::from_millis(8))
+            .with_connect_attempt_timeout(Duration::from_millis(2))
+            .with_connect_retry_max_delay(Duration::from_millis(1));
+            if let Some(label) = label {
+                retry = retry.with_log_label(label);
+            }
+            assert!(matches!(Client::connect(retry).await, Err(Error::Transport { .. })));
+        }
+    }
+
+    #[tokio::test]
+    async fn unsupported_protocol_returns_without_retrying() {
+        let unsupported = ClientBuilder::new(
+            "192.0.2.1",
+            Protocol::Ssh,
+            Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        );
+        assert!(matches!(
+            Client::connect(unsupported).await,
+            Err(Error::UnsupportedProtocol("ssh"))
         ));
     }
 }

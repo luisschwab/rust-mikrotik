@@ -305,6 +305,15 @@ impl From<LoginError> for Error {
 
 #[cfg(test)]
 mod tests {
+    use core::time::Duration;
+    use std::error::Error as _;
+    use std::io::ErrorKind;
+
+    use mikrotik_proto2::Tag;
+    use mikrotik_proto2::error::MissingWord;
+    use mikrotik_proto2::error::ProtocolError;
+    use mikrotik_proto2::response::TrapResponse;
+
     use super::*;
 
     #[test]
@@ -327,6 +336,11 @@ mod tests {
         assert!(display.contains("not-redacted"));
         assert!(!display.contains("secret-private-key"));
         assert!(!display.contains("secret-preshared-key"));
+
+        assert_eq!(error.command(), "/interface/wireguard/peers/print");
+        assert_eq!(error.row_index(), 2);
+        assert_eq!(error.message(), "invalid value");
+        assert_eq!(error.row().get("private-key").map(String::as_str), Some("<redacted>"));
     }
 
     #[test]
@@ -340,5 +354,185 @@ mod tests {
             error.to_string(),
             "RouterOS denied permission to run /ip/address/print: not enough permissions"
         );
+    }
+
+    #[test]
+    fn every_public_error_variant_has_contextual_display_output() {
+        let cases = [
+            (
+                Error::Transport {
+                    command: None,
+                    source: io::Error::new(ErrorKind::BrokenPipe, "closed"),
+                },
+                "RouterOS transport error: closed",
+            ),
+            (
+                Error::Transport {
+                    command: Some("/ip/route/print".to_owned()),
+                    source: io::Error::new(ErrorKind::BrokenPipe, "closed"),
+                },
+                "RouterOS transport error while running /ip/route/print: closed",
+            ),
+            (
+                Error::Timeout {
+                    operation: "RouterOS command",
+                    duration: Duration::from_secs(2),
+                },
+                "RouterOS command exceeded 2s",
+            ),
+            (
+                Error::Connection {
+                    command: None,
+                    source: ConnectionError::Closed,
+                },
+                "RouterOS protocol connection error: connection is closed",
+            ),
+            (
+                Error::Connection {
+                    command: Some("/system/resource/print".to_owned()),
+                    source: ConnectionError::Closed,
+                },
+                "RouterOS protocol error while running /system/resource/print: connection is closed",
+            ),
+            (
+                Error::Login(LoginError::Fatal("failed".to_owned())),
+                "RouterOS login error: fatal error during login: failed",
+            ),
+            (Error::UnsupportedProtocol("ssh"), "unsupported RouterOS protocol: ssh"),
+            (Error::ConnectionClosed { command: None }, "RouterOS connection closed"),
+            (
+                Error::ConnectionClosed {
+                    command: Some("/system/identity/print".to_owned()),
+                },
+                "RouterOS connection closed while running /system/identity/print",
+            ),
+            (
+                Error::UnsupportedCommand {
+                    command: "/future/print".to_owned(),
+                    message: "no such command".to_owned(),
+                },
+                "RouterOS command /future/print is unsupported: no such command",
+            ),
+            (
+                Error::Trap {
+                    command: "/test/print".to_owned(),
+                    category: None,
+                    message: "failed".to_owned(),
+                },
+                "RouterOS trap while running /test/print: failed",
+            ),
+            (
+                Error::Trap {
+                    command: "/test/print".to_owned(),
+                    category: Some(TrapCategory::GeneralFailure),
+                    message: "failed".to_owned(),
+                },
+                "RouterOS trap while running /test/print (GeneralFailure): failed",
+            ),
+            (
+                Error::Fatal {
+                    command: "/test/print".to_owned(),
+                    reason: "shutdown".to_owned(),
+                },
+                "RouterOS fatal response while running /test/print: shutdown",
+            ),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(error.to_string(), expected);
+        }
+
+        let decode = DecodeError::new("/test/print", 0, "invalid".to_owned(), &Row::new());
+        assert!(
+            Error::Decode(decode)
+                .to_string()
+                .starts_with("RouterOS row decode error:")
+        );
+    }
+
+    #[test]
+    fn accessors_and_sources_distinguish_error_categories() {
+        let transport = Error::from(io::Error::new(ErrorKind::ConnectionReset, "reset"));
+        assert_eq!(transport.command(), None);
+        assert_eq!(
+            transport.transport_error().map(io::Error::kind),
+            Some(ErrorKind::ConnectionReset)
+        );
+        assert!(transport.source().is_some());
+
+        let timeout = Error::Timeout {
+            operation: "test",
+            duration: Duration::from_secs(3),
+        };
+        assert_eq!(timeout.timeout_duration(), Some(Duration::from_secs(3)));
+        assert!(timeout.transport_error().is_none());
+        assert!(timeout.source().is_none());
+
+        let connection = Error::from(ConnectionError::from(ProtocolError::from(MissingWord::Tag)));
+        assert!(connection.source().is_some());
+        assert_eq!(connection.command(), None);
+
+        let login = Error::from(LoginError::Fatal("fatal".to_owned()));
+        assert!(login.source().is_some());
+        assert!(!login.is_authentication_failure());
+
+        let auth = Error::from(LoginError::Authentication(TrapResponse {
+            tag: Tag::new(),
+            category: None,
+            message: "denied".to_owned(),
+        }));
+        assert!(auth.is_authentication_failure());
+
+        let decode = Error::Decode(DecodeError::new("/test", 0, "bad row".to_owned(), &Row::new()));
+        assert!(decode.source().is_some());
+        assert_eq!(decode.timeout_duration(), None);
+    }
+
+    #[test]
+    fn command_and_trap_accessors_cover_command_scoped_errors() {
+        for error in [
+            Error::PermissionDenied {
+                command: "/a".to_owned(),
+                message: "denied".to_owned(),
+            },
+            Error::UnsupportedCommand {
+                command: "/a".to_owned(),
+                message: "missing".to_owned(),
+            },
+            Error::Trap {
+                command: "/a".to_owned(),
+                category: None,
+                message: "trap".to_owned(),
+            },
+        ] {
+            assert_eq!(error.command(), Some("/a"));
+            assert!(error.trap_message().is_some());
+        }
+        let fatal = Error::Fatal {
+            command: "/a".to_owned(),
+            reason: "fatal".to_owned(),
+        };
+        assert_eq!(fatal.command(), Some("/a"));
+        assert_eq!(fatal.trap_message(), None);
+        assert_eq!(Error::UnsupportedProtocol("ssh").command(), None);
+    }
+
+    #[test]
+    fn command_context_is_attached_only_to_transport_connection_and_closed_errors() {
+        let transport = Error::from(io::Error::new(ErrorKind::BrokenPipe, "closed")).with_command("/test/print");
+        assert_eq!(transport.command(), Some("/test/print"));
+
+        let connection = Error::from(ConnectionError::Closed).with_command("/test/print");
+        assert_eq!(connection.command(), Some("/test/print"));
+
+        let closed = Error::ConnectionClosed { command: None }.with_command("/test/print");
+        assert_eq!(closed.command(), Some("/test/print"));
+
+        let timeout = Error::Timeout {
+            operation: "test",
+            duration: Duration::ZERO,
+        }
+        .with_command("/test/print");
+        assert_eq!(timeout.command(), None);
     }
 }

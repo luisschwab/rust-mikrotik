@@ -13,10 +13,42 @@ env:
     RBMT_LOG_LEVEL: verbose
 
 jobs:
+    chr-image-cache:
+        name: Cache CHR Images
+        runs-on: ubuntu-latest
+        timeout-minutes: 240
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  persist-credentials: false
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            # The cache service is immutable. Restore a prior catalog cache,
+            # add only newly cataloged images, then save this catalog's complete set.
+            - name: Setup CHR Image Cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: mikrotik-qemu-runner/.chr-cache/images
+                  key: qemu-runner-chr-images-${{ runner.os }}-${{ hashFiles('mikrotik-qemu-runner/src/catalog.rs') }}
+                  restore-keys: |
+                      qemu-runner-chr-images-${{ runner.os }}-
+
+            - name: Setup cargo-rbmt
+              uses: $/.github/actions/setup-rbmt
+
+            - name: Download Cataloged CHR Images
+              run: cargo rbmt -p mikrotik-qemu-runner run -- run --example cache_chr_images
+
     simulate:
         name: ${{ matrix.name }}
         runs-on: ubuntu-latest
         timeout-minutes: 120
+        needs: chr-image-cache
         permissions:
             contents: read
         strategy:
@@ -33,8 +65,8 @@ jobs:
                       test: isp_network_scenario
                     - name: Config Stress
                       test: config_stress_scenario
-                    - name: RouterOS Version Stress
-                      test: stress_test_scenario
+                    - name: Version Stress
+                      test: version_stress_test_scenario
 
         steps:
             - name: Checkout Repository
@@ -50,13 +82,11 @@ jobs:
             - name: Setup Rust Cache
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-            - name: Setup CHR Image Cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+            - name: Restore CHR Image Cache
+              uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                   path: mikrotik-qemu-runner/.chr-cache/images
-                  key: qemu-runner-chr-images-${{ runner.os }}-${{ matrix.test }}-${{ hashFiles('mikrotik-qemu-runner/src/**', 'mikrotik-qemu-runner/tests/**', 'mikrotik-qemu-runner/scenarios/**') }}
-                  restore-keys: |
-                      qemu-runner-chr-images-${{ runner.os }}-
+                  key: qemu-runner-chr-images-${{ runner.os }}-${{ hashFiles('mikrotik-qemu-runner/src/catalog.rs') }}
 
             - name: Setup cargo-rbmt
               uses: $/.github/actions/setup-rbmt

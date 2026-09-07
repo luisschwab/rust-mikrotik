@@ -45,6 +45,14 @@ pub struct Email {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Port number.
     pub port: Option<u16>,
+    /// Legacy mail-server address setting.
+    pub address: Option<String>,
+    /// Whether the mail-server certificate is verified.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub certificate_verification: Option<bool>,
+    /// Whether legacy STARTTLS negotiation is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub start_tls: Option<bool>,
 }
 
 /// Response row from `/tool/graphing/print`.
@@ -85,6 +93,8 @@ pub struct Romon {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this feature is enabled.
     pub enabled: Option<bool>,
+    /// Effective `RoMON` identifier currently in use.
+    pub current_id: Option<String>,
 }
 
 /// Response row from `/tool/romon/port/print`.
@@ -149,6 +159,15 @@ pub struct Sniffer {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether packet streaming is enabled for the sniffer.
     pub streaming_enabled: Option<bool>,
+    /// Interfaces selected by the sniffer filter.
+    pub filter_interface: Option<String>,
+    /// IP protocols selected by the sniffer filter.
+    pub filter_ip_protocol: Option<String>,
+    /// MAC protocols selected by the sniffer filter.
+    pub filter_mac_protocol: Option<String>,
+    /// Maximum captured bytes per packet.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_packet_size: Option<u32>,
 }
 
 /// Response row from `/tool/sms/print`.
@@ -166,6 +185,15 @@ pub struct Sms {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether SMS receiving is enabled.
     pub receive_enabled: Option<bool>,
+    /// Whether received SMS messages are erased automatically.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub auto_erase: Option<bool>,
+    /// Whether the SMS modem is polled for received messages.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub polling: Option<bool>,
+    /// Whether sent SMS messages are removed after transmission.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub remove_sent_sms_after_send: Option<bool>,
 }
 
 /// Response row from `/tool/traffic-generator/print`.

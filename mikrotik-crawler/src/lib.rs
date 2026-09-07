@@ -24,6 +24,7 @@
 
 pub mod error;
 pub mod resolver;
+pub mod schema_audit;
 
 mod collected;
 mod config;

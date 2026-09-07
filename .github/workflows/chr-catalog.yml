@@ -1,0 +1,31 @@
+name: CHR Catalog
+
+on:
+    workflow_dispatch:
+
+permissions: {}
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    catalog:
+        name: Check CHR Catalog
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout Repository
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+              with:
+                  persist-credentials: false
+
+            - name: Setup Rust Cache
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+            - name: Check Version Stress Manifest Coverage
+              run: cargo test --locked -p mikrotik-qemu-runner --test scenarios version_stress_manifest_covers_catalog_exactly -- --exact
+
+            - name: Check CHR Catalog for New Versions
+              run: cargo run --locked -p mikrotik-qemu-runner --example check_chr_catalog

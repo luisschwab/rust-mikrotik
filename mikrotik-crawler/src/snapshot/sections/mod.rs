@@ -15,7 +15,7 @@ use super::collector::EndpointCollector;
 use crate::error::Result;
 
 /// Collect every supported section into one typed `RouterOS` snapshot.
-pub(super) async fn collect_router_os_snapshot(collector: &EndpointCollector<'_>) -> Result<RouterOsSnapshot> {
+pub(crate) async fn collect_router_os_snapshot(collector: &EndpointCollector<'_>) -> Result<RouterOsSnapshot> {
     let system = system::collect(collector).await?;
     let interface = interface::collect(collector).await?;
     let mut ip = ip::collect_ip(collector).await?;

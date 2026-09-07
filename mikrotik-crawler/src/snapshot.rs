@@ -1,7 +1,7 @@
 //! Device snapshot collection over a connected `RouterOS` API client.
 
-mod collector;
-mod sections;
+pub(crate) mod collector;
+pub(crate) mod sections;
 
 use core::net::AddrParseError;
 use core::net::SocketAddr;

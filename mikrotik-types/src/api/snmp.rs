@@ -34,6 +34,10 @@ pub struct Snmp {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this feature is enabled.
     pub enabled: Option<bool>,
+    /// Administrative contact exposed through SNMP.
+    pub contact: Option<String>,
+    /// Physical or logical location exposed through SNMP.
+    pub location: Option<String>,
 }
 
 impl fmt::Debug for Snmp {
@@ -46,6 +50,8 @@ impl fmt::Debug for Snmp {
             .field("trap_version", &self.trap_version)
             .field("vrf", &self.vrf)
             .field("enabled", &self.enabled)
+            .field("contact", &self.contact)
+            .field("location", &self.location)
             .finish()
     }
 }

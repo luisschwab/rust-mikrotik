@@ -42,6 +42,28 @@ pub use system::RouterOsTime;
 pub use system::RouterOsTimeZoneOffset;
 pub use system::RouterOsVersion;
 
+/// Sensitive text returned by `RouterOS`.
+///
+/// Its debug representation is always redacted. Owning response fields should
+/// also use `serde(skip_serializing)` so snapshots cannot persist the value.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct SensitiveString(String);
+
+impl SensitiveString {
+    /// Expose the sensitive value deliberately.
+    #[must_use]
+    pub fn expose_secret(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SensitiveString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 /// Error returned when parsing a primitive value fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseError {

@@ -173,6 +173,10 @@ pub struct Health {
     pub health_type: Option<String>,
     /// Current sensor value.
     pub value: Option<String>,
+    /// Current health subsystem state.
+    pub state: Option<String>,
+    /// Health subsystem state expected after reboot.
+    pub state_after_reboot: Option<String>,
 }
 
 /// Response row from `/system/package/print`.
@@ -196,6 +200,11 @@ pub struct Package {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row is disabled.
     pub disabled: Option<bool>,
+    /// Whether this package is available for activation.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub available: Option<bool>,
+    /// Legacy package bundle name.
+    pub bundle: Option<String>,
 }
 
 /// Response row from `/system/package/update/print`.
@@ -207,6 +216,13 @@ pub struct PackageUpdate {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Installed `RouterOS` version.
     pub installed_version: Option<RouterOsVersion>,
+    /// Whether update-server certificates are verified.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub check_certificate: Option<bool>,
+    /// IP protocol version used for update checks.
+    pub ip_version: Option<String>,
+    /// Package update operating mode.
+    pub mode: Option<String>,
 }
 
 /// Response row from `/system/resource/cpu/print`.
@@ -247,6 +263,27 @@ pub struct ResourceHardware {
     pub irq: Option<String>,
     /// Memory or I/O resource range.
     pub memory: Option<String>,
+    /// Hardware device category.
+    pub category: Option<String>,
+    /// Bus-specific device identifier.
+    pub device_id: Option<String>,
+    /// Hardware path of the device.
+    pub device_path: Option<String>,
+    /// Whether this hardware entry is inactive.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub inactive: Option<bool>,
+    /// I/O resource range.
+    pub io: Option<String>,
+    /// Physical or bus location of the device.
+    pub location: Option<String>,
+    /// Hardware resource name.
+    pub name: Option<String>,
+    /// Owner or subsystem using the hardware resource.
+    pub owner: Option<String>,
+    /// Hardware vendor name.
+    pub vendor: Option<String>,
+    /// Bus-specific vendor identifier.
+    pub vendor_id: Option<String>,
 }
 
 /// Response row from `/system/logging/print`.
@@ -269,6 +306,11 @@ pub struct LoggingRule {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether `RouterOS` considers this row invalid.
     pub invalid: Option<bool>,
+    /// Whether this logging rule is managed internally by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub managed: Option<bool>,
+    /// Prefix prepended to messages matched by this rule.
+    pub prefix: Option<String>,
 }
 
 /// Response row from `/system/logging/action/print`.
@@ -319,6 +361,17 @@ pub struct LoggingAction {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether the logging action persists messages across reboot.
     pub remember: Option<bool>,
+    /// Whether this logging action is managed internally by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub managed: Option<bool>,
+    /// Format used for messages sent to a remote logger.
+    pub remote_log_format: Option<String>,
+    /// Transport protocol used for remote logging.
+    pub remote_protocol: Option<String>,
+    /// Source address used for remote logging.
+    pub src_address: Option<String>,
+    /// VRF used to reach the remote logger.
+    pub vrf: Option<String>,
 }
 
 /// Response row from `/system/ntp/client/print`.
@@ -348,6 +401,10 @@ pub struct NtpClient {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this feature is enabled.
     pub enabled: Option<bool>,
+    /// Legacy primary NTP server.
+    pub primary_ntp: Option<String>,
+    /// Legacy secondary NTP server.
+    pub secondary_ntp: Option<String>,
 }
 
 /// Response row from `/system/ntp/server/print`.
@@ -437,6 +494,8 @@ pub struct LogEntry {
     #[serde(deserialize_with = "crate::comma_list")]
     /// Logging topics or topic filters.
     pub topics: Vec<String>,
+    /// Additional structured information attached to the log entry.
+    pub extra_info: Option<String>,
 }
 
 /// Response row from `/system/device-mode/print`.
@@ -445,6 +504,74 @@ pub struct LogEntry {
 pub struct DeviceMode {
     /// Operating mode configured for this entry.
     pub mode: Option<String>,
+    /// `RouterOS` versions allowed by device-mode policy.
+    pub allowed_versions: Option<String>,
+    /// Number of pending or failed device-mode attempts.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub attempt_count: Option<u32>,
+    /// Whether bandwidth-test functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub bandwidth_test: Option<bool>,
+    /// Whether container functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub container: Option<bool>,
+    /// Whether email functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub email: Option<bool>,
+    /// Whether fetch functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub fetch: Option<bool>,
+    /// Whether the installation has been flagged.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub flagged: Option<bool>,
+    /// Whether device-mode flagging is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub flagging_enabled: Option<bool>,
+    /// Whether hotspot functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub hotspot: Option<bool>,
+    /// Whether any `RouterOS` version may be installed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub install_any_version: Option<bool>,
+    /// Whether `IPsec` functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub ipsec: Option<bool>,
+    /// Whether L2TP functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub l2tp: Option<bool>,
+    /// Whether partition functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub partitions: Option<bool>,
+    /// Whether PPTP functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub pptp: Option<bool>,
+    /// Whether proxy functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub proxy: Option<bool>,
+    /// Whether `RoMON` functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub romon: Option<bool>,
+    /// Whether `RouterBOARD` functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub routerboard: Option<bool>,
+    /// Whether scheduler functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub scheduler: Option<bool>,
+    /// Whether SMB functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub smb: Option<bool>,
+    /// Whether packet-sniffer functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub sniffer: Option<bool>,
+    /// Whether SOCKS functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub socks: Option<bool>,
+    /// Whether traffic-generator functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub traffic_gen: Option<bool>,
+    /// Whether `ZeroTier` functionality is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub zerotier: Option<bool>,
 }
 
 /// Response row from `/system/leds/print`.
@@ -479,6 +606,10 @@ pub struct License {
     pub nlevel: Option<u8>,
     /// `RouterOS` software ID.
     pub software_id: Option<String>,
+    /// Legacy license level.
+    pub level: Option<String>,
+    /// System identifier bound to the license.
+    pub system_id: Option<String>,
 }
 
 /// Response row from `/system/note/print`.
@@ -491,6 +622,8 @@ pub struct Note {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether the note is shown at login.
     pub show_at_login: Option<bool>,
+    /// Text displayed as the system note.
+    pub note: Option<String>,
 }
 
 /// Response row from `/system/upgrade/mirror/print`.
@@ -594,6 +727,12 @@ pub struct Script {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row is invalid.
     pub invalid: Option<bool>,
+    /// Whether the script may run without caller permissions.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dont_require_permissions: Option<bool>,
+    /// Number of times the script has run.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub run_count: Option<u64>,
 }
 
 /// Response row from `/system/scheduler/print`.
@@ -620,6 +759,11 @@ pub struct Scheduler {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row is disabled.
     pub disabled: Option<bool>,
+    /// User that owns the scheduler entry.
+    pub owner: Option<String>,
+    /// Number of times the scheduler entry has run.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub run_count: Option<u64>,
 }
 
 /// Response row from `/system/watchdog/print`.
@@ -652,6 +796,7 @@ mod tests {
     use core::time::Duration;
 
     use super::NtpClient;
+    use super::Package;
     use super::Resource;
     use super::ResourceIrq;
     use crate::RouterOsId;
@@ -766,6 +911,23 @@ mod tests {
     fn datetime_rejects_invalid_values() {
         assert!("2024-13-26 11:42:37".parse::<RouterOsDateTime>().is_err());
         assert!("Oct/32/2022 10:55:40".parse::<RouterOsDateTime>().is_err());
+    }
+
+    #[test]
+    fn persisted_response_models_remain_permissive_for_historical_fields() {
+        let identity = serde_json::from_str::<super::Identity>(r#"{"name":"edge","historical-field":"value"}"#)
+            .expect("persisted response rows should tolerate fields unknown to this build");
+
+        assert_eq!(identity.name.as_deref(), Some("edge"));
+    }
+
+    #[test]
+    fn legacy_package_bundle_is_a_package_name() {
+        let row = Row::from([("bundle".to_string(), "routeros-x86".to_string())]);
+
+        let package = crate::deserialize::<Package>(&row).expect("legacy package bundle should deserialize");
+
+        assert_eq!(package.bundle.as_deref(), Some("routeros-x86"));
     }
 
     #[test]

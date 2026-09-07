@@ -34,6 +34,11 @@ pub struct User {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this user account or counter entry has expired.
     pub expired: Option<bool>,
+    /// Policy used to expire inactive user accounts.
+    pub inactivity_policy: Option<String>,
+    /// Duration after which an inactive user account expires.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub inactivity_timeout: Option<RouterOsDuration>,
 }
 
 /// Response row from `/user/active/print`.

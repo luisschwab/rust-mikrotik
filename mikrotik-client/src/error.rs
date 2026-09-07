@@ -2,6 +2,7 @@
 
 use core::fmt;
 use core::time::Duration;
+use std::collections::BTreeSet;
 use std::error;
 use std::io;
 
@@ -88,6 +89,8 @@ pub struct DecodeError {
     command: String,
     /// Zero-based row index within the command reply.
     row_index: usize,
+    /// Fully qualified Rust response-model name.
+    model: &'static str,
     /// Human-readable deserializer error.
     message: String,
     /// Redacted copy of the raw row.
@@ -96,13 +99,30 @@ pub struct DecodeError {
 
 impl DecodeError {
     /// Build a decode error and redact sensitive values from the row context.
-    pub(crate) fn new(command: &str, row_index: usize, message: String, row: &Row) -> Self {
+    pub(crate) fn new(command: &str, row_index: usize, model: &'static str, message: String, row: &Row) -> Self {
         Self {
             command: command.to_owned(),
             row_index,
+            model,
             message,
             row: redact_command_row(command, row),
         }
+    }
+
+    /// Build a decode error for fields not consumed by the response model.
+    pub(crate) fn unknown_fields(
+        command: &str,
+        row_index: usize,
+        model: &'static str,
+        fields: &BTreeSet<String>,
+        row: &Row,
+    ) -> Self {
+        let fields = fields
+            .iter()
+            .map(|field| format!("`{field}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Self::new(command, row_index, model, format!("unknown field(s): {fields}"), row)
     }
 
     /// Return the command whose row failed to decode.
@@ -115,6 +135,12 @@ impl DecodeError {
     #[must_use]
     pub const fn row_index(&self) -> usize {
         self.row_index
+    }
+
+    /// Return the fully qualified Rust response-model name.
+    #[must_use]
+    pub const fn model(&self) -> &'static str {
+        self.model
     }
 
     /// Return the decode error message from the typed row parser.
@@ -134,8 +160,8 @@ impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "command {} row {} failed to decode: {}; row: {:?}",
-            self.command, self.row_index, self.message, self.row
+            "command {} row {} failed to decode as {}: {}; row: {:?}",
+            self.command, self.row_index, self.model, self.message, self.row
         )
     }
 }
@@ -325,7 +351,13 @@ mod tests {
             ("public-key".to_owned(), "not-redacted".to_owned()),
         ]);
 
-        let error = DecodeError::new("/interface/wireguard/peers/print", 2, "invalid value".to_owned(), &row);
+        let error = DecodeError::new(
+            "/interface/wireguard/peers/print",
+            2,
+            "test::WireGuardPeer",
+            "invalid value".to_owned(),
+            &row,
+        );
         let display = error.to_string();
 
         assert!(display.contains("/interface/wireguard/peers/print"));
@@ -442,7 +474,7 @@ mod tests {
             assert_eq!(error.to_string(), expected);
         }
 
-        let decode = DecodeError::new("/test/print", 0, "invalid".to_owned(), &Row::new());
+        let decode = DecodeError::new("/test/print", 0, "test::Row", "invalid".to_owned(), &Row::new());
         assert!(
             Error::Decode(decode)
                 .to_string()
@@ -483,7 +515,13 @@ mod tests {
         }));
         assert!(auth.is_authentication_failure());
 
-        let decode = Error::Decode(DecodeError::new("/test", 0, "bad row".to_owned(), &Row::new()));
+        let decode = Error::Decode(DecodeError::new(
+            "/test",
+            0,
+            "test::Row",
+            "bad row".to_owned(),
+            &Row::new(),
+        ));
         assert!(decode.source().is_some());
         assert_eq!(decode.timeout_duration(), None);
     }

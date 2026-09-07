@@ -13,6 +13,7 @@ use std::io::ErrorKind;
 use std::net::TcpListener;
 use std::path::Path;
 use std::path::PathBuf;
+use std::thread;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -57,12 +58,107 @@ pub use scenario::ScenarioConf;
 pub const DEFAULT_ALLOW_SOFTWARE_EMULATION: bool = true;
 
 use crate::catalog::ChrArch as RuntimeArch;
+use crate::chr::DownloadProgressGroup;
 use crate::chr::IMAGES_DIR;
+use crate::chr::chr_archive_filename;
 use crate::chr::ensure_chr_image;
 use crate::qemu::RuntimeTarget;
 use crate::qemu::create_overlay;
 use crate::qemu::ensure_tool;
 use crate::qemu::qemu_system_binary;
+
+/// Download every CHR image required by the catalog for the current host.
+///
+/// Images are retained in this crate's `.chr-cache/images` directory, so a
+/// caller can cache that directory between runs. Downloads run in a bounded
+/// rolling pool to shorten the initial cache population without opening an
+/// unbounded number of connections to `MikroTik`.
+///
+/// # Errors
+///
+/// Returns an error if the local cache directory cannot be prepared, the host
+/// architecture is unsupported, or an image cannot be downloaded and unpacked.
+pub fn cache_catalog_images() -> Result<()> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    prepare_state_dirs(&root)?;
+
+    let host_arch = RuntimeArch::host()?;
+    let images = ROUTEROS_VERSIONS
+        .iter()
+        .copied()
+        .map(|version| {
+            let guest_arch = catalog::guest_arch(host_arch, version)?;
+            Ok((version, guest_arch))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let filename_width = images
+        .iter()
+        .map(|(version, arch)| chr_archive_filename(version.as_str(), *arch).chars().count())
+        .max()
+        .unwrap_or_default();
+    let mut progress = DownloadProgressGroup::new(filename_width);
+
+    let progress_handle = progress.handle();
+    run_bounded_chr_tasks(
+        images,
+        |(version, guest_arch)| {
+            let progress = progress_handle.clone();
+            ensure_chr_image(&root, version.as_str(), guest_arch, Some(&progress))?;
+            Ok(())
+        },
+        |should_wait| {
+            progress.redraw()?;
+            if should_wait {
+                progress.wait_for_update(PROGRESS_REDRAW_INTERVAL);
+            }
+            Ok(())
+        },
+    )?;
+
+    Ok(())
+}
+
+/// Run CHR work in a rolling pool, replacing each completed task immediately.
+fn run_bounded_chr_tasks<T>(
+    tasks: impl IntoIterator<Item = T>,
+    worker: impl Fn(T) -> Result<()> + Sync,
+    mut update_progress: impl FnMut(bool) -> Result<()>,
+) -> Result<()>
+where
+    T: Send,
+{
+    thread::scope(|scope| {
+        let worker = &worker;
+        let mut pending = tasks.into_iter();
+        let mut active = pending
+            .by_ref()
+            .take(MAX_PARALLEL_CHR_DOWNLOADS)
+            .map(|task| scope.spawn(move || worker(task)))
+            .collect::<Vec<_>>();
+
+        while !active.is_empty() {
+            let completed = active.iter().position(thread::ScopedJoinHandle::is_finished);
+            update_progress(completed.is_none())?;
+
+            if let Some(completed) = completed {
+                active
+                    .swap_remove(completed)
+                    .join()
+                    .map_err(|_| Error::Tool("CHR image download worker panicked".to_owned()))??;
+                if let Some(task) = pending.next() {
+                    active.push(scope.spawn(move || worker(task)));
+                }
+            }
+        }
+
+        update_progress(false)
+    })
+}
+
+/// Maximum concurrent catalog-image downloads.
+const MAX_PARALLEL_CHR_DOWNLOADS: usize = 8;
+/// Maximum time the central progress renderer waits before checking worker state.
+const PROGRESS_REDRAW_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Root directory for cached CHR images and local runner runtime state.
 const CACHE_DIR: &str = ".chr-cache";
@@ -198,7 +294,7 @@ pub(crate) async fn spawn_mikrotikds(
         let version = router.version;
         let target = RuntimeTarget::detect(&sh, host_arch, version, config.allow_software_emulation)?;
         let qemu_system = qemu_system_binary(&sh, target.guest_arch)?;
-        let base_image = ensure_chr_image(&root, version.as_str(), target.guest_arch)?;
+        let base_image = ensure_chr_image(&root, version.as_str(), target.guest_arch, None)?;
         let overlay = run_dir.join(format!("{}.qcow2", router.name));
         debug_with_label!(router.name, "Creating overlay at {}", overlay.display());
         create_overlay(&sh, &base_image, &overlay)?;
@@ -495,7 +591,7 @@ fn allocate_api_ports(scenario: &ScenarioConf) -> Result<ApiPortAllocations> {
             .local_addr()
             .map_err(|error| Error::Tool(format!("read reserved API port for {}: {error}", router.name)))?
             .port();
-        info_with_label!(router.name, "API localhost:{port} Username={}", DEFAULT_USERNAME);
+        info_with_label!(router.name, "API localhost:{port} username={}", DEFAULT_USERNAME);
         ports.insert(
             router.name.clone(),
             ApiPortAllocation {
@@ -519,7 +615,52 @@ fn csv_field(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Condvar;
+    use std::sync::Mutex;
+    use std::sync::mpsc;
+
     use super::*;
+
+    #[test]
+    fn bounded_chr_tasks_refill_each_available_slot_immediately() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let gate = Arc::new((Mutex::new(BTreeSet::new()), Condvar::new()));
+        let worker_gate = Arc::clone(&gate);
+        let scheduler = thread::spawn(move || {
+            run_bounded_chr_tasks(
+                0..=MAX_PARALLEL_CHR_DOWNLOADS,
+                move |task| {
+                    started_sender.send(task).unwrap();
+                    let (released, wake) = &*worker_gate;
+                    let released = released.lock().unwrap();
+                    let _released = wake.wait_while(released, |released| !released.contains(&task)).unwrap();
+                    Ok(())
+                },
+                |should_wait| {
+                    if should_wait {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Ok(())
+                },
+            )
+        });
+
+        let first = (0..MAX_PARALLEL_CHR_DOWNLOADS)
+            .map(|_| started_receiver.recv_timeout(Duration::from_secs(1)).unwrap())
+            .collect::<BTreeSet<_>>();
+        let (released, wake) = &*gate;
+        released.lock().unwrap().insert(0);
+        wake.notify_all();
+        let replacement = started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        released.lock().unwrap().extend(0..=MAX_PARALLEL_CHR_DOWNLOADS);
+        wake.notify_all();
+        scheduler.join().unwrap().unwrap();
+
+        assert_eq!(first, (0..MAX_PARALLEL_CHR_DOWNLOADS).collect());
+        assert_eq!(replacement, MAX_PARALLEL_CHR_DOWNLOADS);
+    }
 
     #[test]
     fn api_port_allocation_produces_unique_localhost_sockets() {
@@ -579,7 +720,8 @@ mod tests {
         assert_eq!(
             versions,
             [
-                "7.23.1", "7.23", "7.22.3", "7.22.2", "7.22.1", "7.21.4", "7.20.8", "7.20.7", "6.49.19", "6.49.18",
+                "7.24.2", "7.24.1", "7.24", "7.23.5", "7.23.4", "7.23.3", "7.23.2", "7.23.1", "7.23", "7.22.3",
+                "7.22.2", "7.22.1", "7.21.5", "7.21.4", "7.20.8", "7.20.7", "6.49.21", "6.49.20", "6.49.19", "6.49.18",
                 "6.49.17", "6.49.16", "6.49.15", "6.49.13", "6.49.10",
             ]
         );
@@ -730,7 +872,7 @@ mod tests {
         let report = fs::read_to_string(root.join(SCENARIO_REPORT_FILENAME)).unwrap();
         assert!(report.starts_with("scenario,routers,links,index"));
         assert!(report.contains(r#""report,scenario""#));
-        assert!(report.contains(",1,0,0,R01,7.23.1,"));
+        assert!(report.contains(",1,0,0,R01,7.24.2,"));
         assert!(report.contains("Aarch64,X86_64,tcg,qemu-system-x86_64,18728,0"));
         fs::remove_dir_all(root).unwrap();
     }

@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::RouterOsId;
 use crate::primitives::interface::InterfaceName;
 use crate::primitives::ip::IpPrefix;
+use crate::primitives::system::RouterOsByteSize;
 use crate::primitives::system::RouterOsDuration;
 
 /// Response row from `/queue/interface/print`.
@@ -107,4 +108,25 @@ pub struct QueueType {
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// IPv6 destination mask values exposed by `RouterOS` for PCQ.
     pub pcq_dst_address6_mask_values: Vec<IpPrefix>,
+    /// Whether ECN marking is enabled for FQ-CoDel.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub fq_codel_ecn: Option<bool>,
+    /// Number of FQ-CoDel flow queues.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fq_codel_flows: Option<u32>,
+    /// FQ-CoDel interval parameter.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fq_codel_interval: Option<RouterOsDuration>,
+    /// FQ-CoDel packet limit.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fq_codel_limit: Option<u32>,
+    /// FQ-CoDel memory limit.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fq_codel_memlimit: Option<RouterOsByteSize>,
+    /// FQ-CoDel deficit-round-robin quantum.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fq_codel_quantum: Option<u32>,
+    /// FQ-CoDel target delay.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fq_codel_target: Option<RouterOsDuration>,
 }

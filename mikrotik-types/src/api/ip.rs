@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::RouterOsId;
+use crate::primitives::SensitiveString;
 use crate::primitives::interface::InterfaceName;
 use crate::primitives::ip::ArpStatus;
 use crate::primitives::ip::DhcpLeaseStatus;
@@ -131,6 +132,12 @@ pub struct Address {
     pub invalid: Option<bool>,
     /// Address comment.
     pub comment: Option<String>,
+    /// Whether the address belongs to a slave interface.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub slave: Option<bool>,
+    /// Virtual routing and forwarding interface associated with the address.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub vrf: Option<InterfaceName>,
 }
 
 /// Response row from `/ip/route/print`.
@@ -199,6 +206,11 @@ pub struct Route {
     pub suppress_hw_offload: Option<bool>,
     /// Route comment.
     pub comment: Option<String>,
+    /// Resolved gateway status reported by legacy routing.
+    pub gateway_status: Option<String>,
+    /// Preferred source address.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub pref_src: Option<IpAddr>,
 }
 
 /// Response row from `/ip/arp/print`.
@@ -239,6 +251,12 @@ pub struct ArpEntry {
     /// Whether the ARP entry is published.
     #[serde(deserialize_with = "crate::optional_bool")]
     pub published: Option<bool>,
+    /// Whether a legacy `RouterOS` v6 ARP entry came from DHCP.
+    #[serde(rename = "DHCP", deserialize_with = "crate::optional_bool")]
+    pub dhcp_legacy: Option<bool>,
+    /// Virtual routing and forwarding interface associated with the entry.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub vrf: Option<InterfaceName>,
 }
 
 /// Response row from `/ip/dhcp-server/lease/print`.
@@ -349,6 +367,17 @@ pub struct DhcpClient {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether NTP servers learned from the peer are used.
     pub use_peer_ntp: Option<bool>,
+    /// Whether the client accepts DHCP reconfiguration messages.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub allow_reconfigure: Option<bool>,
+    /// Gateway reachability check used for installed routes.
+    pub check_gateway: Option<String>,
+    /// Routing tables where default routes are installed.
+    pub default_route_tables: Option<String>,
+    /// DHCP client name, when `RouterOS` exposes one.
+    pub name: Option<String>,
+    /// DHCP broadcast handling mode.
+    pub use_broadcast: Option<String>,
 }
 
 /// Response row from `/ip/dhcp-server/print`.
@@ -383,6 +412,18 @@ pub struct DhcpServer {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether RADIUS integration is enabled for this row.
     pub use_radius: Option<bool>,
+    /// Suffix applied to dynamically created DNS records.
+    pub add_dns_entries_suffix: Option<String>,
+    /// DHCP authoritative-response policy.
+    pub authoritative: Option<String>,
+    /// Identifiers used to track dynamic leases.
+    pub dynamic_lease_identifiers: Option<String>,
+    /// Whether Broadband Forum TR-101 attributes are supported.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub support_broadband_tr101: Option<bool>,
+    /// Whether DHCP reconfiguration messages are used.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub use_reconfigure: Option<bool>,
 }
 
 /// Response row from `/ip/dhcp-server/network/print`.
@@ -406,6 +447,8 @@ pub struct DhcpServerNetwork {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row was created dynamically by `RouterOS`.
     pub dynamic: Option<bool>,
+    /// DNS domain advertised to DHCP clients.
+    pub domain: Option<String>,
 }
 
 /// Response row from `/ip/dns/print`.
@@ -435,6 +478,33 @@ pub struct Dns {
     pub verify_doh_cert: Option<bool>,
     /// VRF name.
     pub vrf: Option<String>,
+    /// Extra lifetime applied to DNS-derived address-list entries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub address_list_extra_time: Option<RouterOsDuration>,
+    /// Maximum concurrent DNS-over-HTTPS queries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub doh_max_concurrent_queries: Option<u32>,
+    /// Maximum DNS-over-HTTPS server connections.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub doh_max_server_connections: Option<u32>,
+    /// DNS servers learned dynamically by `RouterOS`.
+    #[serde(deserialize_with = "crate::comma_list")]
+    pub dynamic_servers: Vec<String>,
+    /// Maximum concurrent DNS queries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_concurrent_queries: Option<u32>,
+    /// Maximum concurrent TCP DNS sessions.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_concurrent_tcp_sessions: Option<u32>,
+    /// Maximum accepted UDP DNS packet size.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_udp_packet_size: Option<u32>,
+    /// Timeout for one DNS server query.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub query_server_timeout: Option<RouterOsDuration>,
+    /// Total timeout for resolving one DNS query.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub query_total_timeout: Option<RouterOsDuration>,
 }
 
 /// Response row from `/ip/dns/cache/print`.
@@ -481,6 +551,8 @@ pub struct FirewallAddressListEntry {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row was created dynamically by `RouterOS`.
     pub dynamic: Option<bool>,
+    /// Lifetime associated with the address-list entry.
+    pub timeout: Option<String>,
 }
 
 /// Response row from `/ip/firewall/connection/print`.
@@ -542,6 +614,45 @@ pub struct FirewallConnection {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether hardware offload is active for the connection.
     pub hw_offload: Option<bool>,
+    /// Original-direction source port.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub src_port: Option<u16>,
+    /// Original-direction destination port.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub dst_port: Option<u16>,
+    /// Reply-direction source port.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub reply_src_port: Option<u16>,
+    /// Reply-direction destination port.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub reply_dst_port: Option<u16>,
+    /// GRE key associated with the connection.
+    pub gre_key: Option<String>,
+    /// Original-direction `FastTrack` byte counter.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub orig_fasttrack_bytes: Option<u64>,
+    /// Original-direction `FastTrack` packet counter.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub orig_fasttrack_packets: Option<u64>,
+    /// Reply-direction `FastTrack` byte counter.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub repl_fasttrack_bytes: Option<u64>,
+    /// Reply-direction `FastTrack` packet counter.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub repl_fasttrack_packets: Option<u64>,
+    /// Current original-direction traffic rate.
+    pub orig_rate: Option<String>,
+    /// Current reply-direction traffic rate.
+    pub repl_rate: Option<String>,
+    /// Whether the tracked connection is being destroyed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dying: Option<bool>,
+    /// Whether connection tracking expected this connection.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub expected: Option<bool>,
+    /// Whether an application-layer helper is used.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub uses_helper: Option<bool>,
 }
 
 /// Common response row shape for firewall filter, NAT, mangle, and raw rules.
@@ -614,6 +725,8 @@ pub struct FirewallRule {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether firewall processing continues after this rule.
     pub passthrough: Option<bool>,
+    /// Connection mark assigned by this rule.
+    pub new_connection_mark: Option<String>,
 }
 
 /// Response row from `/ip/service/print`.
@@ -643,6 +756,20 @@ pub struct IpService {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether `RouterOS` considers this row invalid.
     pub invalid: Option<bool>,
+    /// Current service connection identifier or count.
+    pub connection: Option<String>,
+    /// Whether this service row was created dynamically by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dynamic: Option<bool>,
+    /// Local endpoint of a dynamic service connection.
+    pub local: Option<String>,
+    /// Maximum concurrent service sessions.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_sessions: Option<u32>,
+    /// Transport protocol used by the service.
+    pub proto: Option<String>,
+    /// Remote endpoint of a dynamic service connection.
+    pub remote: Option<String>,
 }
 
 /// Response row from `/ip/pool/print`.
@@ -656,6 +783,15 @@ pub struct IpPool {
     pub name: Option<String>,
     /// Address ranges included in the pool.
     pub ranges: Option<String>,
+    /// Number of addresses currently available in the pool.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub available: Option<u64>,
+    /// Total number of addresses in the pool.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub total: Option<u64>,
+    /// Number of addresses currently allocated from the pool.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub used: Option<u64>,
 }
 
 /// Response row from `/ip/vrf/print`.
@@ -714,6 +850,21 @@ pub struct Ipv6Address {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether duplicate address detection is disabled.
     pub no_dad: Option<bool>,
+    /// Whether this address was created automatically as link-local.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub auto_link_local: Option<bool>,
+    /// Whether the address is deprecated.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub deprecated: Option<bool>,
+    /// Whether the address has global scope.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub global: Option<bool>,
+    /// Whether the address belongs to a slave interface.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub slave: Option<bool>,
+    /// Virtual routing and forwarding interface associated with the address.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub vrf: Option<InterfaceName>,
 }
 
 /// Response row from `/ipv6/neighbor/print`.
@@ -733,6 +884,18 @@ pub struct Ipv6Neighbor {
     pub mac_address: Option<MacAddress>,
     /// Current neighbor discovery status.
     pub status: Option<String>,
+    /// Whether this neighbor entry is disabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub disabled: Option<bool>,
+    /// Whether this neighbor entry was created dynamically.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dynamic: Option<bool>,
+    /// Whether the neighbor advertises itself as a router.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub router: Option<bool>,
+    /// Virtual routing and forwarding interface associated with the neighbor.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub vrf: Option<InterfaceName>,
 }
 
 /// Response row from `/ipv6/route/print`.
@@ -760,6 +923,9 @@ pub struct Ipv6Route {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Route scope value.
     pub scope: Option<u32>,
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    /// Target scope used to resolve the route gateway.
+    pub target_scope: Option<u32>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row is active.
     pub active: Option<bool>,
@@ -802,9 +968,10 @@ pub struct IpCloud {
     pub ddns_update_interval: Option<String>,
     /// Whether `MikroTik` cloud updates the router clock.
     pub update_time: Option<String>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// Whether `MikroTik` cloud DDNS is enabled.
-    pub ddns_enabled: Option<bool>,
+    /// `MikroTik` cloud DDNS policy, including the `auto` mode.
+    pub ddns_enabled: Option<String>,
+    /// Back to Home VPN cloud-service state.
+    pub back_to_home_vpn: Option<String>,
 }
 
 /// Response row from `/ip/firewall/connection/tracking/print`.
@@ -865,12 +1032,20 @@ pub struct FirewallConnectionTracking {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether IPv6 connection tracking is active.
     pub active_ipv6: Option<bool>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// Whether this feature is enabled.
-    pub enabled: Option<bool>,
+    /// Connection-tracking policy, including the `auto` mode.
+    pub enabled: Option<String>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether loose TCP connection tracking is enabled.
     pub loose_tcp_tracking: Option<bool>,
+    /// Whether liberal TCP connection tracking is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub liberal_tcp_tracking: Option<bool>,
+    /// Current IPv4 connection tracking entries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub total_ip4_entries: Option<u64>,
+    /// Current IPv6 connection tracking entries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub total_ip6_entries: Option<u64>,
 }
 
 /// Response row from `/ip/settings/print`.
@@ -927,6 +1102,22 @@ pub struct IpSettings {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether TCP syncookies are enabled.
     pub tcp_syncookies: Option<bool>,
+    /// Whether ICMP errors use the inbound interface address.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub icmp_errors_use_inbound_interface_address: Option<bool>,
+    /// IPv4 fragment reassembly timeout.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ipv4_fragment_time: Option<RouterOsDuration>,
+    /// High threshold for IPv4 fragment memory usage.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ipv4_high_fragment_thresh: Option<RouterOsByteSize>,
+    /// IPv4 multipath hashing policy.
+    pub ipv4_multipath_hash_policy: Option<String>,
+    /// Whether the legacy IPv4 route cache is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub route_cache: Option<bool>,
+    /// TCP timestamp policy, including modes such as `random-offset`.
+    pub tcp_timestamps: Option<String>,
 }
 
 /// Response row from `/ipv6/settings/print`.
@@ -946,6 +1137,46 @@ pub struct Ipv6Settings {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether IPv6 forwarding is enabled.
     pub forward: Option<bool>,
+    /// Interfaces on which router advertisements are accepted.
+    pub accept_router_advertisements_on: Option<String>,
+    /// Whether IPv6 fast path forwarding is allowed.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub allow_fast_path: Option<bool>,
+    /// Whether automatic IPv6 link-local addressing is disabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub disable_link_local_address: Option<bool>,
+    /// Whether IPv6 fast path is active.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub ipv6_fast_path_active: Option<bool>,
+    /// Bytes forwarded through IPv6 fast path.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ipv6_fast_path_bytes: Option<u64>,
+    /// Packets forwarded through IPv6 fast path.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ipv6_fast_path_packets: Option<u64>,
+    /// Whether IPv6 `FastTrack` is active.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub ipv6_fasttrack_active: Option<bool>,
+    /// Bytes forwarded through IPv6 `FastTrack`.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ipv6_fasttrack_bytes: Option<u64>,
+    /// Packets forwarded through IPv6 `FastTrack`.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ipv6_fasttrack_packets: Option<u64>,
+    /// Minimum IPv6 neighbor-table allocation.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub min_neighbor_entries: Option<u32>,
+    /// IPv6 multipath hashing policy.
+    pub multipath_hash_policy: Option<String>,
+    /// Soft maximum for IPv6 neighbor entries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub soft_max_neighbor_entries: Option<u32>,
+    /// Interval between stale-neighbor checks.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub stale_neighbor_detect_interval: Option<RouterOsDuration>,
+    /// Time before an IPv6 neighbor becomes stale.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub stale_neighbor_timeout: Option<RouterOsDuration>,
 }
 
 /// Response row from `/ip/neighbor/discovery-settings/print`.
@@ -965,6 +1196,22 @@ pub struct NeighborDiscoverySettings {
     #[serde(deserialize_with = "crate::comma_list_from_str")]
     /// Protocol value.
     pub protocol: Vec<DiscoveryProtocol>,
+    /// Whether learned neighbors create DNS entries.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub add_dns_entries: Option<bool>,
+    /// Suffix applied to learned-neighbor DNS entries.
+    pub add_dns_entries_suffix: Option<String>,
+    /// Neighbor-discovery announcement interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub discover_interval: Option<RouterOsDuration>,
+    /// Interfaces used for LLDP dying-gasp announcements.
+    pub dying_gasp: Option<String>,
+    /// Whether LLDP-MED information is advertised.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub lldp_med: Option<bool>,
+    /// Whether VLAN information is advertised through LLDP.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub lldp_vlan_info: Option<bool>,
 }
 
 /// Response row from `/ip/proxy/print`.
@@ -1065,6 +1312,12 @@ pub struct Ssh {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether SSH is restricted to stronger cryptographic algorithms.
     pub strong_crypto: Option<bool>,
+    /// SSH ciphers enabled by the server.
+    pub ciphers: Option<String>,
+    /// SSH password-authentication policy.
+    pub password_authentication: Option<String>,
+    /// SSH public-key authentication policy.
+    pub publickey_authentication_options: Option<String>,
 }
 
 /// Response row from `/ip/traffic-flow/print`.
@@ -1088,7 +1341,7 @@ pub struct TrafficFlow {
     /// Traffic-flow packet sampling space.
     pub sampling_space: Option<u32>,
     #[serde(deserialize_with = "crate::optional_bool")]
-    /// Whether this feature is enabled.
+    /// Whether traffic-flow export is enabled.
     pub enabled: Option<bool>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether traffic-flow packet sampling is enabled.
@@ -1219,6 +1472,13 @@ pub struct HotspotProfile {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether RADIUS integration is enabled for this row.
     pub use_radius: Option<bool>,
+    /// DNS name presented by the hotspot profile.
+    pub dns_name: Option<String>,
+    /// HTTP proxy endpoint used by hotspot clients.
+    pub http_proxy: Option<String>,
+    /// SMTP server used by hotspot clients.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub smtp_server: Option<IpAddr>,
 }
 
 /// Response row from `/ip/hotspot/user/print`.
@@ -1256,6 +1516,13 @@ pub struct HotspotUser {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row was created dynamically by `RouterOS`.
     pub dynamic: Option<bool>,
+    /// Hotspot user password returned by the API.
+    #[serde(skip_serializing)]
+    pub password: Option<SensitiveString>,
+    /// Hotspot profile assigned to the user.
+    pub profile: Option<String>,
+    /// Hotspot server assigned to the user.
+    pub server: Option<String>,
 }
 
 /// Response row from `/ip/ipsec/profile/print`.
@@ -1289,6 +1556,8 @@ pub struct IpsecProfile {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether `IPsec` NAT traversal is enabled.
     pub nat_traversal: Option<bool>,
+    /// Post-quantum pre-shared-key policy.
+    pub ppk: Option<String>,
 }
 
 /// Response row from `/ip/ipsec/proposal/print`.
@@ -1348,6 +1617,38 @@ pub struct IpsecPolicy {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether the `IPsec` policy is a template policy.
     pub template: Option<bool>,
+    /// Action taken by the `IPsec` policy.
+    pub action: Option<String>,
+    /// Whether the policy is active.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub active: Option<bool>,
+    /// Comment configured on the policy.
+    pub comment: Option<String>,
+    /// Destination port selector.
+    pub dst_port: Option<String>,
+    /// Whether `RouterOS` considers the policy invalid.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub invalid: Option<bool>,
+    /// `IPsec` protocols selected by the policy.
+    pub ipsec_protocols: Option<String>,
+    /// `IPsec` policy level.
+    pub level: Option<String>,
+    /// Peer associated with the policy.
+    pub peer: Option<String>,
+    /// Number of active phase-two security associations.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ph2_count: Option<u32>,
+    /// Security-association destination address.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub sa_dst_address: Option<IpAddr>,
+    /// Security-association source address.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub sa_src_address: Option<IpAddr>,
+    /// Source port selector.
+    pub src_port: Option<String>,
+    /// Whether the policy uses tunnel mode.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub tunnel: Option<bool>,
 }
 
 /// Response row from `/ip/ipsec/statistics/print`.
@@ -1375,6 +1676,60 @@ pub struct IpsecStatistics {
     #[serde(deserialize_with = "crate::optional_from_str")]
     /// Outbound `IPsec` policy errors.
     pub out_policy_errors: Option<u64>,
+    /// Inbound buffer allocation errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_buffer_errors: Option<u64>,
+    /// Inbound header validation errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_header_errors: Option<u64>,
+    /// Inbound packets blocked by policy.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_policy_blocked: Option<u64>,
+    /// Inbound policy lookup errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_policy_errors: Option<u64>,
+    /// Inbound packets whose security-association state expired.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_state_expired: Option<u64>,
+    /// Inbound state mismatches.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_state_mismatches: Option<u64>,
+    /// Inbound state-mode errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_state_mode_errors: Option<u64>,
+    /// Inbound state-protocol errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_state_protocol_errors: Option<u64>,
+    /// Inbound state-sequence errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_state_sequence_errors: Option<u64>,
+    /// Inbound template mismatches.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub in_template_mismatches: Option<u64>,
+    /// Outbound bundle-check errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_bundle_check_errors: Option<u64>,
+    /// Outbound bundle errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_bundle_errors: Option<u64>,
+    /// Outbound packets blocked by policy.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_policy_blocked: Option<u64>,
+    /// Outbound packets whose policy was deleted.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_policy_dead: Option<u64>,
+    /// Outbound packets whose security-association state expired.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_state_expired: Option<u64>,
+    /// Outbound state-mode errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_state_mode_errors: Option<u64>,
+    /// Outbound state-protocol errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_state_protocol_errors: Option<u64>,
+    /// Outbound state-sequence errors.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub out_state_sequence_errors: Option<u64>,
 }
 
 /// Counter row shared by `/ip/proxy/inserts`, `/lookups`, and `/refreshes`.
@@ -1410,9 +1765,11 @@ pub struct Smb {
     pub interfaces: Option<String>,
     /// Current SMB service status.
     pub status: Option<String>,
+    /// SMB activation policy, including the `auto` mode.
+    pub enabled: Option<String>,
+    /// Whether unauthenticated SMB guest sessions are allowed.
     #[serde(deserialize_with = "crate::optional_bool")]
-    /// Whether this feature is enabled.
-    pub enabled: Option<bool>,
+    pub allow_guests: Option<bool>,
 }
 
 /// Response row from `/ip/smb/shares/print`.
@@ -1441,6 +1798,14 @@ pub struct SmbShare {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether SMB clients must use encryption.
     pub require_encryption: Option<bool>,
+    /// Comment configured on this SMB share.
+    pub comment: Option<String>,
+    /// Whether the SMB share is inactive.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub inactive: Option<bool>,
+    /// Maximum simultaneous sessions for this share.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_sessions: Option<u32>,
 }
 
 /// Response row from `/ip/upnp/print`.
@@ -1469,15 +1834,22 @@ pub struct NatPmp {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
     use alloc::string::ToString as _;
     use core::time::Duration;
 
     use super::DhcpLease;
+    use super::FirewallConnectionTracking;
     use super::FirewallRule;
+    use super::HotspotUser;
+    use super::IpCloud;
+    use super::IpSettings;
     use super::IpsecProfile;
     use super::Neighbor;
     use super::Route;
     use super::ScopedIpAddress;
+    use super::Smb;
+    use super::Ssh;
     use crate::Row;
 
     #[test]
@@ -1626,5 +1998,50 @@ mod tests {
         assert_eq!(rule.in_interface.as_deref(), Some("ether1"));
         assert_eq!(rule.to_addresses.as_deref(), Some("10.0.0.50"));
         assert_eq!(rule.to_ports.as_deref(), Some("443"));
+    }
+
+    #[test]
+    fn hotspot_password_is_typed_but_never_debugged_or_serialized() {
+        let mut row = Row::new();
+        row.insert("name".into(), "audit-user".into());
+        row.insert("password".into(), "highly-secret".into());
+
+        let user = crate::deserialize::<HotspotUser>(&row).expect("hotspot user row should deserialize");
+        let password = user.password.as_ref().expect("password should be present");
+
+        assert_eq!(password.expose_secret(), "highly-secret");
+        assert!(!format!("{user:?}").contains("highly-secret"));
+        assert!(
+            !serde_json::to_string(&user)
+                .expect("hotspot user should serialize")
+                .contains("highly-secret")
+        );
+    }
+
+    #[test]
+    fn symbolic_policy_fields_do_not_collapse_to_booleans() {
+        let tracking =
+            crate::deserialize::<FirewallConnectionTracking>(&Row::from([("enabled".to_string(), "auto".to_string())]))
+                .expect("connection tracking policy should deserialize");
+        let cloud = crate::deserialize::<IpCloud>(&Row::from([("ddns-enabled".to_string(), "auto".to_string())]))
+            .expect("cloud policy should deserialize");
+        let settings = crate::deserialize::<IpSettings>(&Row::from([(
+            "tcp-timestamps".to_string(),
+            "random-offset".to_string(),
+        )]))
+        .expect("TCP timestamp policy should deserialize");
+        let smb = crate::deserialize::<Smb>(&Row::from([("enabled".to_string(), "auto".to_string())]))
+            .expect("SMB policy should deserialize");
+        let ssh = crate::deserialize::<Ssh>(&Row::from([(
+            "password-authentication".to_string(),
+            "yes-if-no-key".to_string(),
+        )]))
+        .expect("SSH password policy should deserialize");
+
+        assert_eq!(tracking.enabled.as_deref(), Some("auto"));
+        assert_eq!(cloud.ddns_enabled.as_deref(), Some("auto"));
+        assert_eq!(settings.tcp_timestamps.as_deref(), Some("random-offset"));
+        assert_eq!(smb.enabled.as_deref(), Some("auto"));
+        assert_eq!(ssh.password_authentication.as_deref(), Some("yes-if-no-key"));
     }
 }

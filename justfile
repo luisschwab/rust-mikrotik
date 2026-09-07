@@ -90,6 +90,12 @@ coverage open="":
         --output-path target/llvm-cov/lcov.info \
         --ignore-filename-regex '(^|/)test[.]rs$'
 
+[doc("Check catalog coverage and official CHR image availability")]
+[group("Testing")]
+chr-catalog-check:
+    cargo rbmt -p mikrotik-qemu-runner run -- test --test scenarios version_stress_manifest_covers_catalog_exactly -- --exact
+    cargo rbmt -p mikrotik-qemu-runner run -- run --example check_chr_catalog
+
 [doc("Run all examples for one package")]
 [group("Testing")]
 examples package:
@@ -99,6 +105,16 @@ examples package:
 [group("Testing")]
 scenario test:
     cargo rbmt -p mikrotik-qemu-runner run -- test --test scenarios {{ test }} -- --ignored --exact --nocapture
+
+[doc("Audit supported CHR response fields against the checked-in baseline")]
+[group("Testing")]
+schema-audit:
+    cargo run -p mikrotik-crawler --example schema_audit
+
+[doc("Refresh the supported CHR response-field baseline after inspection")]
+[group("Testing")]
+schema-audit-update:
+    cargo run -p mikrotik-crawler --example schema_audit -- --update
 
 [doc("Run tests")]
 [env("RBMT_LOG_LEVEL", "verbose")]
@@ -138,7 +154,7 @@ run package +args:
 [doc("Run the crawler binary against a scenario manifest")]
 [group("Simulation")]
 crawl scenario="mikrotik-qemu-runner/scenarios/isp-network.toml":
-    cargo run -p mikrotik-crawler --bin crawler -- --run-kind scenario --scenario {{ scenario }} --mode one-shot --protocol api
+    cargo run -p mikrotik-crawler --bin crawler -- --run-kind scenario --scenario {{ scenario }} --mode one-shot --protocol api --user admin
 
 [doc("Run the crawler against the default QEMU runner scenario example")]
 [group("Simulation")]

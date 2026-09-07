@@ -47,8 +47,22 @@ pub enum RouterOsChannel {
 /// One `RouterOS` version supported by the QEMU runner CHR catalog.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RouterOsVersion {
-    /// `RouterOS` 7.23.1.
+    /// `RouterOS` 7.24.2.
     #[default]
+    V7_24_2,
+    /// `RouterOS` 7.24.1.
+    V7_24_1,
+    /// `RouterOS` 7.24.
+    V7_24,
+    /// `RouterOS` 7.23.5.
+    V7_23_5,
+    /// `RouterOS` 7.23.4.
+    V7_23_4,
+    /// `RouterOS` 7.23.3.
+    V7_23_3,
+    /// `RouterOS` 7.23.2.
+    V7_23_2,
+    /// `RouterOS` 7.23.1.
     V7_23_1,
     /// `RouterOS` 7.23.
     V7_23,
@@ -58,12 +72,18 @@ pub enum RouterOsVersion {
     V7_22_2,
     /// `RouterOS` 7.22.1.
     V7_22_1,
+    /// `RouterOS` 7.21.5.
+    V7_21_5,
     /// `RouterOS` 7.21.4.
     V7_21_4,
     /// `RouterOS` 7.20.8.
     V7_20_8,
     /// `RouterOS` 7.20.7.
     V7_20_7,
+    /// `RouterOS` 6.49.21.
+    V6_49_21,
+    /// `RouterOS` 6.49.20.
+    V6_49_20,
     /// `RouterOS` 6.49.19.
     V6_49_19,
     /// `RouterOS` 6.49.18.
@@ -84,14 +104,24 @@ impl RouterOsVersion {
     /// Return the `RouterOS` version string as used by `download.mikrotik.com`.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::V7_24_2 => "7.24.2",
+            Self::V7_24_1 => "7.24.1",
+            Self::V7_24 => "7.24",
+            Self::V7_23_5 => "7.23.5",
+            Self::V7_23_4 => "7.23.4",
+            Self::V7_23_3 => "7.23.3",
+            Self::V7_23_2 => "7.23.2",
             Self::V7_23_1 => "7.23.1",
             Self::V7_23 => "7.23",
             Self::V7_22_3 => "7.22.3",
             Self::V7_22_2 => "7.22.2",
             Self::V7_22_1 => "7.22.1",
+            Self::V7_21_5 => "7.21.5",
             Self::V7_21_4 => "7.21.4",
             Self::V7_20_8 => "7.20.8",
             Self::V7_20_7 => "7.20.7",
+            Self::V6_49_21 => "6.49.21",
+            Self::V6_49_20 => "6.49.20",
             Self::V6_49_19 => "6.49.19",
             Self::V6_49_18 => "6.49.18",
             Self::V6_49_17 => "6.49.17",
@@ -105,9 +135,22 @@ impl RouterOsVersion {
     /// Return stable and/or long-term channels this version belongs to.
     pub const fn channels(self) -> &'static [RouterOsChannel] {
         match self {
-            Self::V7_23_1 | Self::V7_23 | Self::V7_22_3 | Self::V7_22_2 | Self::V7_22_1 => &[RouterOsChannel::Stable],
-            Self::V7_21_4 | Self::V7_20_8 | Self::V7_20_7 => &[RouterOsChannel::LongTerm],
-            Self::V6_49_19 | Self::V6_49_18 => &[RouterOsChannel::Stable, RouterOsChannel::LongTerm],
+            Self::V7_24_2
+            | Self::V7_24_1
+            | Self::V7_24
+            | Self::V7_23_3
+            | Self::V7_23_2
+            | Self::V7_23_1
+            | Self::V7_23
+            | Self::V7_22_3
+            | Self::V7_22_2
+            | Self::V7_22_1 => &[RouterOsChannel::Stable],
+            Self::V7_23_5 | Self::V7_23_4 | Self::V7_21_5 | Self::V7_21_4 | Self::V7_20_8 | Self::V7_20_7 => {
+                &[RouterOsChannel::LongTerm]
+            }
+            Self::V6_49_21 | Self::V6_49_20 | Self::V6_49_19 | Self::V6_49_18 => {
+                &[RouterOsChannel::Stable, RouterOsChannel::LongTerm]
+            }
             Self::V6_49_17 | Self::V6_49_16 | Self::V6_49_15 => &[RouterOsChannel::Stable],
             Self::V6_49_13 | Self::V6_49_10 => &[RouterOsChannel::LongTerm],
         }
@@ -116,15 +159,25 @@ impl RouterOsVersion {
     /// Return CHR image architectures available for this version.
     pub const fn image_arches(self) -> &'static [ChrArch] {
         match self {
-            Self::V7_23_1
+            Self::V7_24_2
+            | Self::V7_24_1
+            | Self::V7_24
+            | Self::V7_23_5
+            | Self::V7_23_4
+            | Self::V7_23_3
+            | Self::V7_23_2
+            | Self::V7_23_1
             | Self::V7_23
             | Self::V7_22_3
             | Self::V7_22_2
             | Self::V7_22_1
+            | Self::V7_21_5
             | Self::V7_21_4
             | Self::V7_20_8
             | Self::V7_20_7 => &[ChrArch::X86_64, ChrArch::Aarch64],
-            Self::V6_49_19
+            Self::V6_49_21
+            | Self::V6_49_20
+            | Self::V6_49_19
             | Self::V6_49_18
             | Self::V6_49_17
             | Self::V6_49_16
@@ -158,18 +211,28 @@ impl<'de> Deserialize<'de> for RouterOsVersion {
 }
 
 /// Default `RouterOS` version for new [`crate::MikrotikDConf`] values.
-pub const DEFAULT_ROUTEROS_VERSION: RouterOsVersion = RouterOsVersion::V7_23_1;
+pub const DEFAULT_ROUTEROS_VERSION: RouterOsVersion = RouterOsVersion::V7_24_2;
 
 /// Stable and long-term CHR versions shown by `MikroTik`'s CHR download page.
 pub const ROUTEROS_VERSIONS: &[RouterOsVersion] = &[
+    RouterOsVersion::V7_24_2,
+    RouterOsVersion::V7_24_1,
+    RouterOsVersion::V7_24,
+    RouterOsVersion::V7_23_5,
+    RouterOsVersion::V7_23_4,
+    RouterOsVersion::V7_23_3,
+    RouterOsVersion::V7_23_2,
     RouterOsVersion::V7_23_1,
     RouterOsVersion::V7_23,
     RouterOsVersion::V7_22_3,
     RouterOsVersion::V7_22_2,
     RouterOsVersion::V7_22_1,
+    RouterOsVersion::V7_21_5,
     RouterOsVersion::V7_21_4,
     RouterOsVersion::V7_20_8,
     RouterOsVersion::V7_20_7,
+    RouterOsVersion::V6_49_21,
+    RouterOsVersion::V6_49_20,
     RouterOsVersion::V6_49_19,
     RouterOsVersion::V6_49_18,
     RouterOsVersion::V6_49_17,
@@ -206,7 +269,7 @@ mod tests {
     #[test]
     fn catalog_versions_round_trip_and_expose_channels_and_architectures() {
         assert_eq!(RouterOsVersion::default(), DEFAULT_ROUTEROS_VERSION);
-        assert_eq!(ROUTEROS_VERSIONS.len(), 15);
+        assert_eq!(ROUTEROS_VERSIONS.len(), 25);
         for version in ROUTEROS_VERSIONS {
             assert_eq!(version.as_str().parse::<RouterOsVersion>().unwrap(), *version);
             assert!(!version.channels().is_empty());
@@ -218,10 +281,10 @@ mod tests {
             }
         }
 
-        assert_eq!(RouterOsVersion::V7_23_1.channels(), &[RouterOsChannel::Stable]);
-        assert_eq!(RouterOsVersion::V7_21_4.channels(), &[RouterOsChannel::LongTerm]);
+        assert_eq!(RouterOsVersion::V7_24_2.channels(), &[RouterOsChannel::Stable]);
+        assert_eq!(RouterOsVersion::V7_23_5.channels(), &[RouterOsChannel::LongTerm]);
         assert_eq!(
-            RouterOsVersion::V6_49_19.channels(),
+            RouterOsVersion::V6_49_21.channels(),
             &[RouterOsChannel::Stable, RouterOsChannel::LongTerm]
         );
         assert!("1.2.3".parse::<RouterOsVersion>().is_err());
@@ -229,23 +292,23 @@ mod tests {
 
     #[test]
     fn version_deserialization_uses_the_catalog_parser() {
-        let parsed: VersionConfig = toml::from_str("version = \"7.23.1\"").unwrap();
-        assert_eq!(parsed.version, RouterOsVersion::V7_23_1);
+        let parsed: VersionConfig = toml::from_str("version = \"7.24.2\"").unwrap();
+        assert_eq!(parsed.version, RouterOsVersion::V7_24_2);
         assert!(toml::from_str::<VersionConfig>("version = \"1.2.3\"").is_err());
     }
 
     #[test]
     fn guest_arch_prefers_native_images_and_falls_back_for_routeros_six() {
         assert_eq!(
-            guest_arch(ChrArch::X86_64, RouterOsVersion::V7_23_1).unwrap(),
+            guest_arch(ChrArch::X86_64, RouterOsVersion::V7_24_2).unwrap(),
             ChrArch::X86_64
         );
         assert_eq!(
-            guest_arch(ChrArch::Aarch64, RouterOsVersion::V7_23_1).unwrap(),
+            guest_arch(ChrArch::Aarch64, RouterOsVersion::V7_24_2).unwrap(),
             ChrArch::Aarch64
         );
         assert_eq!(
-            guest_arch(ChrArch::Aarch64, RouterOsVersion::V6_49_19).unwrap(),
+            guest_arch(ChrArch::Aarch64, RouterOsVersion::V6_49_21).unwrap(),
             ChrArch::X86_64
         );
     }

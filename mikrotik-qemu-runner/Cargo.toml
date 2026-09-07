@@ -16,6 +16,7 @@ mikrotik-types = { path = "../mikrotik-types" }
 # External Dependencies
 bitreq = { version = "0.3.7", default-features = false, features = ["std", "https"] }
 serde = { workspace = true }
+terminal_size = { version = "0.4.4" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 toml = { version = "0.8.23" }
 tracing = { workspace = true }

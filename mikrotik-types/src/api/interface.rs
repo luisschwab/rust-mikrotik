@@ -107,6 +107,15 @@ pub struct Interface {
     /// Fast-path transmitted packets.
     #[serde(deserialize_with = "crate::optional_from_str")]
     pub fp_tx_packet: Option<u64>,
+    /// Fast-path receive-packet-steering drops.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub fp_rps_drop: Option<u64>,
+    /// Whether this interface was created dynamically by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dynamic: Option<bool>,
+    /// Virtual routing and forwarding interface associated with this interface.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub vrf: Option<InterfaceName>,
 }
 
 /// Response row from `/interface/wireless/registration-table/print`.
@@ -399,6 +408,85 @@ pub struct Bridge {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether bridge VLAN filtering is enabled.
     pub vlan_filtering: Option<bool>,
+    /// Time after which an inactive forwarding-database entry expires.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ageing_time: Option<RouterOsDuration>,
+    /// Whether `DHCPv6` snooping is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dhcpv6_snooping: Option<bool>,
+    /// Whether this bridge was created dynamically by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub dynamic: Option<bool>,
+    /// Spanning-tree forward-delay interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub forward_delay: Option<RouterOsDuration>,
+    /// Whether traffic to reserved MAC addresses is forwarded.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub forward_reserved_addresses: Option<bool>,
+    /// IGMP protocol version used by the bridge querier.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub igmp_version: Option<u8>,
+    /// Last-member multicast query interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub last_member_interval: Option<RouterOsDuration>,
+    /// Number of last-member multicast queries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub last_member_query_count: Option<u32>,
+    /// Whether this row is managed internally by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub managed: Option<bool>,
+    /// Maximum number of multicast-router hops.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_hops: Option<u8>,
+    /// Configured learned-entry limit, including symbolic values such as `auto`.
+    pub max_learned_entries: Option<String>,
+    /// Spanning-tree maximum-message-age interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub max_message_age: Option<RouterOsDuration>,
+    /// Multicast membership interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub membership_interval: Option<RouterOsDuration>,
+    /// MLAG heartbeat interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub mlag_heartbeat: Option<RouterOsDuration>,
+    /// MLAG peer port.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub mlag_peer_port: Option<InterfaceName>,
+    /// MLAG system priority.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub mlag_priority: Option<u16>,
+    /// MLD protocol version used by the bridge querier.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub mld_version: Option<u8>,
+    /// Whether the bridge acts as a multicast querier.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub multicast_querier: Option<bool>,
+    /// Multicast-router behavior.
+    pub multicast_router: Option<String>,
+    /// Multicast querier interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub querier_interval: Option<RouterOsDuration>,
+    /// General multicast query interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub query_interval: Option<RouterOsDuration>,
+    /// Multicast query-response interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub query_response_interval: Option<RouterOsDuration>,
+    /// Whether IPv6 router advertisements are guarded.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub ra_guard: Option<bool>,
+    /// MSTP region revision.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub region_revision: Option<u16>,
+    /// Number of startup multicast queries.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub startup_query_count: Option<u32>,
+    /// Startup multicast query interval.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub startup_query_interval: Option<RouterOsDuration>,
+    /// Spanning-tree transmit hold count.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub transmit_hold_count: Option<u32>,
 }
 
 /// Response row from `/interface/bridge/vlan/print`.
@@ -431,6 +519,11 @@ pub struct BridgeVlan {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this row was created dynamically by `RouterOS`.
     pub dynamic: Option<bool>,
+    /// Comment configured on this bridge VLAN row.
+    pub comment: Option<String>,
+    /// Whether this row is managed internally by `RouterOS`.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub managed: Option<bool>,
 }
 
 /// Response row from `/interface/list/print`.
@@ -518,6 +611,9 @@ pub struct VlanInterface {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether MVRP is enabled.
     pub mvrp: Option<bool>,
+    /// Whether this VLAN is currently offloaded to hardware.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub hw_offloaded: Option<bool>,
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether the VLAN interface uses the 802.1ad service tag.
     pub use_service_tag: Option<bool>,
@@ -695,6 +791,9 @@ pub struct DetectInternet {
     pub lan_interface_list: Option<String>,
     /// Interface list classified as WAN-facing.
     pub wan_interface_list: Option<String>,
+    /// Interval between Detect Internet probes.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub request_interval: Option<RouterOsDuration>,
 }
 
 /// Response row from `/interface/ethernet/print`.
@@ -957,6 +1056,41 @@ pub struct WirelessSecurityProfile {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether PMKID is disabled for the wireless profile.
     pub disable_pmkid: Option<bool>,
+    /// Wireless management-frame protection mode.
+    pub management_protection: Option<String>,
+    /// Format of the RADIUS Called-Station-Id attribute.
+    pub radius_called_format: Option<String>,
+    /// Whether EAP sessions are accounted through RADIUS.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub radius_eap_accounting: Option<bool>,
+    /// Whether MAC-authenticated sessions are accounted through RADIUS.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub radius_mac_accounting: Option<bool>,
+    /// Whether RADIUS MAC authentication is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub radius_mac_authentication: Option<bool>,
+    /// RADIUS MAC-authentication cache lifetime or `disabled`.
+    pub radius_mac_caching: Option<String>,
+    /// Format used for MAC addresses in RADIUS attributes.
+    pub radius_mac_format: Option<String>,
+    /// RADIUS MAC-authentication mode.
+    pub radius_mac_mode: Option<String>,
+    /// Static WEP algorithm for key slot zero.
+    pub static_algo_0: Option<String>,
+    /// Static WEP algorithm for key slot one.
+    pub static_algo_1: Option<String>,
+    /// Static WEP algorithm for key slot two.
+    pub static_algo_2: Option<String>,
+    /// Static WEP algorithm for key slot three.
+    pub static_algo_3: Option<String>,
+    /// Static algorithm used for station-private keys.
+    pub static_sta_private_algo: Option<String>,
+    /// Static transmit-key slot, for example `key-0`.
+    pub static_transmit_key: Option<String>,
+    /// Certificate used for wireless TLS authentication.
+    pub tls_certificate: Option<String>,
+    /// Wireless TLS verification mode.
+    pub tls_mode: Option<String>,
 }
 
 #[cfg(test)]

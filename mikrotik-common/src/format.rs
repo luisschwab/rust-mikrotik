@@ -21,6 +21,12 @@ pub fn format_byte_count(bytes: u64) -> String {
     }
 }
 
+/// Format a byte count as MiB with two rounded decimal places.
+#[must_use]
+pub fn format_mebibytes(bytes: u64) -> String {
+    format_binary_unit_with_precision(bytes, 1024 * 1024, "MiB", 100)
+}
+
 /// Add underscores as thousands separators to an integer or decimal string.
 ///
 /// Non-numeric input is returned unchanged.
@@ -114,10 +120,20 @@ fn format_with_unit(value: &str, unit: &str, separator: bool) -> String {
 
 /// Format one binary unit with one rounded decimal place.
 fn format_binary_unit(bytes: u64, unit: u64, suffix: &str) -> String {
-    let scaled = ((u128::from(bytes) * 10) + (u128::from(unit) / 2)) / u128::from(unit);
-    let whole = scaled / 10;
-    let tenth = scaled % 10;
-    format!("{whole}.{tenth} {suffix}")
+    format_binary_unit_with_precision(bytes, unit, suffix, 10)
+}
+
+/// Format one binary unit with a fixed number of decimal places encoded by its scale.
+fn format_binary_unit_with_precision(bytes: u64, unit: u64, suffix: &str, scale: u128) -> String {
+    let scaled = ((u128::from(bytes) * scale) + (u128::from(unit) / 2)) / u128::from(unit);
+    let whole = scaled / scale;
+    let fractional = scaled % scale;
+    let decimal_places = match scale {
+        10 => 1,
+        100 => 2,
+        _ => unreachable!("binary unit formatter supports one or two decimal places"),
+    };
+    format!("{whole}.{fractional:0decimal_places$} {suffix}")
 }
 
 #[cfg(test)]
@@ -125,6 +141,7 @@ mod tests {
     use super::format_byte_count;
     use super::format_current_amperes;
     use super::format_frequency_megahertz;
+    use super::format_mebibytes;
     use super::format_number_with_underscores;
     use super::format_percentage;
     use super::format_power_watts;
@@ -142,6 +159,13 @@ mod tests {
         assert_eq!(format_byte_count(2 * 1024 * 1024), "2.0 MiB");
         assert_eq!(format_byte_count(3 * 1024 * 1024 * 1024 * 1024), "3.0 TiB");
         assert_eq!(format_byte_count(u64::MAX), "16.0 EiB");
+    }
+
+    #[test]
+    fn formats_mebibytes_with_two_decimal_places() {
+        assert_eq!(format_mebibytes(0), "0.00 MiB");
+        assert_eq!(format_mebibytes(4 * 1024 * 1024), "4.00 MiB");
+        assert_eq!(format_mebibytes(4 * 1024 * 1024 + 1024 * 1024 / 4), "4.25 MiB");
     }
 
     #[test]

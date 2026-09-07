@@ -3,14 +3,22 @@
 use core::time::Duration;
 use std::fs;
 use std::io;
+use std::io::IsTerminal as _;
 use std::path::Path;
 use std::path::PathBuf;
 use std::thread;
+use std::time::Instant;
 
 use bitreq::Method;
 use bitreq::Request;
+use indicatif::MultiProgress;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
+use mikrotik_common::format::format_mebibytes;
 use mikrotik_common::info_with_label;
 use mikrotik_common::warn_with_label;
+use terminal_size::Width;
+use terminal_size::terminal_size_of;
 use tracing::debug;
 
 use crate::catalog::ChrArch;
@@ -24,7 +32,12 @@ pub const MIKROTIK_ROUTEROS_DOWNLOAD_BASE_URL: &str = "https://download.mikrotik
 pub(crate) const IMAGES_DIR: &str = ".chr-cache/images";
 
 /// Return a cached CHR raw image [`PathBuf`], downloading and unpacking if needed.
-pub(crate) fn ensure_chr_image(root: &Path, version: &str, arch: ChrArch) -> Result<PathBuf> {
+pub(crate) fn ensure_chr_image(
+    root: &Path,
+    version: &str,
+    arch: ChrArch,
+    progress: Option<&MultiProgress>,
+) -> Result<PathBuf> {
     let image = root.join(IMAGES_DIR).join(chr_image_filename(version, arch));
     if image.exists() {
         debug!("Using cached CHR {version} {arch:?} image {}", image.display());
@@ -35,7 +48,7 @@ pub(crate) fn ensure_chr_image(root: &Path, version: &str, arch: ChrArch) -> Res
     let archive = root.join(IMAGES_DIR).join(chr_archive_filename(version, arch));
     let url = chr_url(version, arch);
     info_with_label!("CHR", "Downloading CHR {version} {arch:?} from {url}");
-    download_chr_archive(version, &url, &archive, &archive_member)?;
+    download_chr_archive(version, &url, &archive, &archive_member, progress)?;
 
     debug!("Unpacking {} to {}", archive_member, image.display());
     unpack_chr_archive(&archive, &archive_member, &image)?;
@@ -82,9 +95,15 @@ fn unpack_chr_archive(archive_path: &Path, archive_member: &str, image: &Path) -
 }
 
 /// Download one CHR archive with bounded retries and atomic replacement.
-fn download_chr_archive(version: &str, url: &str, archive: &Path, archive_member: &str) -> Result<()> {
+fn download_chr_archive(
+    version: &str,
+    url: &str,
+    archive: &Path,
+    archive_member: &str,
+    progress: Option<&MultiProgress>,
+) -> Result<()> {
     const ATTEMPTS: usize = 5;
-    const TIMEOUT_SECONDS: u64 = 180;
+    const TIMEOUT_SECONDS: u64 = 300;
 
     let partial = archive.with_extension("zip.part");
     let mut last_error = None;
@@ -95,7 +114,7 @@ fn download_chr_archive(version: &str, url: &str, archive: &Path, archive_member
                 .map_err(|source| Error::io("remove stale partial CHR archive", &partial, source))?;
         }
 
-        match try_download_chr_archive(url, &partial, archive_member, TIMEOUT_SECONDS) {
+        match try_download_chr_archive(url, &partial, archive_member, TIMEOUT_SECONDS, progress) {
             Ok(()) => {
                 fs::rename(&partial, archive)
                     .map_err(|source| Error::io("promote partial CHR archive to", archive, source))?;
@@ -122,10 +141,16 @@ fn download_chr_archive(version: &str, url: &str, archive: &Path, archive_member
 }
 
 /// Download one URL to a partial output file.
-fn try_download_chr_archive(url: &str, partial: &Path, archive_member: &str, timeout_seconds: u64) -> Result<()> {
+fn try_download_chr_archive(
+    url: &str,
+    partial: &Path,
+    archive_member: &str,
+    timeout_seconds: u64,
+    progress_group: Option<&MultiProgress>,
+) -> Result<()> {
     let response = Request::new(Method::Get, url)
         .with_timeout(timeout_seconds)
-        .send()
+        .send_lazy()
         .map_err(|error| Error::Tool(format!("failed to GET {url}: {error}")))?;
 
     if !(200..300).contains(&response.status_code) {
@@ -136,27 +161,29 @@ fn try_download_chr_archive(url: &str, partial: &Path, archive_member: &str, tim
     }
 
     let expected_len = content_length(&response)?;
-    let body = response.as_bytes();
+    let output =
+        fs::File::create(partial).map_err(|source| Error::io("create partial CHR archive", partial, source))?;
+    let archive_filename = format!("{archive_member}.zip");
+    let mut progress = DownloadProgress::new(response, expected_len, &archive_filename, progress_group);
+    let actual_len = io::copy(&mut progress, &mut io::BufWriter::new(output))
+        .map_err(|source| Error::io("write partial CHR archive", partial, source))?;
+    progress.finish();
 
     if let Some(expected_len) = expected_len {
-        let actual_len = u64::try_from(body.len())
-            .map_err(|_| Error::Tool("downloaded CHR archive length exceeds u64".to_owned()))?;
         if actual_len != expected_len {
             return Err(Error::Tool(format!(
-                "downloaded {} byte(s) from {url}, expected {expected_len}",
-                body.len()
+                "downloaded {actual_len} byte(s) from {url}, expected {expected_len}"
             )));
         }
     }
 
-    fs::write(partial, body).map_err(|source| Error::io("write partial CHR archive", partial, source))?;
     validate_chr_archive(partial, archive_member)?;
 
     Ok(())
 }
 
 /// Return the response `Content-Length`, when present.
-fn content_length(response: &bitreq::Response) -> Result<Option<u64>> {
+fn content_length(response: &bitreq::ResponseLazy) -> Result<Option<u64>> {
     response
         .headers
         .get("content-length")
@@ -182,6 +209,186 @@ fn validate_chr_archive(archive_path: &Path, archive_member: &str) -> Result<()>
     })?;
 
     Ok(())
+}
+
+/// A streaming CHR archive reader that reports download progress.
+struct DownloadProgress<R> {
+    /// Streaming HTTP response body.
+    reader: R,
+    /// Total archive size, when supplied by the HTTP server.
+    expected_len: Option<u64>,
+    /// Archive filename, abbreviated when needed to fit the terminal.
+    filename: String,
+    /// Width of the terminal progress bar in characters.
+    bar_width: usize,
+    /// Number of archive bytes written so far.
+    downloaded: u64,
+    /// Most recent terminal redraw time.
+    last_render: Instant,
+    /// Most recent non-interactive log line time.
+    last_noninteractive_report: Instant,
+    /// Whether stderr supports terminal redraws.
+    interactive: bool,
+    /// Multi-line-safe bar used for concurrent interactive downloads.
+    progress_bar: Option<ProgressBar>,
+}
+
+impl<R> DownloadProgress<R> {
+    /// Start counting a response body and, when appropriate, drawing its progress.
+    fn new(reader: R, expected_len: Option<u64>, filename: &str, progress_group: Option<&MultiProgress>) -> Self {
+        let (filename, bar_width) = progress_layout(filename, expected_len, terminal_columns());
+        let terminal = io::stderr().is_terminal();
+        let progress_bar = progress_group.filter(|_| terminal).map(|group| {
+            let progress_bar = expected_len.map_or_else(ProgressBar::new_spinner, ProgressBar::new);
+            let style = ProgressStyle::with_template("{msg}").unwrap_or_else(|_| ProgressStyle::default_spinner());
+            progress_bar.set_style(style);
+            group.add(progress_bar)
+        });
+        let progress = Self {
+            reader,
+            expected_len,
+            filename,
+            bar_width,
+            downloaded: 0,
+            last_render: Instant::now(),
+            last_noninteractive_report: Instant::now(),
+            interactive: terminal && progress_bar.is_none(),
+            progress_bar,
+        };
+        if let Some(progress_bar) = &progress.progress_bar {
+            progress_bar.set_message(progress.progress_line());
+        }
+        progress
+    }
+
+    /// Render the completed state in the appropriate output style.
+    fn finish(&mut self) {
+        if let Some(progress_bar) = &self.progress_bar {
+            progress_bar.set_message(self.progress_line());
+            progress_bar.finish();
+        } else if self.interactive {
+            self.render();
+            eprintln!();
+        } else if let Some(expected_len) = self.expected_len {
+            eprintln!(
+                "{} downloaded 100% {}/{}",
+                self.filename,
+                format_mebibytes(self.downloaded),
+                format_mebibytes(expected_len)
+            );
+        } else {
+            eprintln!("{} downloaded {}", self.filename, format_mebibytes(self.downloaded));
+        }
+    }
+
+    /// Redraw the terminal progress bar using the latest byte count.
+    fn render(&self) {
+        eprint!("\r{}", self.progress_line());
+    }
+
+    /// Format the original compact progress-bar style.
+    fn progress_line(&self) -> String {
+        let Some(expected_len) = self.expected_len else {
+            return format!("{} {}", self.filename, format_mebibytes(self.downloaded));
+        };
+        let percent = self.downloaded.saturating_mul(100) / expected_len.max(1);
+        let filled = usize::try_from(percent.saturating_mul(self.bar_width as u64) / 100)
+            .expect("percentage-derived progress width fits usize");
+        let bar = format!("{}{}", "#".repeat(filled), "-".repeat(self.bar_width - filled));
+        format!(
+            "{} [{bar}] {percent:>3}% {}/{}",
+            self.filename,
+            format_mebibytes(self.downloaded),
+            format_mebibytes(expected_len)
+        )
+    }
+
+    /// Report the current state as one CI-friendly log line.
+    fn render_noninteractive(&self) {
+        if let Some(expected_len) = self.expected_len {
+            let percent = self.downloaded.saturating_mul(100) / expected_len.max(1);
+            eprintln!(
+                "{} downloading {percent:>3}% {}/{}",
+                self.filename,
+                format_mebibytes(self.downloaded),
+                format_mebibytes(expected_len)
+            );
+        } else {
+            eprintln!("{} downloading {}", self.filename, format_mebibytes(self.downloaded));
+        }
+    }
+
+    /// Return whether CI should receive another download heartbeat.
+    fn should_report_noninteractive(&self) -> bool {
+        self.last_noninteractive_report.elapsed() >= NONINTERACTIVE_PROGRESS_INTERVAL
+    }
+}
+
+impl<R> io::Read for DownloadProgress<R>
+where
+    R: io::Read,
+{
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let bytes_read = self.reader.read(buffer)?;
+        self.downloaded +=
+            u64::try_from(bytes_read).map_err(|_| io::Error::other("CHR download chunk length exceeds u64"))?;
+        if bytes_read > 0 && self.progress_bar.is_some() && self.last_render.elapsed() >= Duration::from_millis(100) {
+            if let Some(progress_bar) = &self.progress_bar {
+                progress_bar.set_message(self.progress_line());
+            }
+            self.last_render = Instant::now();
+        } else if bytes_read > 0 && self.interactive && self.last_render.elapsed() >= Duration::from_millis(100) {
+            self.render();
+            self.last_render = Instant::now();
+        } else if bytes_read > 0 && !self.interactive && self.should_report_noninteractive() {
+            self.render_noninteractive();
+            self.last_noninteractive_report = Instant::now();
+        }
+        Ok(bytes_read)
+    }
+}
+
+/// Interval between CI download heartbeat log lines.
+const NONINTERACTIVE_PROGRESS_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Maximum number of characters in the terminal download progress bar.
+const MAX_PROGRESS_BAR_WIDTH: usize = 40;
+/// Minimum number of characters retained for the terminal download progress bar.
+const MIN_PROGRESS_BAR_WIDTH: usize = 10;
+/// Terminal width used when the operating system does not report one.
+const DEFAULT_TERMINAL_COLUMNS: usize = 80;
+
+/// Return the width of stderr's terminal, or a conservative conventional width.
+fn terminal_columns() -> usize {
+    terminal_size_of(io::stderr()).map_or(DEFAULT_TERMINAL_COLUMNS, |(Width(columns), _)| usize::from(columns))
+}
+
+/// Fit the archive label and progress bar into a terminal with the given number of columns.
+fn progress_layout(filename: &str, expected_len: Option<u64>, columns: usize) -> (String, usize) {
+    let counter_width = expected_len.map_or(20, |length| {
+        let formatted = format_mebibytes(length);
+        format!(" 100% {formatted}/{formatted}").chars().count()
+    });
+    // A preceding space plus the opening and closing brackets around the bar.
+    let bar_overhead = 3;
+    let filename_width = columns.saturating_sub(counter_width + bar_overhead + MIN_PROGRESS_BAR_WIDTH);
+    let filename = abbreviate_filename(filename, filename_width);
+    let bar_width = columns
+        .saturating_sub(filename.chars().count() + counter_width + bar_overhead)
+        .clamp(MIN_PROGRESS_BAR_WIDTH, MAX_PROGRESS_BAR_WIDTH);
+    (filename, bar_width)
+}
+
+/// Abbreviate a filename with an ellipsis when it would not fit in the available width.
+fn abbreviate_filename(filename: &str, width: usize) -> String {
+    if filename.chars().count() <= width {
+        return filename.to_owned();
+    }
+    if width <= 3 {
+        return "...".chars().take(width).collect();
+    }
+    let prefix_width = width - 3;
+    format!("{}...", filename.chars().take(prefix_width).collect::<String>())
 }
 
 #[cfg(test)]
@@ -227,6 +434,31 @@ mod tests {
     }
 
     #[test]
+    fn progress_layout_does_not_wrap_an_eighty_column_terminal() {
+        let filename = "chr-7.23.1-arm64.img.zip";
+        let expected_len = 18 * 1024 * 1024 + 280 * 1024;
+        let (display_filename, bar_width) = progress_layout(filename, Some(expected_len), 80);
+        let formatted = format_mebibytes(expected_len);
+        let line_width =
+            display_filename.chars().count() + 3 + bar_width + format!(" 100% {formatted}/{formatted}").chars().count();
+
+        assert_eq!(display_filename, filename);
+        assert!(bar_width < MAX_PROGRESS_BAR_WIDTH);
+        assert!(line_width <= 80);
+    }
+
+    #[test]
+    fn noninteractive_progress_uses_a_ten_second_interval() {
+        let mut progress = DownloadProgress::new(io::empty(), Some(100), "chr.img.zip", None);
+        assert!(!progress.should_report_noninteractive());
+
+        progress.last_noninteractive_report = Instant::now()
+            .checked_sub(NONINTERACTIVE_PROGRESS_INTERVAL)
+            .expect("current instant can represent a time ten seconds earlier");
+        assert!(progress.should_report_noninteractive());
+    }
+
+    #[test]
     fn existing_cached_image_is_returned_without_downloading() {
         let root = temporary_root("cached");
         if root.exists() {
@@ -236,7 +468,7 @@ mod tests {
         fs::create_dir_all(image.parent().unwrap()).unwrap();
         fs::write(&image, b"cached image").unwrap();
 
-        assert_eq!(ensure_chr_image(&root, "7.23.1", ChrArch::X86_64).unwrap(), image);
+        assert_eq!(ensure_chr_image(&root, "7.23.1", ChrArch::X86_64, None).unwrap(), image);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -303,12 +535,12 @@ mod tests {
 
         let (url, server) = serve_once("200 OK", &format!("Content-Length: {}\r\n", body.len()), body.clone());
         let partial = root.join("download.part");
-        try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2).unwrap();
+        try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2, None).unwrap();
         server.join().unwrap();
         assert_eq!(fs::read(&partial).unwrap(), body);
 
         let (url, server) = serve_once("404 Not Found", "Content-Length: 0\r\n", Vec::new());
-        assert!(try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2).is_err());
+        assert!(try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2, None).is_err());
         server.join().unwrap();
 
         let invalid_body = b"not a zip".to_vec();
@@ -317,7 +549,7 @@ mod tests {
             &format!("Content-Length: {}\r\n", invalid_body.len()),
             invalid_body,
         );
-        assert!(try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2).is_err());
+        assert!(try_download_chr_archive(&url, &partial, "chr-7.23.1.img", 2, None).is_err());
         server.join().unwrap();
         fs::remove_dir_all(root).unwrap();
     }

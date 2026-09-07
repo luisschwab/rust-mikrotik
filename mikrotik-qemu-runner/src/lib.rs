@@ -13,9 +13,11 @@ use std::io::ErrorKind;
 use std::net::TcpListener;
 use std::path::Path;
 use std::path::PathBuf;
+use std::thread;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use indicatif::MultiProgress;
 use mikrotik_client::client::Client;
 use mikrotik_common::debug_with_label;
 use mikrotik_common::error_with_label;
@@ -63,6 +65,58 @@ use crate::qemu::RuntimeTarget;
 use crate::qemu::create_overlay;
 use crate::qemu::ensure_tool;
 use crate::qemu::qemu_system_binary;
+
+/// Download every CHR image required by the catalog for the current host.
+///
+/// Images are retained in this crate's `.chr-cache/images` directory, so a
+/// caller can cache that directory between runs. Downloads run in bounded
+/// parallel batches to shorten the initial cache population without opening an
+/// unbounded number of connections to `MikroTik`.
+///
+/// # Errors
+///
+/// Returns an error if the local cache directory cannot be prepared, the host
+/// architecture is unsupported, or an image cannot be downloaded and unpacked.
+pub fn cache_catalog_images() -> Result<()> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    prepare_state_dirs(&root)?;
+
+    let host_arch = RuntimeArch::host()?;
+    let progress = MultiProgress::new();
+    let images = ROUTEROS_VERSIONS
+        .iter()
+        .copied()
+        .map(|version| {
+            let guest_arch = catalog::guest_arch(host_arch, version)?;
+            Ok((version, guest_arch))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    for batch in images.chunks(MAX_PARALLEL_CHR_DOWNLOADS) {
+        let result: Result<()> = thread::scope(|scope| {
+            let root = &root;
+            let progress = &progress;
+            let downloads = batch
+                .iter()
+                .map(|&(version, guest_arch)| {
+                    scope.spawn(move || ensure_chr_image(root, version.as_str(), guest_arch, Some(progress)))
+                })
+                .collect::<Vec<_>>();
+            for download in downloads {
+                download
+                    .join()
+                    .map_err(|_| Error::Tool("CHR image download worker panicked".to_owned()))??;
+            }
+            Ok(())
+        });
+        result?;
+    }
+
+    Ok(())
+}
+
+/// Maximum concurrent catalog-image downloads.
+const MAX_PARALLEL_CHR_DOWNLOADS: usize = 8;
 
 /// Root directory for cached CHR images and local runner runtime state.
 const CACHE_DIR: &str = ".chr-cache";
@@ -198,7 +252,7 @@ pub(crate) async fn spawn_mikrotikds(
         let version = router.version;
         let target = RuntimeTarget::detect(&sh, host_arch, version, config.allow_software_emulation)?;
         let qemu_system = qemu_system_binary(&sh, target.guest_arch)?;
-        let base_image = ensure_chr_image(&root, version.as_str(), target.guest_arch)?;
+        let base_image = ensure_chr_image(&root, version.as_str(), target.guest_arch, None)?;
         let overlay = run_dir.join(format!("{}.qcow2", router.name));
         debug_with_label!(router.name, "Creating overlay at {}", overlay.display());
         create_overlay(&sh, &base_image, &overlay)?;
@@ -495,7 +549,7 @@ fn allocate_api_ports(scenario: &ScenarioConf) -> Result<ApiPortAllocations> {
             .local_addr()
             .map_err(|error| Error::Tool(format!("read reserved API port for {}: {error}", router.name)))?
             .port();
-        info_with_label!(router.name, "API localhost:{port} Username={}", DEFAULT_USERNAME);
+        info_with_label!(router.name, "API localhost:{port} username={}", DEFAULT_USERNAME);
         ports.insert(
             router.name.clone(),
             ApiPortAllocation {

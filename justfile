@@ -90,6 +90,12 @@ coverage open="":
         --output-path target/llvm-cov/lcov.info \
         --ignore-filename-regex '(^|/)test[.]rs$'
 
+[doc("Check catalog coverage and official CHR image availability")]
+[group("Testing")]
+chr-catalog-check:
+    cargo rbmt -p mikrotik-qemu-runner run -- test --test scenarios version_stress_manifest_covers_catalog_exactly -- --exact
+    cargo rbmt -p mikrotik-qemu-runner run -- run --example check_chr_catalog
+
 [doc("Run all examples for one package")]
 [group("Testing")]
 examples package:

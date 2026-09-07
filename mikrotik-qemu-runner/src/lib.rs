@@ -17,7 +17,6 @@ use std::thread;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use indicatif::MultiProgress;
 use mikrotik_client::client::Client;
 use mikrotik_common::debug_with_label;
 use mikrotik_common::error_with_label;
@@ -59,7 +58,9 @@ pub use scenario::ScenarioConf;
 pub const DEFAULT_ALLOW_SOFTWARE_EMULATION: bool = true;
 
 use crate::catalog::ChrArch as RuntimeArch;
+use crate::chr::DownloadProgressGroup;
 use crate::chr::IMAGES_DIR;
+use crate::chr::chr_archive_filename;
 use crate::chr::ensure_chr_image;
 use crate::qemu::RuntimeTarget;
 use crate::qemu::create_overlay;
@@ -69,8 +70,8 @@ use crate::qemu::qemu_system_binary;
 /// Download every CHR image required by the catalog for the current host.
 ///
 /// Images are retained in this crate's `.chr-cache/images` directory, so a
-/// caller can cache that directory between runs. Downloads run in bounded
-/// parallel batches to shorten the initial cache population without opening an
+/// caller can cache that directory between runs. Downloads run in a bounded
+/// rolling pool to shorten the initial cache population without opening an
 /// unbounded number of connections to `MikroTik`.
 ///
 /// # Errors
@@ -82,7 +83,6 @@ pub fn cache_catalog_images() -> Result<()> {
     prepare_state_dirs(&root)?;
 
     let host_arch = RuntimeArch::host()?;
-    let progress = MultiProgress::new();
     let images = ROUTEROS_VERSIONS
         .iter()
         .copied()
@@ -91,32 +91,74 @@ pub fn cache_catalog_images() -> Result<()> {
             Ok((version, guest_arch))
         })
         .collect::<Result<Vec<_>>>()?;
+    let filename_width = images
+        .iter()
+        .map(|(version, arch)| chr_archive_filename(version.as_str(), *arch).chars().count())
+        .max()
+        .unwrap_or_default();
+    let mut progress = DownloadProgressGroup::new(filename_width);
 
-    for batch in images.chunks(MAX_PARALLEL_CHR_DOWNLOADS) {
-        let result: Result<()> = thread::scope(|scope| {
-            let root = &root;
-            let progress = &progress;
-            let downloads = batch
-                .iter()
-                .map(|&(version, guest_arch)| {
-                    scope.spawn(move || ensure_chr_image(root, version.as_str(), guest_arch, Some(progress)))
-                })
-                .collect::<Vec<_>>();
-            for download in downloads {
-                download
-                    .join()
-                    .map_err(|_| Error::Tool("CHR image download worker panicked".to_owned()))??;
+    let progress_handle = progress.handle();
+    run_bounded_chr_tasks(
+        images,
+        |(version, guest_arch)| {
+            let progress = progress_handle.clone();
+            ensure_chr_image(&root, version.as_str(), guest_arch, Some(&progress))?;
+            Ok(())
+        },
+        |should_wait| {
+            progress.redraw()?;
+            if should_wait {
+                progress.wait_for_update(PROGRESS_REDRAW_INTERVAL);
             }
             Ok(())
-        });
-        result?;
-    }
+        },
+    )?;
 
     Ok(())
 }
 
+/// Run CHR work in a rolling pool, replacing each completed task immediately.
+fn run_bounded_chr_tasks<T>(
+    tasks: impl IntoIterator<Item = T>,
+    worker: impl Fn(T) -> Result<()> + Sync,
+    mut update_progress: impl FnMut(bool) -> Result<()>,
+) -> Result<()>
+where
+    T: Send,
+{
+    thread::scope(|scope| {
+        let worker = &worker;
+        let mut pending = tasks.into_iter();
+        let mut active = pending
+            .by_ref()
+            .take(MAX_PARALLEL_CHR_DOWNLOADS)
+            .map(|task| scope.spawn(move || worker(task)))
+            .collect::<Vec<_>>();
+
+        while !active.is_empty() {
+            let completed = active.iter().position(thread::ScopedJoinHandle::is_finished);
+            update_progress(completed.is_none())?;
+
+            if let Some(completed) = completed {
+                active
+                    .swap_remove(completed)
+                    .join()
+                    .map_err(|_| Error::Tool("CHR image download worker panicked".to_owned()))??;
+                if let Some(task) = pending.next() {
+                    active.push(scope.spawn(move || worker(task)));
+                }
+            }
+        }
+
+        update_progress(false)
+    })
+}
+
 /// Maximum concurrent catalog-image downloads.
 const MAX_PARALLEL_CHR_DOWNLOADS: usize = 8;
+/// Maximum time the central progress renderer waits before checking worker state.
+const PROGRESS_REDRAW_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Root directory for cached CHR images and local runner runtime state.
 const CACHE_DIR: &str = ".chr-cache";
@@ -573,7 +615,52 @@ fn csv_field(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Condvar;
+    use std::sync::Mutex;
+    use std::sync::mpsc;
+
     use super::*;
+
+    #[test]
+    fn bounded_chr_tasks_refill_each_available_slot_immediately() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let gate = Arc::new((Mutex::new(BTreeSet::new()), Condvar::new()));
+        let worker_gate = Arc::clone(&gate);
+        let scheduler = thread::spawn(move || {
+            run_bounded_chr_tasks(
+                0..=MAX_PARALLEL_CHR_DOWNLOADS,
+                move |task| {
+                    started_sender.send(task).unwrap();
+                    let (released, wake) = &*worker_gate;
+                    let released = released.lock().unwrap();
+                    let _released = wake.wait_while(released, |released| !released.contains(&task)).unwrap();
+                    Ok(())
+                },
+                |should_wait| {
+                    if should_wait {
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Ok(())
+                },
+            )
+        });
+
+        let first = (0..MAX_PARALLEL_CHR_DOWNLOADS)
+            .map(|_| started_receiver.recv_timeout(Duration::from_secs(1)).unwrap())
+            .collect::<BTreeSet<_>>();
+        let (released, wake) = &*gate;
+        released.lock().unwrap().insert(0);
+        wake.notify_all();
+        let replacement = started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        released.lock().unwrap().extend(0..=MAX_PARALLEL_CHR_DOWNLOADS);
+        wake.notify_all();
+        scheduler.join().unwrap().unwrap();
+
+        assert_eq!(first, (0..MAX_PARALLEL_CHR_DOWNLOADS).collect());
+        assert_eq!(replacement, MAX_PARALLEL_CHR_DOWNLOADS);
+    }
 
     #[test]
     fn api_port_allocation_produces_unique_localhost_sockets() {

@@ -114,6 +114,8 @@ mod tests {
     use alloc::string::String;
     use alloc::vec::Vec;
 
+    use super::check_mikrotik_command;
+
     /// Helper to parse words from command wire data.
     fn parse_words(data: &[u8]) -> Vec<String> {
         let mut words = Vec::new();
@@ -166,5 +168,28 @@ mod tests {
         assert_eq!(words[2], "=attribute_no_value=");
         assert_eq!(words[3], "=another=value");
         assert_eq!(words.len(), 4);
+    }
+
+    #[test]
+    fn command_validator_accepts_supported_paths() {
+        assert_eq!(check_mikrotik_command("/system/script run"), "/system/script run");
+        assert_eq!(
+            check_mikrotik_command("/tool/mac-server_mac-winbox"),
+            "/tool/mac-server_mac-winbox"
+        );
+    }
+
+    #[test]
+    fn command_validator_rejects_malformed_paths() {
+        for command in [
+            "",
+            "system/print",
+            "/system//print",
+            "/system  print",
+            "/system/print?",
+            "/system/",
+        ] {
+            assert!(std::panic::catch_unwind(|| check_mikrotik_command(command)).is_err());
+        }
     }
 }

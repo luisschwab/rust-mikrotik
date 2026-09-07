@@ -172,3 +172,178 @@ fn insecure_client_config() -> Arc<ClientConfig> {
 
     Arc::new(config)
 }
+
+#[cfg(test)]
+mod tests {
+    use mikrotik_proto2::codec;
+    use mikrotik_proto2::codec::Decode;
+    use mikrotik_proto2::word::Word;
+    use mikrotik_types::target::Credentials;
+
+    use super::*;
+
+    fn config(protocol: Protocol) -> ClientBuilder {
+        ClientBuilder::new(
+            "192.0.2.1",
+            protocol,
+            Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        )
+    }
+
+    async fn read_login_tag(stream: &mut tokio::io::DuplexStream) -> mikrotik_proto2::Tag {
+        let mut data = Vec::new();
+        loop {
+            let mut buffer = [0; 512];
+            let read = stream.read(&mut buffer).await.unwrap();
+            assert_ne!(read, 0);
+            data.extend_from_slice(&buffer[..read]);
+            let Decode::Complete { value: sentence, .. } = codec::decode_sentence(&data).unwrap() else {
+                continue;
+            };
+            return sentence
+                .typed_words()
+                .find_map(|word| match word.unwrap() {
+                    Word::Tag(tag) => Some(tag),
+                    _ => None,
+                })
+                .unwrap();
+        }
+    }
+
+    fn sentence(words: &[&[u8]]) -> Vec<u8> {
+        let mut data = Vec::new();
+        for word in words {
+            codec::encode_word(word, &mut data);
+        }
+        codec::encode_terminator(&mut data);
+        data
+    }
+
+    #[tokio::test]
+    async fn unsupported_transport_protocols_fail_before_network_io() {
+        for (protocol, expected) in [
+            (Protocol::Ssh, "ssh"),
+            (Protocol::Telnet, "telnet"),
+            (Protocol::Ftp, "ftp"),
+            (Protocol::Http, "http"),
+            (Protocol::Https, "https"),
+            (Protocol::WinBox, "winbox"),
+            (Protocol::MacTelnet, "mac-telnet"),
+        ] {
+            assert!(matches!(
+                connect_stream(&config(protocol)).await,
+                Err(Error::UnsupportedProtocol(value)) if value == expected
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn login_flushes_the_request_and_returns_an_active_session() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            let tag = read_login_tag(&mut server_stream).await;
+            let tag_word = format!(".tag={tag}");
+            server_stream
+                .write_all(&sentence(&[b"!done", tag_word.as_bytes()]))
+                .await
+                .unwrap();
+        });
+
+        let session = login(Box::new(client_stream), &config(Protocol::Api)).await.unwrap();
+        assert!(session.connection.is_active());
+        assert_eq!(session.connection.in_flight_count(), 0);
+        assert_eq!(format!("{session:?}"), "Session { .. }");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn login_reports_a_peer_that_closes_before_replying() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            let _ = read_login_tag(&mut server_stream).await;
+        });
+
+        let error = login(Box::new(client_stream), &config(Protocol::Api))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::ConnectionClosed { command: None }));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn login_remains_pending_for_reply_rows_before_completion() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            let tag = read_login_tag(&mut server_stream).await;
+            let tag_word = format!(".tag={tag}");
+            server_stream
+                .write_all(&sentence(&[
+                    b"!re",
+                    tag_word.as_bytes(),
+                    b"=message=still authenticating",
+                ]))
+                .await
+                .unwrap();
+            tokio::task::yield_now().await;
+            server_stream
+                .write_all(&sentence(&[b"!done", tag_word.as_bytes()]))
+                .await
+                .unwrap();
+        });
+
+        let session = login(Box::new(client_stream), &config(Protocol::Api)).await.unwrap();
+        assert!(session.connection.is_active());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn api_ssl_transport_rejects_non_tls_peers_after_tcp_connect() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream.write_all(&[0xff; 64]).await.unwrap();
+        });
+        let tls = ClientBuilder::new(
+            "127.0.0.1",
+            Protocol::ApiSsl,
+            Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        )
+        .with_port(port);
+        assert!(connect_stream(&tls).await.is_err());
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn insecure_tls_config_supports_routeros_signature_schemes() {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let verifier = NoVerifier(Arc::clone(&provider));
+        assert!(!verifier.supported_verify_schemes().is_empty());
+        assert!(
+            verifier
+                .verify_server_cert(
+                    &CertificateDer::from(&[][..]),
+                    &[],
+                    &ServerName::try_from("mikrotik").unwrap(),
+                    &[],
+                    UnixTime::since_unix_epoch(core::time::Duration::ZERO),
+                )
+                .is_ok()
+        );
+
+        let config = insecure_client_config();
+        assert!(
+            !config
+                .crypto_provider()
+                .signature_verification_algorithms
+                .supported_schemes()
+                .is_empty()
+        );
+    }
+}

@@ -527,13 +527,16 @@ mod tests {
             .with_device(&MikrotikDConf::new("R01"))
             .with_device(&MikrotikDConf::new("R02"));
 
-        let allocations = allocate_api_ports(&config).unwrap();
+        let mut allocations = allocate_api_ports(&config).unwrap();
         let r01 = allocations.ports.get("R01").unwrap().port;
         let r02 = allocations.ports.get("R02").unwrap().port;
 
         assert_ne!(r01, r02);
         assert_ne!(r01, 0);
         assert_ne!(r02, 0);
+        assert_eq!(allocations.release("R01").unwrap(), r01);
+        assert!(allocations.ports.get("R01").unwrap().reservation.is_none());
+        assert!(allocations.release("missing").is_err());
     }
 
     #[test]
@@ -601,5 +604,147 @@ mod tests {
         assert!(debug.contains("observer"));
         assert!(debug.contains("<redacted>"));
         assert!(!debug.contains("highly-secret"));
+    }
+
+    #[test]
+    fn scenario_validation_rejects_invalid_names_empty_devices_and_duplicate_routers() {
+        assert!(validate_scenario(&ScenarioConf::new("empty")).is_err());
+
+        for name in ["", ".", "..", "bad name", "bad/name"] {
+            let config = ScenarioConf::new(name).with_device(&MikrotikDConf::new("R01"));
+            assert!(validate_scenario(&config).is_err());
+        }
+
+        let duplicate = ScenarioConf::new("duplicate")
+            .with_device(&MikrotikDConf::new("R01"))
+            .with_device(&MikrotikDConf::new("R01"));
+        assert!(validate_scenario(&duplicate).is_err());
+    }
+
+    #[test]
+    fn router_validation_rejects_invalid_resources_and_bootstrap_commands() {
+        let invalid_name = MikrotikDConf::new("bad name");
+        assert!(validate_router(&invalid_name).is_err());
+        assert!(validate_router(&MikrotikDConf::new("R01").with_memory_mib(0)).is_err());
+        assert!(validate_router(&MikrotikDConf::new("R01").with_cpus(0)).is_err());
+        assert!(validate_router(&MikrotikDConf::new("R01").with_bootstrap(RouterCommand::new("   "))).is_err());
+        assert!(validate_router(&MikrotikDConf::new("R01_valid.name")).is_ok());
+    }
+
+    #[test]
+    fn scenario_validation_rejects_unknown_self_and_empty_link_endpoints() {
+        let r01 = MikrotikDConf::new("R01");
+        let r02 = MikrotikDConf::new("R02");
+        let interface = EthernetInterface::new(2).unwrap();
+
+        let unknown_a = ScenarioConf::new("unknown-a")
+            .with_device(&r02)
+            .with_ethernet_link(EthernetLink::create(&r01, interface, &r02, interface));
+        assert!(validate_scenario(&unknown_a).is_err());
+
+        let self_link = ScenarioConf::new("self-link")
+            .with_device(&r01)
+            .with_ethernet_link(EthernetLink::create(&r01, interface, &r01, interface));
+        assert!(validate_scenario(&self_link).is_err());
+
+        let empty_endpoint = scenario::EthernetEndpoint {
+            router: "   ".to_owned(),
+            interface,
+        };
+        assert!(validate_link_endpoint(&empty_endpoint).is_err());
+    }
+
+    #[tokio::test]
+    async fn link_waiting_and_bootstrap_report_missing_clients_without_qemu() {
+        assert!(wait_for_link_interfaces(&[], &BTreeMap::new()).await.is_ok());
+        assert!(bootstrap(&[], &BTreeMap::new()).await.is_ok());
+
+        let r01 = MikrotikDConf::new("R01");
+        let r02 = MikrotikDConf::new("R02");
+        let interface = EthernetInterface::new(2).unwrap();
+        let links = [EthernetLink::create(&r01, interface, &r02, interface)];
+        assert!(matches!(
+            wait_for_link_interfaces(&links, &BTreeMap::new()).await,
+            Err(Error::Config(message)) if message.contains("R01")
+        ));
+        assert!(matches!(
+            bootstrap(&[r01], &BTreeMap::new()).await,
+            Err(Error::Config(message)) if message.contains("R01")
+        ));
+    }
+
+    #[test]
+    fn csv_fields_quote_only_values_that_need_escaping() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("a\"b"), "\"a\"\"b\"");
+        assert_eq!(csv_field("a\nb"), "\"a\nb\"");
+        assert_eq!(csv_field("a\rb"), "\"a\rb\"");
+    }
+
+    #[test]
+    fn state_run_and_socket_directories_are_created_under_expected_roots() {
+        let root = env::temp_dir().join(format!("mikrotik-qemu-state-test-{}", std::process::id()));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir(&root).unwrap();
+
+        prepare_state_dirs(&root).unwrap();
+        assert!(root.join(CACHE_DIR).is_dir());
+        assert!(root.join(IMAGES_DIR).is_dir());
+        assert!(root.join(RUNS_DIR).is_dir());
+
+        let run = run_dir(&root, "scenario").unwrap();
+        assert!(run.is_dir());
+        let sockets = socket_dir(&run).unwrap();
+        assert!(sockets.is_dir());
+        fs::write(sockets.join("stale"), b"stale").unwrap();
+        assert_eq!(socket_dir(&run).unwrap(), sockets);
+        assert!(!sockets.join("stale").exists());
+
+        fs::remove_dir_all(&root).unwrap();
+        fs::remove_dir_all(sockets).unwrap();
+    }
+
+    #[test]
+    fn scenario_report_records_prepared_runtime_targets() {
+        let root = env::temp_dir().join(format!("mikrotik-qemu-report-test-{}", std::process::id()));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        let shell = Shell::new().unwrap();
+        let target = RuntimeTarget::detect(&shell, RuntimeArch::Aarch64, RouterOsVersion::V6_49_19, true).unwrap();
+        let config = ScenarioConf::new("report,scenario").with_device(&MikrotikDConf::new("R01"));
+        let prepared = [PreparedRouter {
+            index: 0,
+            config: config.devices[0].clone(),
+            api_port: 18_728,
+            target,
+            qemu_system: "qemu-system-x86_64".to_owned(),
+            overlay: root.join("R01.qcow2"),
+        }];
+
+        write_scenario_report(&root, &config, &prepared).unwrap();
+        let report = fs::read_to_string(root.join(SCENARIO_REPORT_FILENAME)).unwrap();
+        assert!(report.starts_with("scenario,routers,links,index"));
+        assert!(report.contains(r#""report,scenario""#));
+        assert!(report.contains(",1,0,0,R01,7.23.1,"));
+        assert!(report.contains("Aarch64,X86_64,tcg,qemu-system-x86_64,18728,0"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn state_directory_helpers_report_invalid_roots_and_socket_names() {
+        let root = env::temp_dir().join(format!("mikrotik-qemu-state-error-test-{}", std::process::id()));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(CACHE_DIR), b"not a directory").unwrap();
+        assert!(prepare_state_dirs(&root).is_err());
+        assert!(socket_dir(Path::new("/")).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

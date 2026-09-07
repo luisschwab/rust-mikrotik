@@ -296,4 +296,39 @@ mod tests {
             LoginProgress::Pending(_) => panic!("should have completed"),
         }
     }
+
+    #[test]
+    fn explicit_tag_state_debug_and_authenticated_connection_accessors() {
+        let tag = Tag::new();
+        let mut handshaking = Handshaking::with_tag(tag, "observer", None).unwrap();
+        assert_eq!(handshaking.login_tag(), tag);
+        assert_eq!(handshaking.state(), State::Active);
+        assert!(format!("{handshaking:?}").contains("Handshaking"));
+        assert!(handshaking.poll_transmit().is_some());
+
+        let tag_word = format!(".tag={tag}");
+        handshaking
+            .receive(&build_sentence(&[b"!re", tag_word.as_bytes(), b"=message=ignored"]))
+            .unwrap();
+        let mut handshaking = match handshaking.advance().unwrap() {
+            LoginProgress::Pending(handshaking) => handshaking,
+            LoginProgress::Complete(_) => panic!("reply must not complete login"),
+        };
+        assert_eq!(
+            format!("{:?}", LoginProgress::Pending(handshaking)),
+            r#"Pending("...")"#
+        );
+        handshaking = match Handshaking::with_tag(tag, "observer", None).unwrap().advance().unwrap() {
+            LoginProgress::Pending(handshaking) => handshaking,
+            LoginProgress::Complete(_) => panic!("new login must be pending"),
+        };
+        while handshaking.poll_transmit().is_some() {}
+        handshaking.receive(&build_done(tag)).unwrap();
+        let progress = handshaking.advance().unwrap();
+        assert_eq!(format!("{progress:?}"), r#"Complete("...")"#);
+        let LoginProgress::Complete(mut authenticated) = progress else {
+            panic!("login should be complete");
+        };
+        assert!(authenticated.connection().is_active());
+    }
 }

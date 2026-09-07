@@ -93,3 +93,51 @@ impl Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error as _;
+    use std::io::ErrorKind;
+
+    use super::*;
+
+    #[test]
+    fn io_errors_include_optional_path_and_expose_sources() {
+        let plain = Error::from(io::Error::new(ErrorKind::BrokenPipe, "closed"));
+        assert_eq!(plain.to_string(), "failed to perform I/O operation: closed");
+        assert!(plain.source().is_some());
+
+        let contextual = Error::io(
+            "read manifest",
+            "scenario.toml",
+            io::Error::new(ErrorKind::NotFound, "missing"),
+        );
+        assert_eq!(contextual.to_string(), "failed to read manifest scenario.toml: missing");
+        assert!(contextual.source().is_some());
+    }
+
+    #[test]
+    fn configuration_tool_and_client_errors_format_and_classify_sources() {
+        let config = Error::Config("invalid".to_owned());
+        assert_eq!(config.to_string(), "QEMU runner configuration error: invalid");
+        assert!(config.source().is_none());
+
+        let tool = Error::Tool("missing qemu".to_owned());
+        assert_eq!(tool.to_string(), "QEMU runner host tool error: missing qemu");
+        assert!(tool.source().is_none());
+
+        let client = Error::from(ClientError::UnsupportedProtocol("ssh"));
+        assert_eq!(
+            client.to_string(),
+            "QEMU runner RouterOS client error: unsupported RouterOS protocol: ssh"
+        );
+        assert!(client.source().is_some());
+    }
+
+    #[test]
+    fn xshell_errors_convert_to_host_tool_errors() {
+        let shell = xshell::Shell::new().unwrap();
+        let error = shell.read_file("definitely-missing-file").unwrap_err();
+        assert!(matches!(Error::from(error), Error::Tool(_)));
+    }
+}

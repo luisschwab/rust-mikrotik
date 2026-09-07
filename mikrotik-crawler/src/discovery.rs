@@ -96,3 +96,123 @@ pub(crate) fn neighbor_log_label(neighbor: &Neighbor) -> String {
         .map_or("<unknown>", InterfaceName::as_str);
     format!("{identity} local_if={local_interface} remote_if={remote_interface}")
 }
+
+#[cfg(test)]
+mod tests {
+    use core::net::SocketAddr;
+
+    use mikrotik_types::device::IpSnapshot;
+    use mikrotik_types::device::RouterOsSnapshot;
+    use mikrotik_types::target::Credentials;
+    use mikrotik_types::target::DeviceTarget;
+    use time::OffsetDateTime;
+
+    use super::*;
+    use crate::CollectedSnapshot;
+    use crate::resolver::StaticTargetResolver;
+
+    fn target(address: &str) -> DeviceTarget {
+        DeviceTarget {
+            address: address.parse().unwrap(),
+            credentials: Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        }
+    }
+
+    fn snapshot(target_address: SocketAddr, neighbors: Vec<Neighbor>) -> CollectedSnapshot {
+        CollectedSnapshot {
+            target_address,
+            collected_at: OffsetDateTime::UNIX_EPOCH,
+            snapshot_duration: Duration::ZERO,
+            snapshot: RouterOsSnapshot {
+                ip: IpSnapshot {
+                    neighbors: neighbors.into(),
+                    ..IpSnapshot::default()
+                },
+                ..RouterOsSnapshot::default()
+            },
+        }
+    }
+
+    fn mikrotik_neighbor(address: &str) -> Neighbor {
+        Neighbor {
+            address: Some(address.parse().unwrap()),
+            identity: Some("neighbor".to_owned()),
+            board: Some("CHR".to_owned()),
+            ..Neighbor::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_adds_resolved_mikrotik_neighbors_once_and_publishes_event() {
+        let source = target("192.0.2.1:8728");
+        let mut state_value = CrawlerStateSnapshot::default();
+        state_value.targets.insert(source.address, source.clone());
+        state_value.snapshots.insert(
+            "source".to_owned().into(),
+            snapshot(source.address, vec![mikrotik_neighbor("10.0.0.2")]),
+        );
+        let state = Arc::new(RwLock::new(state_value));
+        let (events, mut receiver) = broadcast::channel(4);
+        let resolver: Arc<dyn TargetResolver> =
+            Arc::new(StaticTargetResolver::new().with_target("10.0.0.2".parse().unwrap(), "127.0.0.1:18728"));
+
+        assert!(discover_once(&state, &events, &resolver, AddressFamily::Ipv4).await);
+        assert!(
+            state
+                .read()
+                .await
+                .targets
+                .contains_key(&"127.0.0.1:18728".parse().unwrap())
+        );
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            SnapshotEvent::TargetDiscovered { address } if address == "127.0.0.1:18728".parse().unwrap()
+        ));
+        assert!(!discover_once(&state, &events, &resolver, AddressFamily::Ipv4).await);
+    }
+
+    #[tokio::test]
+    async fn discovery_filters_non_mikrotik_unspecified_wrong_family_and_unresolved_neighbors() {
+        let source = target("192.0.2.1:8728");
+        let neighbors = vec![
+            Neighbor {
+                address: Some("10.0.0.2".parse().unwrap()),
+                ..Neighbor::default()
+            },
+            mikrotik_neighbor("0.0.0.0"),
+            mikrotik_neighbor("2001:db8::2"),
+            mikrotik_neighbor("10.0.0.3"),
+        ];
+        let mut state_value = CrawlerStateSnapshot::default();
+        state_value.targets.insert(source.address, source.clone());
+        state_value
+            .snapshots
+            .insert("source".to_owned().into(), snapshot(source.address, neighbors));
+        let state = Arc::new(RwLock::new(state_value));
+        let (events, _) = broadcast::channel(4);
+        let resolver: Arc<dyn TargetResolver> = Arc::new(StaticTargetResolver::new());
+
+        assert!(!discover_once(&state, &events, &resolver, AddressFamily::Ipv4).await);
+
+        state.write().await.targets.clear();
+        assert!(!discover_once(&state, &events, &resolver, AddressFamily::Any).await);
+    }
+
+    #[test]
+    fn neighbor_log_labels_use_values_and_unknown_placeholders() {
+        let complete = Neighbor {
+            identity: Some("R02".to_owned()),
+            interface: Some("ether2".parse().unwrap()),
+            interface_name: Some("ether3".parse().unwrap()),
+            ..Neighbor::default()
+        };
+        assert_eq!(neighbor_log_label(&complete), "R02 local_if=ether2 remote_if=ether3");
+        assert_eq!(
+            neighbor_log_label(&Neighbor::default()),
+            "<unknown> local_if=<unknown> remote_if=<unknown>"
+        );
+    }
+}

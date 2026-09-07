@@ -218,3 +218,75 @@ impl GraphvizFormat {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use mikrotik_types::abstractions::LinkKind;
+
+    use super::*;
+
+    #[test]
+    fn layout_presets_select_their_engines_and_spacing() {
+        let layered = DotExportOptions::for_layout(GRAPHVIZ_LAYERED_LAYOUT);
+        assert!(layered.is_layered_layout());
+        assert_eq!(layered.rank_separation, GRAPHVIZ_LAYERED_RANK_SEPARATION);
+        assert_eq!(layered.node_separation, GRAPHVIZ_LAYERED_NODE_SEPARATION);
+        assert_eq!(layered.overlap, GRAPHVIZ_LAYERED_OVERLAP);
+        assert_eq!(layered.overlap_scaling, None);
+
+        let sfdp = DotExportOptions::for_layout(GRAPHVIZ_SFDP_LAYOUT);
+        assert!(sfdp.is_sfdp_layout());
+        assert_eq!(sfdp.separation, GRAPHVIZ_SFDP_SEPARATION);
+        assert_eq!(sfdp.graphviz_layout_engine(), GRAPHVIZ_SFDP_LAYOUT);
+
+        let typed = DotExportOptions::for_layout(GRAPHVIZ_TYPED_RADIAL_LAYOUT);
+        assert!(typed.is_typed_radial_layout());
+        assert!(typed.is_fixed_position_layout());
+        assert_eq!(typed.graphviz_layout_engine(), GRAPHVIZ_FIXED_POSITION_LAYOUT);
+
+        let recursive = DotExportOptions::for_layout(GRAPHVIZ_RECURSIVE_RADIAL_LAYOUT);
+        assert!(recursive.is_recursive_radial_layout());
+        assert!(recursive.is_fixed_position_layout());
+        assert_eq!(recursive.overlap, GRAPHVIZ_FIXED_POSITION_OVERLAP);
+
+        let custom = DotExportOptions::for_layout("neato");
+        assert!(!custom.is_layered_layout());
+        assert!(!custom.is_sfdp_layout());
+        assert!(!custom.is_fixed_position_layout());
+        assert_eq!(custom.graphviz_layout_engine(), "neato");
+    }
+
+    #[test]
+    fn link_filters_cover_every_link_kind_and_mndp_exception() {
+        let kinds = [
+            LinkKind::Bgp,
+            LinkKind::Route,
+            LinkKind::Internal,
+            LinkKind::Customer,
+            LinkKind::Management,
+            LinkKind::Wireless,
+            LinkKind::Fallback,
+            LinkKind::Unknown,
+        ];
+        assert!(kinds.into_iter().all(|kind| LinkFilter::All.includes(kind)));
+        assert!(!LinkFilter::Routing.includes(LinkKind::Management));
+        assert!(LinkFilter::Routing.includes(LinkKind::Fallback));
+        assert!(!LinkFilter::PhysicalOnly.includes(LinkKind::Bgp));
+        assert!(!LinkFilter::PhysicalOnly.includes(LinkKind::Management));
+        assert!(!LinkFilter::PhysicalOnly.includes(LinkKind::Fallback));
+        assert!(LinkFilter::PhysicalOnly.includes(LinkKind::Route));
+        assert!(LinkFilter::BgpOnly.includes(LinkKind::Bgp));
+        assert!(!LinkFilter::BgpOnly.includes(LinkKind::Route));
+        assert!(LinkFilter::PhysicalOnly.includes_with_mndp_attachment(LinkKind::Management, true));
+        assert!(!LinkFilter::BgpOnly.includes_with_mndp_attachment(LinkKind::Management, true));
+    }
+
+    #[test]
+    fn render_options_and_formats_use_expected_defaults() {
+        let options = GraphvizRenderOptions::default();
+        assert_eq!(options.font_dir, PathBuf::from(GRAPHVIZ_FONT_DIR));
+        assert_eq!(options.png_dpi, GRAPHVIZ_PNG_DPI);
+        assert_eq!(GraphvizFormat::Svg.as_str(), "svg");
+        assert_eq!(GraphvizFormat::Png.as_str(), GRAPHVIZ_PNG_FORMAT);
+    }
+}

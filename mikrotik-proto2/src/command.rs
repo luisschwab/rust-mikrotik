@@ -493,6 +493,64 @@ mod tests {
     }
 
     #[test]
+    fn login_without_password_encodes_an_empty_password() {
+        let command = CommandBuilder::<NoCmd>::login("admin", None);
+        let words = parse_words(command.data());
+
+        assert!(words.iter().any(|word| word == "=password="));
+    }
+
+    #[test]
+    fn raw_attributes_and_query_operations_have_the_expected_wire_format() {
+        let command = CommandBuilder::<NoCmd>::with_tag(TEST_TAG)
+            .command("/interface/print")
+            .attribute_raw("binary", Some(b"\xff\0"))
+            .attribute_raw("flag", None)
+            .query_is_present("name")
+            .query_not_present("disabled")
+            .query_equal("type", "ether")
+            .query_gt("mtu", "1400")
+            .query_lt("mtu", "1600")
+            .query_operations(
+                [
+                    QueryOperator::Not,
+                    QueryOperator::And,
+                    QueryOperator::Or,
+                    QueryOperator::Dot,
+                ]
+                .into_iter(),
+            )
+            .build();
+
+        let data = command.data().to_vec();
+        let codec::Decode::Complete { value: raw, .. } = codec::decode_sentence(&data).unwrap() else {
+            panic!("expected complete sentence");
+        };
+        let words: Vec<_> = raw.words().collect();
+        assert_eq!(words[2], b"=binary=\xff\0");
+        assert_eq!(words[3], b"=flag=");
+        assert_eq!(words[4], b"?name");
+        assert_eq!(words[5], b"?-disabled");
+        assert_eq!(words[6], b"?type=ether");
+        assert_eq!(words[7], b"?>mtu=1400");
+        assert_eq!(words[8], b"?<mtu=1600");
+        assert_eq!(words[9], b"?#!&|.");
+        assert_eq!(command.into_data(), data);
+    }
+
+    #[test]
+    fn default_builder_and_command_debug_report_metadata() {
+        let builder = CommandBuilder::<NoCmd>::default();
+        let builder_debug = format!("{builder:?}");
+        assert!(builder_debug.contains("encoded_len: 0"));
+
+        let command = builder.command("/system/identity/print").build();
+        let command_debug = format!("{command:?}");
+        assert!(command_debug.contains("Command"));
+        assert!(command_debug.contains("encoded_len"));
+    }
+
+    #[test]
     fn command_debug_does_not_expose_encoded_credentials() {
         let builder = CommandBuilder::<NoCmd>::with_tag(TEST_TAG)
             .command("/login")

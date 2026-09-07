@@ -50,3 +50,57 @@ fn interface_addresses(snapshot: &RouterOsSnapshot) -> BTreeMap<String, Vec<Stri
     }
     addresses
 }
+
+#[cfg(test)]
+mod tests {
+    use mikrotik_types::api::ip::Address;
+    use mikrotik_types::device::IpSnapshot;
+
+    use super::*;
+
+    #[test]
+    fn addresses_skip_empty_rows_and_prefer_actual_interface_names() {
+        let snapshot = RouterOsSnapshot {
+            ip: IpSnapshot {
+                addresses: vec![
+                    Address::default(),
+                    Address {
+                        address: Some("192.0.2.1/24".parse().unwrap()),
+                        interface: Some("bridge".parse().unwrap()),
+                        actual_interface: Some("ether2".parse().unwrap()),
+                        ..Address::default()
+                    },
+                    Address {
+                        address: Some("198.51.100.1/24".parse().unwrap()),
+                        ..Address::default()
+                    },
+                ]
+                .into(),
+                ..IpSnapshot::default()
+            },
+            ..RouterOsSnapshot::default()
+        };
+        let addresses = interface_addresses(&snapshot);
+        assert_eq!(addresses["ether2"], ["192.0.2.1/24"]);
+        assert_eq!(addresses["?"], ["198.51.100.1/24"]);
+
+        let node: TopologyNodeKey = "router".to_owned().into();
+        let missing: TopologyNodeKey = "missing".to_owned().into();
+        let graph = NetworkGraph {
+            nodes: vec![mikrotik_types::topology::NetworkNode {
+                key: node.clone(),
+                status: mikrotik_types::topology::NetworkNodeStatus::Collected,
+                role: None,
+                target_address: None,
+                management_addresses: Vec::new(),
+                snapshot: Some(snapshot),
+                inferred: None,
+            }],
+            ..NetworkGraph::default()
+        };
+        let index = GraphAddressIndex::new(&graph);
+        assert_eq!(index.addresses(&node, "ether2"), ["192.0.2.1/24"]);
+        assert!(index.addresses(&node, "missing").is_empty());
+        assert!(index.addresses(&missing, "ether2").is_empty());
+    }
+}

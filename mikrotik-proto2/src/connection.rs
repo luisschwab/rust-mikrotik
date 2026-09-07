@@ -722,11 +722,52 @@ mod tests {
 
     #[test]
     fn test_connection_starts_active() {
-        let conn = Connection::new();
+        let conn = Connection::default();
         assert_eq!(conn.state(), State::Active);
         assert!(conn.is_active());
         assert_eq!(conn.in_flight_count(), 0);
         assert!(!conn.has_pending_transmit());
         assert_eq!(conn.recv_buffer_len(), 0);
+        assert!(format!("{conn:?}").contains("Connection"));
+    }
+
+    #[test]
+    fn test_transmit_debug_and_dead_connection_cancellation() {
+        let mut conn = Connection::new();
+        let tag = conn
+            .send_command(CommandBuilder::new().command("/test").build())
+            .unwrap();
+        let transmit = conn.poll_transmit().unwrap();
+        assert!(format!("{transmit:?}").contains("byte_len"));
+
+        conn.receive(&build_fatal("closed")).unwrap();
+        assert!(matches!(conn.cancel_command(tag), Err(ConnectionError::Closed)));
+    }
+
+    #[test]
+    fn test_malformed_tagged_response_becomes_a_command_trap() {
+        let mut conn = Connection::new();
+        let tag = conn
+            .send_command(CommandBuilder::new().command("/test").build())
+            .unwrap();
+        conn.poll_transmit();
+
+        let tag_word = format!(".tag={tag}");
+        conn.receive(&build_sentence(&[b"!trap", tag_word.as_bytes(), b"=unexpected=value"]))
+            .unwrap();
+        match conn.poll_event().unwrap() {
+            Event::Trap {
+                tag: event_tag,
+                response,
+            } => {
+                assert_eq!(event_tag, tag);
+                assert!(response.message.starts_with("Protocol error:"));
+            }
+            other => panic!("expected protocol-error trap, got {other:?}"),
+        }
+        assert!(!conn.is_in_flight(tag));
+
+        conn.receive(&build_sentence(&[b"!done"])).unwrap();
+        assert!(conn.poll_event().is_none());
     }
 }

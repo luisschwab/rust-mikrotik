@@ -168,4 +168,54 @@ mod tests {
         assert_eq!(serialized, r#"{"username":"observer"}"#);
         assert!(!serialized.contains("highly-secret"));
     }
+
+    #[test]
+    fn explicit_ipv4_and_bracketed_ipv6_ports_are_preserved() {
+        let ipv4 = DeviceTarget::new(" 192.0.2.1:9000 ", "admin", None).unwrap();
+        assert_eq!(ipv4.address.to_string(), "192.0.2.1:9000");
+
+        let ipv6 = DeviceTarget::new("[2001:db8::1]:9001", "admin", None).unwrap();
+        assert_eq!(ipv6.address.to_string(), "[2001:db8::1]:9001");
+
+        let unbracketed_ipv6 = DeviceTarget::new("2001:db8::1:10000", "admin", None).unwrap();
+        assert_eq!(unbracketed_ipv6.address.to_string(), "[2001:db8::1]:10000");
+    }
+
+    #[test]
+    fn invalid_addresses_cover_empty_bracket_host_and_port_failures() {
+        assert_eq!(
+            DeviceTarget::new("   ", "admin", None),
+            Err(ObserverError::EmptyAddress)
+        );
+        for address in [
+            "[2001:db8::1",
+            "[2001:db8::1]",
+            "[invalid]:8728",
+            "[2001:db8::1]:bad",
+            "bad",
+            "bad:8728",
+        ] {
+            assert_eq!(
+                DeviceTarget::new(address, "admin", None),
+                Err(ObserverError::InvalidAddress)
+            );
+        }
+    }
+
+    #[test]
+    fn observer_errors_explain_address_failures() {
+        assert_eq!(format!("{}", ObserverError::EmptyAddress), "device address is empty");
+        assert_eq!(
+            format!("{}", ObserverError::InvalidAddress),
+            "device address must be an IP address or IP:port"
+        );
+    }
+
+    #[test]
+    fn passwordless_credentials_are_debuggable_and_deserializable() {
+        let credentials: Credentials = serde_json::from_str(r#"{"username":"observer"}"#).unwrap();
+        assert_eq!(credentials.password, None);
+        let debug = format!("{credentials:?}");
+        assert!(debug.contains("password: None"));
+    }
 }

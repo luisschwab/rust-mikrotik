@@ -63,6 +63,7 @@ pub fn contains_ascii(haystack: &[u8], needle: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use alloc::collections::BTreeMap;
     use alloc::string::String;
     use alloc::string::ToString as _;
 
@@ -79,5 +80,41 @@ mod tests {
 
         assert_eq!(redacted.get("name").map(String::as_str), Some("<redacted>"));
         assert_eq!(redacted.get("addresses").map(String::as_str), Some("0.0.0.0/0"));
+    }
+
+    #[test]
+    fn sensitive_key_detection_normalizes_common_routeros_spellings() {
+        for key in [
+            "password",
+            "New-Password",
+            "client_secret",
+            "private-key",
+            "preshared_key",
+            "auth-key",
+            "Community",
+        ] {
+            assert!(is_sensitive_key(key), "expected {key:?} to be sensitive");
+        }
+        assert!(!is_sensitive_key("public-key"));
+        assert!(!is_sensitive_key("identity"));
+        assert!(contains_ascii(b"prefix-secret-suffix", b"secret"));
+        assert!(!contains_ascii(b"public", b"secret"));
+    }
+
+    #[test]
+    fn row_redaction_preserves_keys_and_non_secret_values() {
+        let row = Row::from([
+            ("user".to_string(), "admin".to_string()),
+            ("private-key".to_string(), "key-material".to_string()),
+        ]);
+
+        assert_eq!(
+            redact_row(&row),
+            BTreeMap::from([
+                ("private-key".to_string(), "<redacted>".to_string()),
+                ("user".to_string(), "admin".to_string()),
+            ])
+        );
+        assert_eq!(redact_command_row("/system/identity/print", &row), redact_row(&row));
     }
 }

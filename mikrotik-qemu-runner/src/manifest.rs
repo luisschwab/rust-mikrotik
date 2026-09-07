@@ -207,6 +207,8 @@ fn parse_router_command(value: &str) -> Result<RouterCommand> {
 
 #[cfg(test)]
 mod tests {
+    use std::process;
+
     use super::*;
 
     #[test]
@@ -258,5 +260,48 @@ version = "1.2.3"
         .unwrap_err();
 
         assert!(error.to_string().contains("unknown RouterOS version"));
+    }
+
+    #[test]
+    fn reads_manifests_and_adds_the_source_path_to_configuration_errors() {
+        let path = std::env::temp_dir().join(format!("mikrotik-qemu-manifest-{}.toml", process::id()));
+        fs::write(&path, "name = \"read-test\"\n[[devices]]\nname = \"R01\"\n").unwrap();
+        assert_eq!(read_scenario_conf(&path).unwrap().name, "read-test");
+
+        fs::write(&path, "name = \"bad\"\nunknown = true\n").unwrap();
+        let error = read_scenario_conf(&path).unwrap_err();
+        assert!(error.to_string().contains(&path.display().to_string()));
+        fs::remove_file(&path).unwrap();
+
+        let error = read_scenario_conf(&path).unwrap_err();
+        assert!(error.to_string().contains("read scenario manifest"));
+    }
+
+    #[test]
+    fn endpoint_and_bootstrap_parsers_reject_malformed_input() {
+        let devices = [MikrotikDConf::new("R01")];
+        assert!(parse_endpoint("R01").is_err());
+        assert!(parse_endpoint("R01:not-an-interface").is_err());
+        assert!(find_device(&devices, "missing").is_err());
+        assert!(parse_router_command("").is_err());
+        assert!(parse_router_command("system/identity/print").is_err());
+        assert!(parse_router_command("/system/identity/set =value").is_err());
+
+        let command = parse_router_command("/system/identity/set disabled name=router").unwrap();
+        assert_eq!(command.command, "/system/identity/set");
+        assert_eq!(command.attributes[0].key, "disabled");
+        assert_eq!(command.attributes[0].value, None);
+        assert_eq!(command.attributes[1].value.as_deref(), Some("router"));
+    }
+
+    #[test]
+    fn manifests_reject_unknown_devices_and_invalid_endpoints() {
+        for manifest in [
+            "name = \"bad\"\n[[devices]]\nname = \"R01\"\n[[links]]\na = \"missing:ether1\"\nb = \"R01:ether1\"\n",
+            "name = \"bad\"\n[[devices]]\nname = \"R01\"\n[[links]]\na = \"R01\"\nb = \"R01:ether1\"\n",
+            "name = \"bad\"\n[[devices]]\nname = \"R01\"\nbootstrap = [\"invalid\"]\n",
+        ] {
+            assert!(parse_scenario_conf(manifest).is_err());
+        }
     }
 }

@@ -134,10 +134,14 @@ mod tests {
 
     #[test]
     fn formats_binary_byte_counts() {
+        assert_eq!(format_byte_count(0), "0 B");
         assert_eq!(format_byte_count(42), "42 B");
+        assert_eq!(format_byte_count(1023), "1023 B");
+        assert_eq!(format_byte_count(1024), "1.0 KiB");
         assert_eq!(format_byte_count(1536), "1.5 KiB");
         assert_eq!(format_byte_count(2 * 1024 * 1024), "2.0 MiB");
         assert_eq!(format_byte_count(3 * 1024 * 1024 * 1024 * 1024), "3.0 TiB");
+        assert_eq!(format_byte_count(u64::MAX), "16.0 EiB");
     }
 
     #[test]
@@ -145,7 +149,12 @@ mod tests {
         assert_eq!(format_number_with_underscores("999"), "999");
         assert_eq!(format_number_with_underscores("1000"), "1_000");
         assert_eq!(format_number_with_underscores("-1234567.25"), "-1_234_567.25");
+        assert_eq!(format_number_with_underscores("+1234567E-2"), "+1_234_567E-2");
         assert_eq!(format_number_with_underscores("1.5e10"), "1.5e10");
+        assert_eq!(format_number_with_underscores(""), "");
+        assert_eq!(format_number_with_underscores(".5"), ".5");
+        assert_eq!(format_number_with_underscores("1."), "1.");
+        assert_eq!(format_number_with_underscores("1.two"), "1.two");
         assert_eq!(format_number_with_underscores("not-a-number"), "not-a-number");
     }
 

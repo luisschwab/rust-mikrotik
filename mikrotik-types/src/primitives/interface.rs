@@ -190,3 +190,73 @@ impl fmt::Display for BridgePortStatus {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloc::string::ToString;
+
+    use super::*;
+
+    #[test]
+    fn interface_names_are_non_empty_string_newtypes() {
+        let name = "ether1".parse::<InterfaceName>().unwrap();
+        assert_eq!(name.as_str(), "ether1");
+        assert_eq!(name.to_string(), "ether1");
+        assert_eq!(serde_json::to_string(&name).unwrap(), r#""ether1""#);
+        assert_eq!(
+            serde_json::from_str::<InterfaceName>(r#""bridge""#).unwrap().as_str(),
+            "bridge"
+        );
+        assert_eq!("".parse::<InterfaceName>(), Err(ParseError::NonEmptyString));
+        assert!(serde_json::from_str::<InterfaceName>(r#""""#).is_err());
+    }
+
+    #[test]
+    fn interface_types_preserve_known_and_unknown_values() {
+        for (wire, expected) in [
+            ("ether", InterfaceType::Ethernet),
+            ("bridge", InterfaceType::Bridge),
+            ("vlan", InterfaceType::Vlan),
+            ("loopback", InterfaceType::Loopback),
+            ("wg", InterfaceType::WireGuard),
+            ("future-type", InterfaceType::Unknown("future-type".to_string())),
+        ] {
+            let parsed = wire.parse::<InterfaceType>().unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.to_string(), wire);
+        }
+        assert_eq!(
+            serde_json::from_str::<InterfaceType>(r#""ether""#).unwrap(),
+            InterfaceType::Ethernet
+        );
+        assert_eq!(
+            serde_json::from_str::<InterfaceType>(r#""future""#).unwrap(),
+            InterfaceType::Unknown("future".to_string())
+        );
+    }
+
+    #[test]
+    fn mtu_parses_auto_and_numeric_values_and_uses_string_json() {
+        assert_eq!("auto".parse::<Mtu>(), Ok(Mtu::Auto));
+        assert_eq!("1500".parse::<Mtu>(), Ok(Mtu::Bytes(1500)));
+        assert_eq!(Mtu::Auto.to_string(), "auto");
+        assert_eq!(Mtu::Bytes(9000).to_string(), "9000");
+        assert_eq!(serde_json::to_string(&Mtu::Bytes(1500)).unwrap(), r#""1500""#);
+        assert_eq!(serde_json::from_str::<Mtu>(r#""auto""#).unwrap(), Mtu::Auto);
+        assert_eq!("invalid".parse::<Mtu>(), Err(ParseError::Mtu));
+        assert!(serde_json::from_str::<Mtu>(r#""invalid""#).is_err());
+    }
+
+    #[test]
+    fn bridge_port_status_preserves_unknown_values() {
+        for (wire, expected) in [
+            ("in-bridge", BridgePortStatus::InBridge),
+            ("inactive", BridgePortStatus::Inactive),
+            ("future", BridgePortStatus::Unknown("future".to_string())),
+        ] {
+            let parsed = wire.parse::<BridgePortStatus>().unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.to_string(), wire);
+        }
+    }
+}

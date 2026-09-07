@@ -161,10 +161,11 @@ impl<'de> Deserialize<'de> for RouteDestination {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+    use alloc::string::ToString;
     use core::net::IpAddr;
 
-    use super::RouteDestination;
-    use super::RouteGateway;
+    use super::*;
 
     #[test]
     fn route_destination_accepts_prefixes_and_interfaces() {
@@ -185,6 +186,66 @@ mod tests {
         let (address, interface) = gateway.next_hop().unwrap();
         assert_eq!(address, "192.0.2.1".parse::<IpAddr>().unwrap());
         assert_eq!(interface.unwrap().as_str(), "ether1");
+    }
+
+    #[test]
+    fn routing_table_names_validate_and_serialize() {
+        let table = "main".parse::<RoutingTableName>().unwrap();
+        assert_eq!(table.as_str(), "main");
+        assert_eq!(table.to_string(), "main");
+        assert_eq!(serde_json::to_string(&table).unwrap(), r#""main""#);
+        assert_eq!(
+            serde_json::from_str::<RoutingTableName>(r#""vpn""#).unwrap().as_str(),
+            "vpn"
+        );
+        assert!("".parse::<RoutingTableName>().is_err());
+    }
+
+    #[test]
+    fn route_gateway_handles_plain_table_qualified_and_invalid_values() {
+        let gateway = "192.0.2.1@main".parse::<RouteGateway>().unwrap();
+        assert_eq!(gateway.as_str(), "192.0.2.1@main");
+        assert_eq!(gateway.to_string(), "192.0.2.1@main");
+        assert_eq!(gateway.next_hop(), Some(("192.0.2.1".parse().unwrap(), None)));
+        assert_eq!(serde_json::to_string(&gateway).unwrap(), r#""192.0.2.1@main""#);
+        assert_eq!(
+            serde_json::from_str::<RouteGateway>(r#""2001:db8::1""#)
+                .unwrap()
+                .next_hop(),
+            Some(("2001:db8::1".parse().unwrap(), None))
+        );
+        assert!("not-an-address".parse::<RouteGateway>().unwrap().next_hop().is_none());
+        assert!("".parse::<RouteGateway>().is_err());
+    }
+
+    #[test]
+    fn route_destinations_display_and_serialize_their_original_shape() {
+        for value in ["192.0.2.0/24", "ether1"] {
+            let destination = value.parse::<RouteDestination>().unwrap();
+            assert_eq!(destination.to_string(), value);
+            assert_eq!(serde_json::to_string(&destination).unwrap(), format!(r#""{value}""#));
+            assert_eq!(
+                serde_json::from_str::<RouteDestination>(&format!(r#""{value}""#)).unwrap(),
+                destination
+            );
+        }
+    }
+
+    #[test]
+    fn bgp_session_states_preserve_known_and_unknown_values() {
+        for (wire, expected) in [
+            ("idle", BgpSessionState::Idle),
+            ("active", BgpSessionState::Active),
+            ("connect", BgpSessionState::Connect),
+            ("open-sent", BgpSessionState::OpenSent),
+            ("open-confirm", BgpSessionState::OpenConfirm),
+            ("established", BgpSessionState::Established),
+            ("future", BgpSessionState::Unknown("future".to_string())),
+        ] {
+            let parsed = wire.parse::<BgpSessionState>().unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed.to_string(), wire);
+        }
     }
 }
 

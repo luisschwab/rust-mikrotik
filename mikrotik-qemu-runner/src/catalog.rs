@@ -191,3 +191,68 @@ pub(crate) fn guest_arch(host_arch: ChrArch, version: RouterOsVersion) -> Result
         ))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct VersionConfig {
+        version: RouterOsVersion,
+    }
+
+    #[test]
+    fn catalog_versions_round_trip_and_expose_channels_and_architectures() {
+        assert_eq!(RouterOsVersion::default(), DEFAULT_ROUTEROS_VERSION);
+        assert_eq!(ROUTEROS_VERSIONS.len(), 15);
+        for version in ROUTEROS_VERSIONS {
+            assert_eq!(version.as_str().parse::<RouterOsVersion>().unwrap(), *version);
+            assert!(!version.channels().is_empty());
+            assert!(version.image_arches().contains(&ChrArch::X86_64));
+            if version.as_str().starts_with("7.") {
+                assert!(version.image_arches().contains(&ChrArch::Aarch64));
+            } else {
+                assert_eq!(version.image_arches(), &[ChrArch::X86_64]);
+            }
+        }
+
+        assert_eq!(RouterOsVersion::V7_23_1.channels(), &[RouterOsChannel::Stable]);
+        assert_eq!(RouterOsVersion::V7_21_4.channels(), &[RouterOsChannel::LongTerm]);
+        assert_eq!(
+            RouterOsVersion::V6_49_19.channels(),
+            &[RouterOsChannel::Stable, RouterOsChannel::LongTerm]
+        );
+        assert!("1.2.3".parse::<RouterOsVersion>().is_err());
+    }
+
+    #[test]
+    fn version_deserialization_uses_the_catalog_parser() {
+        let parsed: VersionConfig = toml::from_str("version = \"7.23.1\"").unwrap();
+        assert_eq!(parsed.version, RouterOsVersion::V7_23_1);
+        assert!(toml::from_str::<VersionConfig>("version = \"1.2.3\"").is_err());
+    }
+
+    #[test]
+    fn guest_arch_prefers_native_images_and_falls_back_for_routeros_six() {
+        assert_eq!(
+            guest_arch(ChrArch::X86_64, RouterOsVersion::V7_23_1).unwrap(),
+            ChrArch::X86_64
+        );
+        assert_eq!(
+            guest_arch(ChrArch::Aarch64, RouterOsVersion::V7_23_1).unwrap(),
+            ChrArch::Aarch64
+        );
+        assert_eq!(
+            guest_arch(ChrArch::Aarch64, RouterOsVersion::V6_49_19).unwrap(),
+            ChrArch::X86_64
+        );
+    }
+
+    #[test]
+    fn host_architecture_maps_to_a_supported_chr_architecture() {
+        let host = ChrArch::host().unwrap();
+        assert!(matches!(host, ChrArch::X86_64 | ChrArch::Aarch64));
+    }
+}

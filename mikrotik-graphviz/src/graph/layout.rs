@@ -595,3 +595,147 @@ fn recursive_place_disconnected_rows(positions: &mut BTreeMap<TopologyNodeKey, (
         positions.insert(node, (x, y));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(value: &str) -> TopologyNodeKey {
+        value.to_owned().into()
+    }
+
+    fn edge(local: &str, remote: &str, link_kind: LinkKind) -> GraphvizEdge {
+        GraphvizEdge {
+            local_node: key(local),
+            local_interface: None,
+            remote_node: key(remote),
+            remote_interface: None,
+            link_kind,
+            has_l3_or_route_evidence: false,
+            has_registration_evidence: false,
+            has_mndp_attachment_evidence: false,
+        }
+    }
+
+    #[test]
+    fn typed_radial_helpers_cover_empty_single_grid_and_disconnected_cases() {
+        assert!(typed_radial_angles(0.0, 1.0, 0).is_empty());
+        assert_eq!(typed_radial_angles(0.0, 2.0, 1), [1.0]);
+        assert_eq!(typed_radial_angles(0.0, 2.0, 4).len(), 4);
+        assert!(typed_radial_child_offsets(0).is_empty());
+        assert_eq!(
+            typed_radial_child_offsets(1),
+            [(0.0, GRAPHVIZ_TYPED_RADIAL_CHILD_ROW_OFFSET)]
+        );
+        assert_eq!(typed_radial_child_offsets(5).len(), 5);
+        assert_eq!(integer_sqrt_ceil(5), 3);
+        assert_eq!(usize_to_f64(7), 7.0);
+
+        let position = typed_radial_child_position((1.0, 2.0), 0.0, 3.0, 4.0);
+        assert_eq!(position, (5.0, 5.0));
+        for kind in [
+            LinkKind::Bgp,
+            LinkKind::Route,
+            LinkKind::Internal,
+            LinkKind::Customer,
+            LinkKind::Wireless,
+            LinkKind::Management,
+            LinkKind::Fallback,
+            LinkKind::Unknown,
+        ] {
+            let (start, end) = typed_radial_sector(kind);
+            assert!(start < end);
+        }
+
+        assert!(typed_radial_positions(&NetworkGraph::default(), &[], &BTreeSet::new(), None).is_empty());
+        let visible = [key("root"), key("child"), key("grandchild"), key("disconnected")]
+            .into_iter()
+            .collect();
+        let edges = [
+            edge("root", "child", LinkKind::Route),
+            edge("child", "grandchild", LinkKind::Customer),
+            edge("disconnected", "hidden", LinkKind::Management),
+        ];
+        let tree = typed_radial_tree(&edges, &visible, &key("root"));
+        assert_eq!(tree[&key("grandchild")].depth, 2);
+        assert!(!tree.contains_key(&key("hidden")));
+        assert_eq!(
+            fallback_typed_radial_placement(&key("disconnected"), &edges, &tree).link_kind,
+            LinkKind::Management
+        );
+        assert_eq!(
+            fallback_typed_radial_placement(&key("unknown"), &[], &BTreeMap::new()).link_kind,
+            LinkKind::Unknown
+        );
+        let positions = typed_radial_positions(&NetworkGraph::default(), &edges, &visible, Some("root"));
+        assert_eq!(positions.len(), visible.len());
+    }
+
+    #[test]
+    fn recursive_layout_helpers_filter_edges_and_place_rows_stably() {
+        let visible = [key("root"), key("a"), key("b"), key("bgp:peer"), key("outside")]
+            .into_iter()
+            .collect();
+        let options = DotExportOptions {
+            owned_bgp_nodes: vec!["outside".to_owned()],
+            ..DotExportOptions::default()
+        };
+        let edges = [
+            edge("root", "a", LinkKind::Internal),
+            edge("root", "a", LinkKind::Internal),
+            edge("a", "b", LinkKind::Customer),
+            edge("root", "b", LinkKind::Bgp),
+            edge("root", "bgp:peer", LinkKind::Internal),
+            edge("root", "hidden", LinkKind::Internal),
+            edge("root", "outside", LinkKind::Internal),
+        ];
+        let adjacency = recursive_downstream_adjacency(&edges, &visible, &options);
+        assert_eq!(adjacency[&key("root")], [key("a")]);
+        assert_eq!(adjacency[&key("a")], [key("b"), key("root")]);
+
+        let children = recursive_radial_children(&key("root"), &adjacency);
+        assert_eq!(children[&key("root")], [key("a")]);
+        assert_eq!(children[&key("a")], [key("b")]);
+        assert!(recursive_radial_children(&key("none"), &BTreeMap::new()).is_empty());
+
+        let mut positions = BTreeMap::new();
+        recursive_place_disconnected_rows(&mut positions, &[]);
+        let disconnected = [key("x"), key("y"), key("z")];
+        recursive_place_disconnected_rows(&mut positions, &disconnected);
+        assert_eq!(positions.len(), 3);
+        assert_ne!(positions[&key("x")].1, positions[&key("z")].1);
+
+        assert!(recursive_spaced_section_x_positions(&positions, &[]).is_empty());
+        let spaced = recursive_spaced_section_x_positions(&positions, &disconnected);
+        assert_eq!(spaced.len(), 3);
+        assert!(
+            spaced
+                .windows(2)
+                .all(|pair| pair[1] - pair[0] >= GRAPHVIZ_SECTION_NODE_SPACING)
+        );
+
+        assert_eq!(recursive_section_y(GRAPHVIZ_RANK_UPSTREAM), GRAPHVIZ_SECTION_UPSTREAM_Y);
+        assert_eq!(
+            recursive_section_y(GRAPHVIZ_RANK_OWNED_BGP),
+            GRAPHVIZ_SECTION_OWNED_BGP_Y
+        );
+        assert_eq!(
+            recursive_section_y(GRAPHVIZ_RANK_EDGE_BORDER),
+            GRAPHVIZ_SECTION_BORDER_Y
+        );
+        assert_eq!(recursive_section_y(GRAPHVIZ_RANK_CORE_OSPF), GRAPHVIZ_SECTION_CORE_Y);
+        assert_eq!(recursive_section_y(GRAPHVIZ_RANK_CUSTOMER), GRAPHVIZ_SECTION_CUSTOMER_Y);
+        assert!(recursive_section_y(GRAPHVIZ_RANK_CUSTOMER + 2) < GRAPHVIZ_SECTION_CUSTOMER_Y);
+    }
+
+    #[test]
+    fn recursive_arc_rows_handle_multiple_chunks() {
+        let nodes = (0..(GRAPHVIZ_RECURSIVE_RADIAL_MAX_ROW_CHILDREN + 2))
+            .map(|index| key(&format!("node-{index}")))
+            .collect::<Vec<_>>();
+        let mut positions = BTreeMap::new();
+        let angles = recursive_place_arc_rows(&mut positions, (1.0, 2.0), 0.0, PI, 10.0, &nodes);
+        assert_eq!(angles.len(), nodes.len());
+        assert_eq!(positions.len(), nodes.len());
+    }
+}

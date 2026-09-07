@@ -575,3 +575,170 @@ impl Drop for MikrotikD {
         info_with_label!(self.name(), "Dropped");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process;
+
+    use xshell::Shell;
+
+    use super::*;
+
+    #[test]
+    fn router_config_builders_override_each_runtime_setting() {
+        let command = RouterCommand::new("/system/identity/set").with_attribute("name", "R01");
+        let config = MikrotikDConf::new("R01")
+            .with_version(RouterOsVersion::V6_49_19)
+            .with_memory_mib(512)
+            .with_cpus(2)
+            .with_software_emulation(false)
+            .with_bootstrap(command.clone());
+        assert_eq!(config.name, "R01");
+        assert_eq!(config.version, RouterOsVersion::V6_49_19);
+        assert_eq!(config.memory_mib, 512);
+        assert_eq!(config.cpus, 2);
+        assert!(!config.allow_software_emulation);
+        assert_eq!(config.bootstrap, [command]);
+        assert_eq!(MikrotikDConf::default().name, "router");
+    }
+
+    #[test]
+    fn router_commands_preserve_attributes_and_flags_in_order() {
+        let command = RouterCommand::new("/interface/print")
+            .with_attribute("name", "ether1")
+            .with_flag("detail");
+        assert_eq!(command.command, "/interface/print");
+        assert_eq!(command.attributes[0].key, "name");
+        assert_eq!(command.attributes[0].value.as_deref(), Some("ether1"));
+        assert_eq!(command.attributes[1].key, "detail");
+        assert_eq!(command.attributes[1].value, None);
+        let debug = format!("{command:?}");
+        assert!(debug.contains("ether1"));
+        assert!(debug.contains("detail"));
+    }
+
+    #[test]
+    fn command_attribute_debug_redacts_generic_and_snmp_secrets() {
+        let password = CommandAttribute {
+            key: "password".to_owned(),
+            value: Some("secret".to_owned()),
+        };
+        let debug = format!("{password:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("secret"));
+
+        let snmp = RouterCommand::new("/snmp/community/add").with_attribute("name", "private-community");
+        let debug = format!("{snmp:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("private-community"));
+    }
+
+    #[test]
+    fn client_configuration_uses_forwarded_port_and_boot_retry_settings() {
+        let config = MikrotikD::client_config("R01", 18_728);
+        assert_eq!(config.socket_address(), "127.0.0.1:18728");
+        assert_eq!(config.log_label.as_deref(), Some("R01"));
+        assert_eq!(config.connect_retry_timeout, Some(DEFAULT_BOOT_TIMEOUT));
+        assert_eq!(config.connect_attempt_timeout, Some(Duration::from_secs(1)));
+        assert_eq!(config.connect_retry_max_delay, Some(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn management_networks_macs_and_artifact_paths_are_deterministic() {
+        let first = MikrotikD::management_network(0).unwrap();
+        assert_eq!(first.network, Ipv4Addr::new(10, 64, 1, 0));
+        assert_eq!(first.dhcp_start, Ipv4Addr::new(10, 64, 1, 100));
+        let last = MikrotikD::management_network(253).unwrap();
+        assert_eq!(last.network, Ipv4Addr::new(10, 64, 254, 0));
+        assert!(MikrotikD::management_network(254).is_err());
+        assert!(MikrotikD::management_network(usize::from(u8::MAX)).is_err());
+
+        assert_eq!(MikrotikD::mac(0x1234, 0x5678), "02:52:12:34:56:78");
+        assert_eq!(MikrotikD::link_bus_id(7), "link7bus");
+        assert_eq!(
+            router_artifact_path(Path::new("run"), "R01", QEMU_LOG_SUFFIX),
+            PathBuf::from("run/R01.qemu.log")
+        );
+    }
+
+    #[test]
+    fn linked_interface_index_comes_from_the_routeros_ethernet_name() {
+        let endpoint = EthernetEndpoint {
+            router: "R01".to_owned(),
+            interface: crate::EthernetInterface::new(3).unwrap(),
+        };
+        assert_eq!(MikrotikD::link_interface_index(&endpoint), 3);
+    }
+
+    #[test]
+    fn start_builds_qemu_artifacts_and_both_sides_of_socket_links() {
+        let root = std::env::temp_dir().join(format!("mikrotikd-start-test-{}", process::id()));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        let run_dir = root.join("run");
+        let socket_dir = root.join("sockets");
+        fs::create_dir_all(&run_dir).unwrap();
+        fs::create_dir_all(&socket_dir).unwrap();
+        let shell = Shell::new().unwrap();
+        let target = crate::qemu::RuntimeTarget::detect(
+            &shell,
+            crate::catalog::ChrArch::Aarch64,
+            RouterOsVersion::V6_49_19,
+            true,
+        )
+        .unwrap();
+        let r01 = MikrotikDConf::new("R01");
+        let r02 = MikrotikDConf::new("R02");
+        let link = EthernetLink::create(
+            &r01,
+            crate::EthernetInterface::new(2).unwrap(),
+            &r02,
+            crate::EthernetInterface::new(3).unwrap(),
+        );
+        let context = StartContext {
+            qemu_system: "true",
+            target,
+            run_dir: &run_dir,
+            socket_dir: &socket_dir,
+            links: slice::from_ref(&link),
+            sh: &shell,
+        };
+
+        for (index, config, server) in [(0, r01, "server=on"), (1, r02, "server=off")] {
+            let overlay = run_dir.join(format!("{}.qcow2", config.name));
+            fs::write(&overlay, b"overlay").unwrap();
+            let prepared = PreparedRouter {
+                index,
+                config: config.clone(),
+                api_port: 18_728 + u16::try_from(index).unwrap(),
+                target,
+                qemu_system: "true".to_owned(),
+                overlay,
+            };
+            let mut device = MikrotikD::start(&prepared, &context).unwrap();
+            assert_eq!(device.name(), config.name);
+            assert_eq!(device.api_socket().port(), prepared.api_port);
+            assert_eq!(device.target().address, device.api_socket());
+            assert_eq!(device.run_dir(), run_dir);
+
+            let arguments =
+                fs::read_to_string(router_artifact_path(&run_dir, device.name(), QEMU_ARGS_SUFFIX)).unwrap();
+            assert!(arguments.starts_with("true -name"));
+            assert!(arguments.contains("hostfwd=tcp:127.0.0.1"));
+            assert!(arguments.contains(server));
+            assert!(arguments.contains("link-0.sock"));
+            assert!(router_artifact_path(&run_dir, device.name(), QEMU_LOG_SUFFIX).exists());
+            device.shutdown();
+        }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn spawn_wrappers_reject_invalid_configuration_before_preparing_qemu() {
+        let invalid = MikrotikDConf::new("bad router name");
+        assert!(MikrotikD::new_with_conf(&invalid).await.is_err());
+        assert!(MikrotikD::spawn(&invalid).await.is_err());
+    }
+}

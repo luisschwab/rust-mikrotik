@@ -44,3 +44,47 @@ impl From<&Self> for GraphSnapshot {
         snapshot.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+
+    use mikrotik_types::api::system::Identity;
+    use mikrotik_types::device::SystemSnapshot;
+
+    use super::*;
+
+    fn snapshot_with_identity(identity: Option<&str>) -> GraphSnapshot {
+        GraphSnapshot {
+            target_address: "192.0.2.1:8728".parse().unwrap(),
+            management_addresses: vec!["192.0.2.1".parse::<IpAddr>().unwrap()],
+            role: DeviceRole::CoreRouter,
+            snapshot: RouterOsSnapshot {
+                system: SystemSnapshot {
+                    identity: Identity {
+                        name: identity.map(str::to_owned),
+                    }
+                    .into(),
+                    ..SystemSnapshot::default()
+                },
+                ..RouterOsSnapshot::default()
+            },
+        }
+    }
+
+    #[test]
+    fn graph_snapshot_uses_device_identity_then_target_address() {
+        let named = snapshot_with_identity(Some("core"));
+        assert_eq!(named.topology_node_key().as_str(), "core");
+        assert!(named.system.identity.name.is_some());
+
+        let unnamed = snapshot_with_identity(None);
+        assert_eq!(unnamed.topology_node_key().as_str(), "192.0.2.1:8728");
+    }
+
+    #[test]
+    fn graph_snapshot_clones_from_a_reference() {
+        let snapshot = snapshot_with_identity(Some("core"));
+        assert_eq!(GraphSnapshot::from(&snapshot), snapshot);
+    }
+}

@@ -496,8 +496,31 @@ impl fmt::Display for DhcpLeaseStatus {
 #[cfg(test)]
 mod tests {
     use alloc::string::ToString;
+    use core::net::IpAddr;
 
-    use super::IpPrefix;
+    use super::*;
+
+    #[test]
+    fn mac_addresses_parse_format_and_serialize_canonically() {
+        let address = "aa:bb:cc:00:01:ff".parse::<MacAddress>().unwrap();
+        assert_eq!(address.octets(), [0xaa, 0xbb, 0xcc, 0, 1, 0xff]);
+        assert_eq!(address.to_string(), "AA:BB:CC:00:01:FF");
+        assert_eq!(serde_json::to_string(&address).unwrap(), r#""AA:BB:CC:00:01:FF""#);
+        assert_eq!(
+            serde_json::from_str::<MacAddress>(r#""AA:BB:CC:00:01:FF""#).unwrap(),
+            address
+        );
+
+        for invalid in [
+            "",
+            "AA:BB",
+            "AA:BB:CC:DD:EE:FF:00",
+            "A:BB:CC:DD:EE:FF",
+            "GG:BB:CC:DD:EE:FF",
+        ] {
+            assert_eq!(invalid.parse::<MacAddress>(), Err(ParseError::MacAddress));
+        }
+    }
 
     #[test]
     fn ip_prefix_accepts_scoped_ipv6_prefixes() {
@@ -512,5 +535,110 @@ mod tests {
     fn ip_prefix_rejects_invalid_scoped_ipv6_prefixes() {
         assert!("fe80::%ether1/129".parse::<IpPrefix>().is_err());
         assert!("not-an-ip%ether1/64".parse::<IpPrefix>().is_err());
+    }
+
+    #[test]
+    fn ip_prefix_exposes_address_length_and_host_classification() {
+        let host = "192.0.2.1/32".parse::<IpPrefix>().unwrap();
+        assert_eq!(host.as_str(), "192.0.2.1/32");
+        assert_eq!(host.address(), "192.0.2.1".parse::<IpAddr>().unwrap());
+        assert_eq!(host.prefix_length(), 32);
+        assert!(host.is_host());
+        assert!(!"192.0.2.0/24".parse::<IpPrefix>().unwrap().is_host());
+        assert!("2001:db8::1/128".parse::<IpPrefix>().unwrap().is_host());
+        assert_eq!(serde_json::to_string(&host).unwrap(), r#""192.0.2.1/32""#);
+        assert_eq!(
+            serde_json::from_str::<IpPrefix>(r#""10.0.0.0/8""#).unwrap().as_str(),
+            "10.0.0.0/8"
+        );
+
+        for invalid in ["192.0.2.1", "192.0.2.1/x", "192.0.2.1/33", "2001:db8::1/129"] {
+            assert_eq!(invalid.parse::<IpPrefix>(), Err(ParseError::IpPrefix));
+        }
+    }
+
+    #[test]
+    fn scoped_addresses_expose_optional_interfaces() {
+        let scoped = "fe80::1%ether1".parse::<ScopedIpAddress>().unwrap();
+        assert_eq!(scoped.as_str(), "fe80::1%ether1");
+        assert_eq!(scoped.address(), "fe80::1".parse::<IpAddr>().unwrap());
+        assert_eq!(scoped.scope(), Some("ether1"));
+        assert_eq!(scoped.to_string(), "fe80::1%ether1");
+        assert_eq!(serde_json::to_string(&scoped).unwrap(), r#""fe80::1%ether1""#);
+
+        let plain = serde_json::from_str::<ScopedIpAddress>(r#""192.0.2.1""#).unwrap();
+        assert_eq!(plain.scope(), None);
+        assert_eq!(plain.address(), "192.0.2.1".parse::<IpAddr>().unwrap());
+        for invalid in ["not-an-ip", "192.0.2.1%"] {
+            assert_eq!(invalid.parse::<ScopedIpAddress>(), Err(ParseError::ScopedIpAddress));
+        }
+    }
+
+    #[test]
+    fn endpoint_addresses_support_bare_and_port_qualified_ips() {
+        for (wire, expected_address, expected_port) in [
+            ("192.0.2.1", "192.0.2.1", None),
+            ("192.0.2.1:8728", "192.0.2.1", Some(8728)),
+            ("2001:db8::1", "2001:db8::1", None),
+            ("[2001:db8::1]:8729", "2001:db8::1", Some(8729)),
+        ] {
+            let endpoint = wire.parse::<IpEndpointAddress>().unwrap();
+            assert_eq!(endpoint.as_str(), wire);
+            assert_eq!(endpoint.address(), expected_address.parse::<IpAddr>().unwrap());
+            assert_eq!(endpoint.port(), expected_port);
+            assert_eq!(endpoint.to_string(), wire);
+        }
+        assert_eq!(
+            serde_json::from_str::<IpEndpointAddress>(r#""192.0.2.1:8728""#)
+                .unwrap()
+                .port(),
+            Some(8728)
+        );
+        for invalid in ["", "host:8728", "192.0.2.1:invalid", "[2001:db8::1]:invalid"] {
+            assert_eq!(invalid.parse::<IpEndpointAddress>(), Err(ParseError::IpEndpointAddress));
+        }
+    }
+
+    #[test]
+    fn string_backed_ip_enums_preserve_future_values() {
+        for (wire, parsed) in [
+            ("mndp", DiscoveryProtocol::Mndp),
+            ("lldp", DiscoveryProtocol::Lldp),
+            ("cdp", DiscoveryProtocol::Cdp),
+            ("future", DiscoveryProtocol::Unknown("future".to_string())),
+        ] {
+            assert_eq!(wire.parse::<DiscoveryProtocol>().unwrap(), parsed);
+            assert_eq!(parsed.to_string(), wire);
+        }
+        for (wire, parsed) in [
+            ("bridge", SystemCapability::Bridge),
+            ("wlan-ap", SystemCapability::WlanAp),
+            ("router", SystemCapability::Router),
+            ("station-only", SystemCapability::StationOnly),
+            ("future", SystemCapability::Unknown("future".to_string())),
+        ] {
+            assert_eq!(wire.parse::<SystemCapability>().unwrap(), parsed);
+            assert_eq!(parsed.to_string(), wire);
+        }
+        for (wire, parsed) in [
+            ("permanent", ArpStatus::Permanent),
+            ("reachable", ArpStatus::Reachable),
+            ("stale", ArpStatus::Stale),
+            ("delay", ArpStatus::Delay),
+            ("future", ArpStatus::Unknown("future".to_string())),
+        ] {
+            assert_eq!(wire.parse::<ArpStatus>().unwrap(), parsed);
+            assert_eq!(parsed.to_string(), wire);
+        }
+        for (wire, parsed) in [
+            ("bound", DhcpLeaseStatus::Bound),
+            ("waiting", DhcpLeaseStatus::Waiting),
+            ("offered", DhcpLeaseStatus::Offered),
+            ("busy", DhcpLeaseStatus::Busy),
+            ("future", DhcpLeaseStatus::Unknown("future".to_string())),
+        ] {
+            assert_eq!(wire.parse::<DhcpLeaseStatus>().unwrap(), parsed);
+            assert_eq!(parsed.to_string(), wire);
+        }
     }
 }

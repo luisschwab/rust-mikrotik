@@ -344,4 +344,59 @@ mod tests {
         let word = Word::Category(WordCategory::Empty);
         assert_eq!(format!("{}", word), "!empty");
     }
+
+    #[test]
+    fn word_accessors_only_return_matching_payloads() {
+        let category = Word::Category(WordCategory::Reply);
+        assert_eq!(category.category(), Some(&WordCategory::Reply));
+        assert_eq!(category.tag(), None);
+        assert_eq!(category.generic(), None);
+        assert_eq!(category.word_type(), WordType::Category);
+
+        let message = Word::Message("reason");
+        assert_eq!(message.category(), None);
+        assert_eq!(message.tag(), None);
+        assert_eq!(message.generic(), Some("reason"));
+        assert_eq!(message.word_type(), WordType::Message);
+    }
+
+    #[test]
+    fn every_category_parses_and_formats() {
+        for (wire, category) in [
+            ("!done", WordCategory::Done),
+            ("!re", WordCategory::Reply),
+            ("!trap", WordCategory::Trap),
+            ("!fatal", WordCategory::Fatal),
+            ("!empty", WordCategory::Empty),
+        ] {
+            assert_eq!(WordCategory::try_from(wire), Ok(category));
+            assert_eq!(format!("{category}"), wire);
+        }
+        assert_eq!(WordCategory::try_from("!unknown"), Err(()));
+    }
+
+    #[test]
+    fn raw_attributes_preserve_binary_values_and_validate_keys() {
+        let attribute = WordAttribute::try_from(b"=blob=\xff\0".as_ref()).unwrap();
+        assert_eq!(attribute.key, "blob");
+        assert_eq!(attribute.value, None);
+        assert_eq!(attribute.value_raw, Some(b"\xff\0".as_ref()));
+
+        assert_eq!(WordAttribute::try_from(b"plain".as_ref()), Err(WordError::Attribute));
+        assert_eq!(
+            WordAttribute::try_from(b"=\xff=value".as_ref()),
+            Err(WordError::AttributeKeyNotUtf8)
+        );
+    }
+
+    #[test]
+    fn word_errors_describe_each_failure_kind() {
+        assert_eq!(format!("{}", WordError::Attribute), "Invalid attribute format");
+        assert_eq!(
+            format!("{}", WordError::AttributeKeyNotUtf8),
+            "Attribute key is not valid UTF-8"
+        );
+        assert!(format!("{}", Word::try_from(b"\xff".as_ref()).unwrap_err()).starts_with("UTF-8 decoding error:"));
+        assert!(format!("{}", Word::try_from(b".tag=invalid".as_ref()).unwrap_err()).starts_with("Tag parsing error:"));
+    }
 }

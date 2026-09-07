@@ -231,6 +231,8 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use super::*;
 
     #[test]
@@ -261,5 +263,107 @@ mod tests {
             format!("{error}"),
             "RouterOS command /ip/firewall/filter/print exceeded 15s"
         );
+    }
+
+    #[test]
+    fn retry_classification_covers_every_failure_kind() {
+        for (kind, expected, alternate) in [
+            (
+                ErrorKind::ConnectionRefused,
+                FailureKind::ApiRefused,
+                "API Refused Connection",
+            ),
+            (
+                ErrorKind::NetworkUnreachable,
+                FailureKind::NetworkUnreachable,
+                "Network Unreachable",
+            ),
+            (ErrorKind::TimedOut, FailureKind::Timeout, "Timed Out"),
+            (
+                ErrorKind::ConnectionReset,
+                FailureKind::ConnectionReset,
+                "Connection Reset",
+            ),
+            (ErrorKind::BrokenPipe, FailureKind::Other, "broken pipe"),
+        ] {
+            let error = Error::Io(io::Error::from(kind));
+            assert_eq!(error.failure_kind(), expected);
+            assert_eq!(format!("{error:#}"), alternate);
+        }
+    }
+
+    #[test]
+    fn client_timeout_and_transport_errors_are_classified() {
+        let timeout = Error::from(ClientError::Timeout {
+            operation: "connect",
+            duration: Duration::from_secs(4),
+        });
+        assert!(timeout.is_timeout_failure());
+        assert_eq!(timeout.failure_kind(), FailureKind::Timeout);
+        assert_eq!(format!("{timeout:#}"), "Timed Out After 4 seconds");
+
+        for (kind, predicate) in [
+            (
+                ErrorKind::ConnectionRefused,
+                Error::is_connection_refused as fn(&Error) -> bool,
+            ),
+            (ErrorKind::NetworkUnreachable, Error::is_network_unreachable),
+            (ErrorKind::ConnectionReset, Error::is_connection_reset),
+        ] {
+            let error = Error::from(ClientError::Transport {
+                command: None,
+                source: io::Error::from(kind),
+            });
+            assert!(predicate(&error));
+        }
+    }
+
+    #[test]
+    fn ordinary_display_and_sources_cover_non_client_variants() {
+        let empty = Error::RequiredEndpointEmpty {
+            command: "/system/identity/print".to_owned(),
+        };
+        assert_eq!(
+            empty.to_string(),
+            "required RouterOS command /system/identity/print returned no rows"
+        );
+        assert_eq!(format!("{empty:#}"), empty.to_string());
+        assert!(empty.source().is_none());
+
+        let invalid = Error::InvalidTarget {
+            address: "invalid".to_owned(),
+            message: "not an address".to_owned(),
+        };
+        assert_eq!(
+            invalid.to_string(),
+            "invalid target address \"invalid\": not an address"
+        );
+        assert_eq!(format!("{invalid:#}"), invalid.to_string());
+
+        let target = Error::from(ObserverError::InvalidAddress);
+        assert_eq!(
+            target.to_string(),
+            "target error: device address must be an IP address or IP:port"
+        );
+        assert!(target.source().is_none());
+
+        let io_error = Error::from(io::Error::from(ErrorKind::BrokenPipe));
+        assert!(io_error.source().is_some());
+        let client = Error::from(ClientError::UnsupportedProtocol("ssh"));
+        assert!(client.source().is_some());
+    }
+
+    #[test]
+    fn non_matching_predicates_return_false() {
+        let error = Error::InvalidTarget {
+            address: "invalid".to_owned(),
+            message: "bad".to_owned(),
+        };
+        assert!(!error.is_authentication_failure());
+        assert!(!error.is_timeout_failure());
+        assert!(!error.is_connection_refused());
+        assert!(!error.is_network_unreachable());
+        assert!(!error.is_connection_reset());
+        assert_eq!(error.failure_kind(), FailureKind::Other);
     }
 }

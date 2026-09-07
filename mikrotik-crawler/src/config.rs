@@ -103,3 +103,54 @@ impl CrawlerServiceConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use core::net::IpAddr;
+
+    use mikrotik_types::target::Credentials;
+
+    use super::*;
+
+    #[test]
+    fn crawl_defaults_match_documented_limits() {
+        let config = CrawlConfig::default();
+        assert_eq!(config.max_depth, 1);
+        assert_eq!(config.max_devices, 1_000);
+        assert_eq!(config.max_concurrency, 16);
+        assert_eq!(config.connect_retries, DEFAULT_CONNECT_RETRIES);
+        assert_eq!(config.address_family, AddressFamily::Ipv4);
+    }
+
+    #[test]
+    fn address_family_filters_match_ip_versions() {
+        let ipv4 = "192.0.2.1".parse::<IpAddr>().unwrap();
+        let ipv6 = "2001:db8::1".parse::<IpAddr>().unwrap();
+        assert!(AddressFamily::Any.includes(ipv4));
+        assert!(AddressFamily::Any.includes(ipv6));
+        assert!(AddressFamily::Ipv4.includes(ipv4));
+        assert!(!AddressFamily::Ipv4.includes(ipv6));
+        assert!(AddressFamily::Ipv6.includes(ipv6));
+        assert!(!AddressFamily::Ipv6.includes(ipv4));
+    }
+
+    #[test]
+    fn service_config_uses_operational_defaults_and_preserves_seeds() {
+        let seed = DeviceTarget {
+            address: "192.0.2.1:8728".parse().unwrap(),
+            credentials: Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        };
+        let config = CrawlerServiceConfig::new(vec![seed.clone()]);
+        assert_eq!(config.seeds, [seed]);
+        assert_eq!(config.snapshot_concurrency, 4);
+        assert_eq!(config.discovery_interval, Duration::from_secs(30));
+        assert_eq!(config.snapshot_interval, Duration::from_secs(60));
+        assert_eq!(config.connect_timeout, DEFAULT_CONNECT_TIMEOUT);
+        assert_eq!(config.command_timeout, DEFAULT_COMMAND_TIMEOUT);
+        assert_eq!(config.address_family, AddressFamily::Any);
+        assert_eq!(config.protocol, Protocol::Api);
+    }
+}

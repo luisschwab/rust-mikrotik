@@ -42,3 +42,32 @@ pub async fn collect_target_telemetry(target: &DeviceTarget) -> Result<Telemetry
     let client = connector.connect(target).await?;
     client.telemetry(&target.address.to_string()).await
 }
+
+#[cfg(test)]
+mod tests {
+    use mikrotik_types::target::Credentials;
+
+    use super::*;
+    use crate::snapshot::tests::MockBehavior;
+    use crate::snapshot::tests::mock_router_server;
+
+    #[tokio::test]
+    async fn public_telemetry_collection_connects_and_reads_the_operational_subset() {
+        let (server, address) = mock_router_server(MockBehavior::Success).await;
+        let target = DeviceTarget {
+            address,
+            credentials: Credentials {
+                username: "admin".to_owned(),
+                password: None,
+            },
+        };
+
+        let telemetry = collect_target_telemetry(&target).await.unwrap();
+        assert_eq!(telemetry.target_address, address);
+        assert_eq!(telemetry.resource, Resource::default());
+        assert!(telemetry.health.is_empty());
+        assert!(telemetry.interfaces.is_empty());
+        assert!(telemetry.collection_duration < Duration::from_secs(1));
+        assert!(server.await.unwrap() >= 4);
+    }
+}

@@ -709,3 +709,369 @@ fn create_dir_symlink(target: &Path, link_path: &Path) -> io::Result<()> {
 fn create_dir_symlink(target: &Path, link_path: &Path) -> io::Result<()> {
     symlink_dir(target, link_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process;
+
+    use mikrotik_types::api::ip::Neighbor;
+    use mikrotik_types::device::RouterOsSnapshot;
+
+    use super::*;
+
+    fn args() -> Args {
+        Args {
+            seed: vec!["192.0.2.1:8728".parse().unwrap()],
+            mode: RunMode::OneShot,
+            run_kind: RunKind::Live,
+            scenario: None,
+            scenario_ready_timeout_seconds: 1,
+            protocol: Protocol::Api,
+            user: "observer".to_owned(),
+            password: "secret".to_owned(),
+            outdir: None,
+            mappings: None,
+            max_depth: DEFAULT_MAX_DEPTH,
+            max_devices: DEFAULT_MAX_DEVICES,
+            max_concurrency: DEFAULT_MAX_CONCURRENCY,
+            connect_timeout_seconds: DEFAULT_CONNECT_TIMEOUT.as_secs(),
+            command_timeout_seconds: DEFAULT_COMMAND_TIMEOUT.as_secs(),
+            connect_retries: DEFAULT_CONNECT_RETRIES,
+            discovery_interval_seconds: 30,
+            snapshot_interval_seconds: 60,
+            address_family: AddressFamily::Ipv4,
+            link_filter: LinkFilter::Routing,
+            show_link_tables: false,
+            layout: GRAPHVIZ_SFDP_LAYOUT.to_owned(),
+            png_dpi: None,
+            png: false,
+        }
+    }
+
+    fn temporary_root(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("mikrotik-crawler-cli-{}-{name}", process::id()))
+    }
+
+    #[test]
+    fn named_argument_parsers_cover_aliases_and_errors() {
+        for value in ["one-shot", "oneshot", "once"] {
+            assert_eq!(parse_run_mode(value).unwrap(), RunMode::OneShot);
+        }
+        for value in ["continuous", "watch", "service"] {
+            assert_eq!(parse_run_mode(value).unwrap(), RunMode::Continuous);
+        }
+        assert!(parse_run_mode("invalid").is_err());
+
+        assert_eq!(parse_run_kind("live").unwrap(), RunKind::Live);
+        assert_eq!(parse_run_kind("scenario").unwrap(), RunKind::Scenario);
+        assert!(parse_run_kind("invalid").is_err());
+        assert_eq!(parse_protocol("api").unwrap(), Protocol::Api);
+        assert_eq!(parse_protocol("api-ssl").unwrap(), Protocol::ApiSsl);
+        assert!(parse_protocol("ssh").is_err());
+        assert_eq!(parse_address_family("any").unwrap(), AddressFamily::Any);
+        assert_eq!(parse_address_family("ipv4").unwrap(), AddressFamily::Ipv4);
+        assert_eq!(parse_address_family("ipv6").unwrap(), AddressFamily::Ipv6);
+        assert!(parse_address_family("ip").is_err());
+        assert_eq!(parse_link_filter("all").unwrap(), LinkFilter::All);
+        assert_eq!(parse_link_filter("routing").unwrap(), LinkFilter::Routing);
+        assert_eq!(parse_link_filter("physical").unwrap(), LinkFilter::PhysicalOnly);
+        assert_eq!(parse_link_filter("bgp").unwrap(), LinkFilter::BgpOnly);
+        assert!(parse_link_filter("none").is_err());
+
+        for value in ["twopi", "radial"] {
+            assert_eq!(parse_layout(value).unwrap(), GRAPHVIZ_RADIAL_LAYOUT);
+        }
+        for value in ["typed-radial", "sector-radial", "sectors"] {
+            assert_eq!(parse_layout(value).unwrap(), GRAPHVIZ_TYPED_RADIAL_LAYOUT);
+        }
+        for value in ["sfdp", "force", "force-directed"] {
+            assert_eq!(parse_layout(value).unwrap(), GRAPHVIZ_SFDP_LAYOUT);
+        }
+        for value in ["recursive-radial", "recursive", "tree-radial"] {
+            assert_eq!(parse_layout(value).unwrap(), GRAPHVIZ_RECURSIVE_RADIAL_LAYOUT);
+        }
+        for value in ["dot", "layered"] {
+            assert_eq!(parse_layout(value).unwrap(), GRAPHVIZ_LAYERED_LAYOUT);
+        }
+        assert!(parse_layout("invalid").is_err());
+        assert_eq!(parse_named_value::<u16>("port", "8728").unwrap(), 8728);
+        assert!(parse_named_value::<u16>("port", "invalid").is_err());
+    }
+
+    #[test]
+    fn argh_populates_every_cli_option() {
+        let parsed = Args::from_args(
+            &["crawler"],
+            &[
+                "--seed",
+                "192.0.2.10:18728",
+                "--mode",
+                "continuous",
+                "--run-kind",
+                "scenario",
+                "--scenario",
+                "scenario.toml",
+                "--scenario-ready-timeout-seconds",
+                "42",
+                "--protocol",
+                "api",
+                "--user",
+                "observer",
+                "--password",
+                "secret",
+                "--outdir",
+                "artifacts",
+                "--mappings",
+                "192.0.2.20=127.0.0.1:28728",
+                "--max-depth",
+                "4",
+                "--max-devices",
+                "50",
+                "--max-concurrency",
+                "8",
+                "--connect-timeout-seconds",
+                "7",
+                "--command-timeout-seconds",
+                "9",
+                "--connect-retries",
+                "2",
+                "--discovery-interval-seconds",
+                "11",
+                "--snapshot-interval-seconds",
+                "13",
+                "--address-family",
+                "any",
+                "--link-filter",
+                "physical",
+                "--show-link-tables",
+                "--layout",
+                "layered",
+                "--png-dpi",
+                "144",
+                "--png",
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(parsed.seed, ["192.0.2.10:18728".parse().unwrap()]);
+        assert_eq!(parsed.mode, RunMode::Continuous);
+        assert_eq!(parsed.effective_run_kind(), RunKind::Scenario);
+        assert_eq!(parsed.scenario_ready_timeout_seconds, 42);
+        assert_eq!(parsed.protocol, Protocol::Api);
+        assert_eq!(parsed.user, "observer");
+        assert_eq!(parsed.password, "secret");
+        assert_eq!(parsed.outdir, Some(PathBuf::from("artifacts")));
+        assert_eq!(parsed.max_depth, 4);
+        assert_eq!(parsed.max_devices, 50);
+        assert_eq!(parsed.max_concurrency, 8);
+        assert_eq!(parsed.connect_timeout_seconds, 7);
+        assert_eq!(parsed.command_timeout_seconds, 9);
+        assert_eq!(parsed.connect_retries, 2);
+        assert_eq!(parsed.discovery_interval_seconds, 11);
+        assert_eq!(parsed.snapshot_interval_seconds, 13);
+        assert_eq!(parsed.address_family, AddressFamily::Any);
+        assert_eq!(parsed.link_filter, LinkFilter::PhysicalOnly);
+        assert!(parsed.show_link_tables);
+        assert_eq!(parsed.layout, GRAPHVIZ_LAYERED_LAYOUT);
+        assert_eq!(parsed.png_dpi.as_deref(), Some("144"));
+        assert!(parsed.png);
+    }
+
+    #[test]
+    fn target_address_parser_requires_an_ip_and_explicit_port() {
+        assert_eq!(
+            parse_target_address("192.0.2.1:8728").unwrap(),
+            "192.0.2.1:8728".parse().unwrap()
+        );
+        assert_eq!(
+            parse_target_address("[2001:db8::1]:8729").unwrap(),
+            "[2001:db8::1]:8729".parse().unwrap()
+        );
+        for invalid in [
+            "192.0.2.1",
+            "[2001:db8::1",
+            "[2001:db8::1]",
+            ":8728",
+            "router.example:8728",
+            "192.0.2.1:invalid",
+            "192.0.2.1:70000",
+        ] {
+            assert!(parse_target_address(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn credentials_targets_and_run_kinds_validate_inputs() {
+        let mut args = args();
+        let credentials = build_credentials(&args).unwrap();
+        assert_eq!(credentials.username, "observer");
+        assert_eq!(credentials.password.as_deref(), Some("secret"));
+        assert_eq!(
+            build_targets(&args.seed, &credentials).unwrap()[0].address,
+            args.seed[0]
+        );
+        assert!(build_targets(&[], &credentials).is_err());
+
+        let targets = effective_seed_targets(&args, None).unwrap();
+        assert_eq!(targets.len(), 1);
+        args.seed.clear();
+        assert!(effective_seed_targets(&args, None).is_err());
+        args.user.clear();
+        args.seed.push("192.0.2.1:8728".parse().unwrap());
+        assert!(effective_seed_targets(&args, None).is_err());
+
+        args.scenario = Some(PathBuf::from("scenario.toml"));
+        assert_eq!(args.effective_run_kind(), RunKind::Scenario);
+        assert!(default_outdir(RunKind::Live).starts_with(DEFAULT_LIVE_RUNS_DIR));
+        assert!(default_outdir(RunKind::Scenario).starts_with(DEFAULT_SCENARIO_RUNS_DIR));
+        assert_eq!(local_timestamp().len(), 15);
+    }
+
+    #[test]
+    fn static_mapping_parser_ignores_blanks_and_resolves_valid_entries() {
+        let resolver = static_resolver("192.0.2.2=127.0.0.1:18728,, 2001:db8::2=[::1]:28728").unwrap();
+        let credentials = Credentials {
+            username: "observer".to_owned(),
+            password: None,
+        };
+        let resolved = resolver
+            .resolve(
+                "192.0.2.2".parse().unwrap(),
+                &credentials,
+                &RouterOsSnapshot::default(),
+                &Neighbor::default(),
+            )
+            .unwrap();
+        assert_eq!(resolved.address, "127.0.0.1:18728".parse().unwrap());
+        assert!(static_resolver("missing-separator").is_err());
+        assert!(static_resolver("not-an-ip=127.0.0.1:8728").is_err());
+    }
+
+    #[test]
+    fn graph_state_projection_adds_failures_and_selects_export_seeds() {
+        let wrong_credentials = "192.0.2.1:8728".parse().unwrap();
+        let refused = "192.0.2.2:8728".parse().unwrap();
+        let unreachable = "192.0.2.3:8728".parse().unwrap();
+        let mut state = CrawlerStateSnapshot::default();
+        state
+            .failures
+            .insert(wrong_credentials, "authentication failed".to_owned());
+        state.failures.insert(refused, "connection refused".to_owned());
+        state.failures.insert(unreachable, "timed out".to_owned());
+
+        let mut graph = graph_from_state(&state);
+        assert_eq!(graph.nodes.len(), 3);
+        let failures = graph
+            .nodes
+            .iter()
+            .map(|node| node.inferred.as_ref().unwrap().failure.unwrap())
+            .collect::<Vec<_>>();
+        assert!(failures.contains(&InferredDeviceFailure::WrongCredentials));
+        assert!(failures.contains(&InferredDeviceFailure::ApiRefused));
+        assert!(failures.contains(&InferredDeviceFailure::Unreachable));
+        assert_eq!(
+            failure_kind_from_message("invalid user name or password"),
+            InferredDeviceFailure::WrongCredentials
+        );
+        assert_eq!(
+            failure_kind_from_message("invalid credentials"),
+            InferredDeviceFailure::WrongCredentials
+        );
+        assert_eq!(
+            failure_kind_from_message("api refused connection"),
+            InferredDeviceFailure::ApiRefused
+        );
+
+        let cli_args = args();
+        let seeds = build_targets(&[wrong_credentials], &build_credentials(&cli_args).unwrap()).unwrap();
+        assert!(dot_export_options(&graph, &seeds, &cli_args).root_node.is_none());
+        graph.nodes[0].target_address = Some(wrong_credentials);
+        graph.nodes[0].management_addresses.push(wrong_credentials.ip());
+        let options = dot_export_options(&graph, &seeds, &cli_args);
+        assert!(options.root_node.is_some());
+        assert_eq!(options.seed_nodes, options.owned_bgp_nodes);
+
+        let existing_len = graph.nodes.len();
+        add_failed_targets_to_graph(&mut graph, &state);
+        assert_eq!(graph.nodes.len(), existing_len + 2);
+        assert!(failure_names_from_state(&state).is_empty());
+    }
+
+    #[test]
+    fn artifact_paths_and_symlink_replacement_cover_files_and_directories() {
+        let root = temporary_root("symlinks");
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        let first = root.join("first");
+        let second = root.join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+
+        let paths = ArtifactPaths::new(&first);
+        assert_eq!(paths.dot, first.join("topology.dot"));
+        assert_eq!(paths.svg, first.join("topology.svg"));
+        assert_eq!(paths.png, first.join("topology.png"));
+        assert_eq!(paths.interactive_html, first.join("topology.interactive.html"));
+
+        let latest = update_latest_run_symlink(&first).unwrap();
+        assert_eq!(latest, root.join(LATEST_RUN_SYMLINK));
+        assert_eq!(fs::canonicalize(&latest).unwrap(), first.canonicalize().unwrap());
+        replace_symlink(&latest, &second).unwrap();
+        assert_eq!(fs::canonicalize(&latest).unwrap(), second.canonicalize().unwrap());
+
+        fs::remove_file(&latest).unwrap();
+        fs::write(&latest, b"old marker").unwrap();
+        replace_symlink(&latest, &first).unwrap();
+        assert_eq!(fs::canonicalize(&latest).unwrap(), first.canonicalize().unwrap());
+
+        fs::remove_file(&latest).unwrap();
+        fs::create_dir(&latest).unwrap();
+        assert_eq!(
+            replace_symlink(&latest, &first).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(
+            update_latest_run_symlink(Path::new("/")).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn one_shot_cli_run_with_zero_device_limit_writes_all_artifacts() {
+        if !has_graphviz_dot() {
+            return;
+        }
+        let root = temporary_root("run");
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        let run_dir = root.join("run-1");
+        let mut cli_args = args();
+        cli_args.outdir = Some(run_dir.clone());
+        cli_args.max_devices = 0;
+        cli_args.mappings = Some(String::new());
+        cli_args.png = true;
+        cli_args.png_dpi = Some("96".to_owned());
+
+        assert!(maybe_spawn_scenario(&cli_args).await.unwrap().is_none());
+        run(cli_args).await.unwrap();
+
+        let paths = ArtifactPaths::new(&run_dir);
+        assert!(paths.dot.exists());
+        assert!(paths.svg.exists());
+        assert!(paths.png.exists());
+        assert!(paths.interactive_html.exists());
+        assert!(root.join(LATEST_RUN_SYMLINK).exists());
+        print_run_summary(&NetworkGraph::default(), &paths, &root.join(LATEST_RUN_SYMLINK));
+        print_failures(&CrawlReport {
+            graph: NetworkGraph::default(),
+            failed_targets: vec![mikrotik_crawler::CrawlFailure {
+                address: "192.0.2.1:8728".to_owned(),
+                error: "unreachable".to_owned(),
+            }],
+        });
+        fs::remove_dir_all(root).unwrap();
+    }
+}

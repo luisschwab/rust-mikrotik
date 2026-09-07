@@ -249,3 +249,216 @@ async fn snapshot_once(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use mikrotik_types::device::RouterOsSnapshot;
+    use mikrotik_types::target::Credentials;
+    use time::OffsetDateTime;
+
+    use super::*;
+    use crate::CollectedSnapshot;
+    use crate::connector::BoxFuture;
+    use crate::connector::DiscoveryClient;
+    use crate::error::Error;
+    use crate::error::Result;
+
+    struct FakeClient;
+
+    impl DiscoveryClient for FakeClient {
+        fn snapshot<'a>(&'a self, target_address: &'a str) -> BoxFuture<'a, Result<CollectedSnapshot>> {
+            Box::pin(async move {
+                Ok(CollectedSnapshot {
+                    target_address: target_address.parse().unwrap(),
+                    collected_at: OffsetDateTime::UNIX_EPOCH,
+                    snapshot_duration: Duration::ZERO,
+                    snapshot: RouterOsSnapshot::default(),
+                })
+            })
+        }
+    }
+
+    struct FakeConnector {
+        fail: bool,
+    }
+
+    impl SnapshotClientConnector for FakeConnector {
+        fn connect<'a>(&'a self, _target: &'a DeviceTarget) -> BoxFuture<'a, Result<Arc<dyn DiscoveryClient>>> {
+            Box::pin(async move {
+                if self.fail {
+                    Err(Error::InvalidTarget {
+                        address: "invalid".to_owned(),
+                        message: "failed".to_owned(),
+                    })
+                } else {
+                    Ok(Arc::new(FakeClient) as Arc<dyn DiscoveryClient>)
+                }
+            })
+        }
+    }
+
+    fn target(address: &str, username: &str) -> DeviceTarget {
+        DeviceTarget {
+            address: address.parse().unwrap(),
+            credentials: Credentials {
+                username: username.to_owned(),
+                password: None,
+            },
+        }
+    }
+
+    fn handle() -> CrawlerHandle {
+        let (events, _) = broadcast::channel(8);
+        CrawlerHandle {
+            state: Arc::new(RwLock::new(CrawlerStateSnapshot::default())),
+            events,
+            snapshot_requested: Arc::new(Notify::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_upserts_targets_projects_state_and_publishes_events() {
+        let handle = handle();
+        let mut events = handle.subscribe();
+        let first = target("192.0.2.1:8728", "first");
+        handle.upsert_target(first.clone()).await;
+        assert!(matches!(
+            events.recv().await.unwrap(),
+            SnapshotEvent::TargetDiscovered { address } if address == first.address
+        ));
+
+        let replacement = target("192.0.2.1:8728", "replacement");
+        handle.upsert_target(replacement.clone()).await;
+        assert_eq!(
+            handle
+                .state()
+                .await
+                .targets
+                .get(&replacement.address)
+                .unwrap()
+                .credentials
+                .username,
+            "replacement"
+        );
+        let projection = handle.projection().await;
+        assert_eq!(projection.targets, 1);
+        assert_eq!(projection.snapshots, 0);
+        assert!(projection.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn seed_registration_deduplicates_addresses_without_replacing_credentials() {
+        let state = Arc::new(RwLock::new(CrawlerStateSnapshot::default()));
+        let (events, mut receiver) = broadcast::channel(8);
+        register_seed_targets(
+            &state,
+            &events,
+            vec![target("192.0.2.1:8728", "first"), target("192.0.2.1:8728", "second")],
+        )
+        .await;
+        assert_eq!(state.read().await.targets.len(), 1);
+        assert_eq!(
+            state.read().await.targets.values().next().unwrap().credentials.username,
+            "first"
+        );
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            SnapshotEvent::TargetDiscovered { .. }
+        ));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn snapshot_pass_records_successes_and_failures_with_zero_concurrency_limit() {
+        let state = Arc::new(RwLock::new(CrawlerStateSnapshot::default()));
+        let target = target("192.0.2.1:8728", "admin");
+        state.write().await.targets.insert(target.address, target.clone());
+        let (events, mut receiver) = broadcast::channel(8);
+        let connector: Arc<dyn SnapshotClientConnector> = Arc::new(FakeConnector { fail: false });
+
+        snapshot_once(
+            &state,
+            &events,
+            connector,
+            0,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert_eq!(state.read().await.snapshots.len(), 1);
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            SnapshotEvent::SnapshotUpdated { .. }
+        ));
+
+        let connector: Arc<dyn SnapshotClientConnector> = Arc::new(FakeConnector { fail: true });
+        snapshot_once(
+            &state,
+            &events,
+            connector,
+            1,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(state.read().await.failures.contains_key(&target.address));
+        assert!(matches!(
+            receiver.recv().await.unwrap(),
+            SnapshotEvent::SnapshotFailed { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn completed_reports_empty_normal_and_panicking_worker_sets() {
+        let mut empty = CrawlerService {
+            handle: handle(),
+            tasks: JoinSet::new(),
+        };
+        assert_eq!(empty.completed().await.unwrap_err(), "crawler has no active workers");
+
+        let mut completed = CrawlerService {
+            handle: handle(),
+            tasks: JoinSet::new(),
+        };
+        completed.tasks.spawn(async {});
+        assert_eq!(
+            completed.completed().await.unwrap_err(),
+            "crawler worker exited unexpectedly"
+        );
+
+        let mut panicked = CrawlerService {
+            handle: handle(),
+            tasks: JoinSet::new(),
+        };
+        panicked.tasks.spawn(async { panic!("worker panic") });
+        assert!(
+            panicked
+                .completed()
+                .await
+                .unwrap_err()
+                .starts_with("crawler worker failed:")
+        );
+    }
+
+    #[tokio::test]
+    async fn service_start_exposes_a_handle_and_shutdown_aborts_workers() {
+        let config = CrawlerServiceConfig::new(vec![target("192.0.2.1:8728", "admin")]);
+        let connector: Arc<dyn SnapshotClientConnector> = Arc::new(FakeConnector { fail: false });
+        let resolver: Arc<dyn TargetResolver> = Arc::new(DirectTargetResolver);
+        let mut service = CrawlerService::start_with_parts(&config, &connector, &resolver);
+        let service_handle = service.handle();
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if !service_handle.state().await.targets.is_empty() {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        service.shutdown().await;
+        assert!(service.tasks.is_empty());
+    }
+}

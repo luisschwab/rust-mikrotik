@@ -98,3 +98,81 @@ impl TargetResolver for StaticTargetResolver {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn credentials(username: &str) -> Credentials {
+        Credentials {
+            username: username.to_owned(),
+            password: Some("secret".to_owned()),
+        }
+    }
+
+    #[test]
+    fn direct_resolver_uses_discovered_address_and_inherited_credentials() {
+        let address = "2001:db8::1".parse().unwrap();
+        let credentials = credentials("observer");
+        let target = DirectTargetResolver
+            .resolve(
+                address,
+                &credentials,
+                &RouterOsSnapshot::default(),
+                &Neighbor::default(),
+            )
+            .unwrap();
+        assert_eq!(target.address, SocketAddr::new(address, 8728));
+        assert_eq!(target.credentials, credentials);
+    }
+
+    #[test]
+    fn static_resolver_maps_addresses_and_optionally_overrides_credentials() {
+        let discovered = "10.0.0.2".parse().unwrap();
+        let inherited = credentials("inherited");
+        let overridden = credentials("override");
+        let resolver = StaticTargetResolver::new()
+            .with_target(discovered, "127.0.0.1:18728")
+            .with_credentials(discovered, overridden.clone());
+        let target = resolver
+            .resolve(
+                discovered,
+                &inherited,
+                &RouterOsSnapshot::default(),
+                &Neighbor::default(),
+            )
+            .unwrap();
+        assert_eq!(target.address, "127.0.0.1:18728".parse().unwrap());
+        assert_eq!(target.credentials, overridden);
+
+        let inherited_resolver = StaticTargetResolver::new().with_target(discovered, "127.0.0.1:28728");
+        assert_eq!(
+            inherited_resolver
+                .resolve(
+                    discovered,
+                    &inherited,
+                    &RouterOsSnapshot::default(),
+                    &Neighbor::default(),
+                )
+                .unwrap()
+                .credentials,
+            inherited
+        );
+    }
+
+    #[test]
+    fn static_resolver_ignores_invalid_targets_and_unknown_addresses() {
+        let discovered = "10.0.0.2".parse().unwrap();
+        let resolver = StaticTargetResolver::new().with_target(discovered, "invalid-host");
+        assert!(
+            resolver
+                .resolve(
+                    discovered,
+                    &credentials("observer"),
+                    &RouterOsSnapshot::default(),
+                    &Neighbor::default(),
+                )
+                .is_none()
+        );
+    }
+}

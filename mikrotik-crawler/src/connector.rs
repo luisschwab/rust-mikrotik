@@ -262,3 +262,143 @@ fn parse_port(address: &str, port: &str) -> Result<u16> {
         message: format!("invalid port: {error}"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::io::ErrorKind;
+
+    use mikrotik_types::target::Credentials;
+    use tokio::io::AsyncReadExt as _;
+    use tokio::io::AsyncWriteExt as _;
+    use tokio::net::TcpListener;
+
+    use super::*;
+    use crate::snapshot::tests::encode_sentence;
+    use crate::snapshot::tests::read_sentence;
+
+    fn target(address: &str) -> DeviceTarget {
+        DeviceTarget {
+            address: address.parse().unwrap(),
+            credentials: Credentials {
+                username: "observer".to_owned(),
+                password: Some("secret".to_owned()),
+            },
+        }
+    }
+
+    #[test]
+    fn connector_defaults_and_timeout_builders_are_explicit() {
+        let connector = RouterOsApiConnector::default();
+        assert_eq!(connector.protocol, Protocol::ApiSsl);
+        assert!(connector.fallback_to_api);
+        assert_eq!(connector.connect_timeout, DEFAULT_CONNECT_TIMEOUT);
+        assert_eq!(connector.command_timeout, DEFAULT_COMMAND_TIMEOUT);
+
+        let connector = RouterOsApiConnector::new(Protocol::Api)
+            .with_api_fallback()
+            .with_connect_timeout(Duration::from_secs(2))
+            .with_command_timeout(Duration::from_secs(3));
+        assert_eq!(connector.protocol, Protocol::Api);
+        assert!(connector.fallback_to_api);
+        assert_eq!(connector.connect_timeout, Duration::from_secs(2));
+        assert_eq!(connector.command_timeout, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn target_builder_switches_only_the_standard_api_ports() {
+        let plaintext = builder_from_target(&target("192.0.2.1:8729"), Protocol::Api, Duration::from_secs(2));
+        assert_eq!(plaintext.socket_address(), "192.0.2.1:8728");
+        assert_eq!(plaintext.credentials.username, "observer");
+        assert_eq!(plaintext.connect_retry_timeout, Some(Duration::from_secs(2)));
+
+        let tls = builder_from_target(&target("[2001:db8::1]:8728"), Protocol::ApiSsl, Duration::from_secs(3));
+        assert_eq!(tls.socket_address(), "[2001:db8::1]:8729");
+
+        let custom = builder_from_target(&target("192.0.2.1:9000"), Protocol::ApiSsl, Duration::from_secs(4));
+        assert_eq!(custom.socket_address(), "192.0.2.1:9000");
+    }
+
+    #[test]
+    fn api_ssl_fallback_is_limited_to_transport_style_failures() {
+        for error in [
+            Error::from(ClientError::Transport {
+                command: None,
+                source: io::Error::from(ErrorKind::ConnectionRefused),
+            }),
+            Error::from(ClientError::Timeout {
+                operation: "connect",
+                duration: Duration::from_secs(1),
+            }),
+            Error::from(ClientError::ConnectionClosed { command: None }),
+            Error::Io(io::Error::from(ErrorKind::BrokenPipe)),
+        ] {
+            assert!(is_api_ssl_fallback_error(&error));
+        }
+        assert!(!is_api_ssl_fallback_error(&Error::from(
+            ClientError::UnsupportedProtocol("ssh")
+        )));
+        assert!(!is_api_ssl_fallback_error(&Error::InvalidTarget {
+            address: "invalid".to_owned(),
+            message: "bad".to_owned(),
+        }));
+    }
+
+    #[tokio::test]
+    async fn api_ssl_connector_falls_back_to_plaintext_on_the_same_custom_port() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut tls_stream, _) = listener.accept().await.unwrap();
+            let mut client_hello = [0; 4096];
+            assert_ne!(tls_stream.read(&mut client_hello).await.unwrap(), 0);
+            drop(tls_stream);
+
+            let (mut api_stream, _) = listener.accept().await.unwrap();
+            let mut buffered = Vec::new();
+            let words = read_sentence(&mut api_stream, &mut buffered).await.unwrap();
+            assert_eq!(words.first().map(String::as_str), Some("/login"));
+            let tag = words.iter().find_map(|word| word.strip_prefix(".tag=")).unwrap();
+            let tag_word = format!(".tag={tag}");
+            api_stream
+                .write_all(&encode_sentence(&[b"!done", tag_word.as_bytes()]))
+                .await
+                .unwrap();
+            let mut trailing = [0; 1];
+            assert_eq!(api_stream.read(&mut trailing).await.unwrap(), 0);
+        });
+
+        let connector = RouterOsApiConnector::new(Protocol::ApiSsl)
+            .with_api_fallback()
+            .with_connect_timeout(Duration::from_millis(50));
+        let target = target(&address.to_string());
+        let connected = connector.connect(&target).await.unwrap();
+        drop(connected);
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn split_host_port_supports_ipv4_hostnames_and_ipv6_forms() {
+        assert_eq!(split_host_port("192.0.2.1").unwrap(), ("192.0.2.1".to_owned(), 8728));
+        assert_eq!(split_host_port("router:9000").unwrap(), ("router".to_owned(), 9000));
+        assert_eq!(
+            split_host_port("2001:db8::1").unwrap(),
+            ("2001:db8::1".to_owned(), 8728)
+        );
+        assert_eq!(
+            split_host_port("[2001:db8::1]").unwrap(),
+            ("2001:db8::1".to_owned(), 8728)
+        );
+        assert_eq!(
+            split_host_port("[2001:db8::1]:9000").unwrap(),
+            ("2001:db8::1".to_owned(), 9000)
+        );
+    }
+
+    #[test]
+    fn split_host_port_rejects_malformed_brackets_hosts_and_ports() {
+        for invalid in ["", "   ", "[2001:db8::1", "[2001:db8::1]extra", ":8728", "router:bad"] {
+            assert!(matches!(split_host_port(invalid), Err(Error::InvalidTarget { .. })));
+        }
+    }
+}

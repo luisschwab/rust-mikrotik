@@ -80,6 +80,8 @@ pub type Result<T> = core::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as _;
+
     use super::*;
 
     #[test]
@@ -93,5 +95,32 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("read SVG"));
         assert!(message.contains("topology.svg"));
+        assert!(error.source().is_some());
+    }
+
+    #[test]
+    fn start_and_exit_errors_report_artifact_context() {
+        let start = Error::StartGraphviz {
+            input: PathBuf::from("topology.dot"),
+            source: io::Error::from(io::ErrorKind::NotFound),
+        };
+        assert!(start.to_string().contains("failed to start Graphviz for topology.dot"));
+        assert!(start.source().is_some());
+
+        let status = std::process::Command::new("sh")
+            .args(["-c", "exit 7"])
+            .status()
+            .unwrap();
+        let graphviz = Error::Graphviz {
+            format: "svg".to_owned(),
+            input: PathBuf::from("topology.dot"),
+            output: PathBuf::from("topology.svg"),
+            status,
+        };
+        let message = graphviz.to_string();
+        assert!(message.contains("topology.dot"));
+        assert!(message.contains("as svg"));
+        assert!(message.contains("topology.svg"));
+        assert!(graphviz.source().is_none());
     }
 }

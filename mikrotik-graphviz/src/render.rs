@@ -89,3 +89,110 @@ fn render_graphviz_html(template: &str, svg: &str) -> String {
         .replace("{GRAPHVIZ_HTML_TOOLTIP_FONT_SIZE}", GRAPHVIZ_HTML_TOOLTIP_FONT_SIZE)
         .replace("{svg}", svg)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process;
+    use std::time::SystemTime;
+    use std::time::UNIX_EPOCH;
+
+    use super::*;
+
+    fn temporary_path(extension: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        std::env::temp_dir().join(format!("mikrotik-graphviz-{}-{nonce}.{extension}", process::id()))
+    }
+
+    #[test]
+    fn html_template_replaces_svg_and_tooltip_placeholders() {
+        let html = render_graphviz_html(
+            "font={GRAPHVIZ_HTML_TOOLTIP_FONT_SIZE};body={svg}",
+            "<svg><text>router</text></svg>",
+        );
+        assert_eq!(
+            html,
+            format!("font={GRAPHVIZ_HTML_TOOLTIP_FONT_SIZE};body=<svg><text>router</text></svg>")
+        );
+    }
+
+    #[test]
+    fn interactive_html_reads_svg_and_writes_a_complete_document() {
+        let svg_path = temporary_path("svg");
+        let html_path = temporary_path("html");
+        fs::write(&svg_path, "<svg><text>router</text></svg>").unwrap();
+
+        write_graphviz_interactive_html(&svg_path, &html_path).unwrap();
+        let html = fs::read_to_string(&html_path).unwrap();
+        assert!(html.contains("<svg><text>router</text></svg>"));
+        assert!(!html.contains("{GRAPHVIZ_HTML_TOOLTIP_FONT_SIZE}"));
+
+        fs::remove_file(svg_path).unwrap();
+        fs::remove_file(html_path).unwrap();
+    }
+
+    #[test]
+    fn interactive_html_reports_read_and_write_failures() {
+        let missing_svg = temporary_path("missing.svg");
+        let html_path = temporary_path("html");
+        assert!(matches!(
+            write_graphviz_interactive_html(&missing_svg, &html_path),
+            Err(Error::Io {
+                operation: "read Graphviz SVG",
+                ..
+            })
+        ));
+
+        let svg_path = temporary_path("svg");
+        fs::write(&svg_path, "<svg/>").unwrap();
+        let missing_parent = temporary_path("missing-dir").join("topology.html");
+        assert!(matches!(
+            write_graphviz_interactive_html(&svg_path, &missing_parent),
+            Err(Error::Io {
+                operation: "write interactive Graphviz HTML",
+                ..
+            })
+        ));
+        fs::remove_file(svg_path).unwrap();
+    }
+
+    #[test]
+    fn graphviz_renders_svg_and_png_when_dot_is_available() {
+        if !has_graphviz_dot() {
+            return;
+        }
+
+        let dot_path = temporary_path("dot");
+        let svg_path = temporary_path("svg");
+        let png_path = temporary_path("png");
+        fs::write(&dot_path, "digraph { a -> b; }").unwrap();
+        let options = GraphvizRenderOptions::default();
+
+        render_graphviz_artifact(GraphvizFormat::Svg, &dot_path, &svg_path, &options).unwrap();
+        render_graphviz_artifact(GraphvizFormat::Png, &dot_path, &png_path, &options).unwrap();
+        assert!(fs::metadata(&svg_path).unwrap().len() > 0);
+        assert!(fs::metadata(&png_path).unwrap().len() > 0);
+
+        fs::remove_file(dot_path).unwrap();
+        fs::remove_file(svg_path).unwrap();
+        fs::remove_file(png_path).unwrap();
+    }
+
+    #[test]
+    fn graphviz_reports_invalid_dot_when_binary_is_available() {
+        if !has_graphviz_dot() {
+            return;
+        }
+
+        let dot_path = temporary_path("dot");
+        let svg_path = temporary_path("svg");
+        fs::write(&dot_path, "not valid DOT").unwrap();
+        let result = render_graphviz_artifact(
+            GraphvizFormat::Svg,
+            &dot_path,
+            &svg_path,
+            &GraphvizRenderOptions::default(),
+        );
+        assert!(matches!(result, Err(Error::Graphviz { .. })));
+        fs::remove_file(dot_path).unwrap();
+    }
+}

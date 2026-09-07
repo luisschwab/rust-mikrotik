@@ -236,3 +236,49 @@ fn is_ipv6_documentation(address: Ipv6Addr) -> bool {
     let segments = address.segments();
     segments[0] == 0x2001 && segments[1] == 0x0db8
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_address_detection_covers_ipv4_ipv6_and_prefix_parse_failures() {
+        assert!(is_public_ip("8.8.8.8".parse().unwrap()));
+        assert!(is_public_ip("2606:4700:4700::1111".parse().unwrap()));
+        for address in [
+            "10.0.0.1",
+            "127.0.0.1",
+            "169.254.1.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "192.0.2.1",
+            "0.0.0.0",
+            "::1",
+            "::",
+            "ff02::1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(
+                !is_public_ip(address.parse().unwrap()),
+                "{address} should not be public"
+            );
+        }
+        assert!(is_public_prefix("8.8.8.8/32"));
+        assert!(!is_public_prefix("invalid"));
+    }
+
+    #[test]
+    fn endpoint_address_helpers_deduplicate_and_compare_prefix_hosts() {
+        let mut addresses = vec!["192.0.2.1".to_owned()];
+        push_unique_address(&mut addresses, "192.0.2.1".to_owned());
+        push_unique_address(&mut addresses, "192.0.2.2".to_owned());
+        assert_eq!(addresses, ["192.0.2.1", "192.0.2.2"]);
+        assert!(prefix_host_equals("192.0.2.1/24", "192.0.2.1"));
+        assert!(prefix_host_equals("192.0.2.1", "192.0.2.1"));
+        assert!(!prefix_host_equals("192.0.2.1/24", "192.0.2.2"));
+        assert!(is_ipv6_documentation("2001:db8::1".parse().unwrap()));
+        assert!(!is_ipv6_documentation("2001:db9::1".parse().unwrap()));
+    }
+}

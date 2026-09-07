@@ -76,3 +76,40 @@ pub(super) const fn link_kind_label(link_kind: LinkKind) -> &'static str {
         LinkKind::Unknown => "unknown",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edge(link_kind: LinkKind) -> GraphvizEdge {
+        GraphvizEdge {
+            local_node: "local".to_owned().into(),
+            local_interface: None,
+            remote_node: "remote".to_owned().into(),
+            remote_interface: None,
+            link_kind,
+            has_l3_or_route_evidence: false,
+            has_registration_evidence: false,
+            has_mndp_attachment_evidence: false,
+        }
+    }
+
+    #[test]
+    fn every_link_kind_has_a_non_empty_label_and_style() {
+        for kind in [
+            LinkKind::Bgp,
+            LinkKind::Route,
+            LinkKind::Internal,
+            LinkKind::Customer,
+            LinkKind::Management,
+            LinkKind::Wireless,
+            LinkKind::Fallback,
+            LinkKind::Unknown,
+        ] {
+            let style = graphviz_link_style(&edge(kind));
+            assert!(!style.fill.is_empty());
+            assert!(!style.stroke.is_empty());
+            assert!(!link_kind_label(kind).is_empty());
+        }
+    }
+}

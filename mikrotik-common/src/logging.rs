@@ -67,3 +67,15 @@ macro_rules! error_with_label {
         ::tracing::error!("{}: {}", $label, format_args!($($argument)*))
     }};
 }
+
+#[cfg(all(test, feature = "tracing-subscriber"))]
+mod tests {
+    use tracing::Level;
+
+    use super::init_tracing;
+
+    #[test]
+    fn initializes_tracing_with_an_explicit_filter() {
+        init_tracing(Level::ERROR);
+    }
+}

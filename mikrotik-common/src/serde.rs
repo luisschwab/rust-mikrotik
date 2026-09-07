@@ -201,10 +201,14 @@ impl StringOrPrimitiveList {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::String;
+    use alloc::string::ToString as _;
     use alloc::vec;
     use alloc::vec::Vec;
 
     use serde::Deserialize;
+
+    use crate::row::Row;
 
     /// Exercise helpers through real derive-generated deserializers.
     #[derive(Debug, Deserialize, PartialEq)]
@@ -218,6 +222,26 @@ mod tests {
         /// List accepted as a comma-delimited string or typed JSON array.
         #[serde(deserialize_with = "super::comma_list_from_str")]
         counters: Vec<u64>,
+    }
+
+    /// Exercise every accepted wire and typed scalar representation.
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct MixedScalars {
+        /// Signed numeric scalar.
+        #[serde(deserialize_with = "super::optional_from_str")]
+        signed: Option<i64>,
+        /// Floating-point scalar.
+        #[serde(deserialize_with = "super::optional_from_str")]
+        ratio: Option<f64>,
+        /// Optional boolean scalar.
+        #[serde(deserialize_with = "super::optional_bool")]
+        enabled: Option<bool>,
+        /// Untyped string list.
+        #[serde(deserialize_with = "super::comma_list")]
+        labels: Vec<String>,
+        /// Typed scalar list.
+        #[serde(deserialize_with = "super::comma_list_from_str")]
+        counters: Vec<i64>,
     }
 
     #[test]
@@ -234,5 +258,72 @@ mod tests {
 
         let wire = serde_json::from_str::<Scalars>(r#"{"count":"42","enabled":"yes","counters":"1,2"}"#).unwrap();
         assert_eq!(wire, typed);
+    }
+
+    #[test]
+    fn helpers_accept_null_strings_numbers_booleans_and_lists() {
+        let typed = serde_json::from_str::<MixedScalars>(
+            r#"{"signed":-7,"ratio":1.5,"enabled":false,"labels":["a","b"],"counters":[-1,2]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            typed,
+            MixedScalars {
+                signed: Some(-7),
+                ratio: Some(1.5),
+                enabled: Some(false),
+                labels: vec!["a".to_string(), "b".to_string()],
+                counters: vec![-1, 2],
+            }
+        );
+
+        let wire = serde_json::from_str::<MixedScalars>(
+            r#"{"signed":"-7","ratio":"1.5","enabled":"no","labels":" a, ,b ","counters":"-1, 2"}"#,
+        )
+        .unwrap();
+        assert_eq!(wire, typed);
+
+        let empty = serde_json::from_str::<MixedScalars>(
+            r#"{"signed":null,"ratio":null,"enabled":null,"labels":null,"counters":null}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            empty,
+            MixedScalars {
+                signed: None,
+                ratio: None,
+                enabled: None,
+                labels: Vec::new(),
+                counters: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn helpers_report_invalid_typed_values() {
+        let invalid_scalar =
+            serde_json::from_str::<Scalars>(r#"{"count":"not-a-number","enabled":true,"counters":[1]}"#);
+        assert!(invalid_scalar.is_err());
+
+        let invalid_list = serde_json::from_str::<Scalars>(r#"{"count":1,"enabled":true,"counters":["not-a-number"]}"#);
+        assert!(invalid_list.is_err());
+    }
+
+    #[test]
+    fn raw_rows_deserialize_into_typed_models() {
+        let row = Row::from([
+            ("count".to_string(), "42".to_string()),
+            ("enabled".to_string(), "true".to_string()),
+            ("counters".to_string(), "1,2".to_string()),
+        ]);
+
+        assert_eq!(
+            super::deserialize::<Scalars>(&row).unwrap(),
+            Scalars {
+                count: Some(42),
+                enabled: Some(true),
+                counters: vec![1, 2],
+            }
+        );
     }
 }

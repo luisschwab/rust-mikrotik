@@ -161,6 +161,22 @@ mod tests {
         );
         assert!(parse_ip_prefix("192.0.2.1/33").is_none());
         assert!(parse_ip_prefix("2001:db8::1/129").is_none());
+        assert!(parse_ip_prefix("192.0.2.1").is_none());
+        assert!(parse_ip_prefix("not-an-address/24").is_none());
+        assert!(parse_ip_prefix("192.0.2.1/not-a-prefix").is_none());
+        assert_eq!(maximum_prefix_length("192.0.2.1".parse().unwrap()), 32);
+        assert_eq!(maximum_prefix_length("2001:db8::1".parse().unwrap()), 128);
+
+        assert_eq!(
+            network_address("192.0.2.9".parse().unwrap(), 0),
+            Some("0.0.0.0".parse().unwrap())
+        );
+        assert_eq!(network_address("192.0.2.9".parse().unwrap(), 33), None);
+        assert_eq!(
+            network_address("2001:db8::3".parse().unwrap(), 0),
+            Some("::".parse().unwrap())
+        );
+        assert_eq!(network_address("2001:db8::3".parse().unwrap(), 129), None);
     }
 
     #[test]
@@ -170,6 +186,10 @@ mod tests {
         assert!(!prefix_contains(network, 24, "192.0.3.1".parse().unwrap()));
         assert!(prefixes_overlap((network, 24), ("192.0.2.128".parse().unwrap(), 25)));
         assert!(!prefixes_overlap((network, 24), ("2001:db8::".parse().unwrap(), 64)));
+        assert!(!prefix_contains(network, 33, "192.0.2.1".parse().unwrap()));
+        assert!(!prefix_contains(network, 24, "2001:db8::1".parse().unwrap()));
+        assert!(!prefixes_overlap((network, 33), ("192.0.2.128".parse().unwrap(), 25)));
+        assert!(!prefixes_overlap((network, 24), ("192.0.2.128".parse().unwrap(), 33)));
     }
 
     #[test]
@@ -188,5 +208,24 @@ mod tests {
             ]
         );
         assert!(range_to_prefixes("192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()).is_empty());
+        assert!(range_to_prefixes("192.0.2.2".parse().unwrap(), "192.0.2.1".parse().unwrap()).is_empty());
+        assert_eq!(
+            range_to_prefixes("0.0.0.0".parse().unwrap(), "255.255.255.255".parse().unwrap()),
+            vec![("0.0.0.0".parse().unwrap(), 0)]
+        );
+        assert_eq!(
+            range_to_prefixes(
+                "::".parse().unwrap(),
+                "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff".parse().unwrap()
+            ),
+            vec![("::".parse().unwrap(), 0)]
+        );
+        assert_eq!(
+            range_to_prefixes(
+                "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe".parse().unwrap(),
+                "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff".parse().unwrap()
+            ),
+            vec![("ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe".parse().unwrap(), 127)]
+        );
     }
 }

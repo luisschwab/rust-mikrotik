@@ -445,6 +445,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mikrotik-meta"
+version = "0.0.0"
+dependencies = [
+ "mikrotik-client",
+ "mikrotik-common",
+ "mikrotik-crawler",
+ "mikrotik-graphviz",
+ "mikrotik-proto2",
+ "mikrotik-qemu-runner",
+ "mikrotik-types",
+]
+
+[[package]]
 name = "mikrotik-proto2"
 version = "0.2.0"
 dependencies = [

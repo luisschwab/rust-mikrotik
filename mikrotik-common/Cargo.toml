@@ -14,7 +14,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
-tracing-subscriber = [
+log = [
   "dep:lazy_static",
   "dep:nu-ansi-term",
   "dep:sharded-slab",

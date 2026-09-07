@@ -1,0 +1,59 @@
+[package]
+name = "mikrotik-meta"
+description = "Feature-gated facade for the rust-mikrotik workspace crates"
+version = "0.0.0"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+
+# mikrotik-client
+client = ["dep:mikrotik-client"]
+
+# mikrotik-common
+common = ["dep:mikrotik-common"]
+common-log = ["common", "mikrotik-common/log"]
+
+# mikrotik-crawler
+crawler = ["dep:mikrotik-crawler"]
+
+# mikrotik-graphviz
+graphviz = ["dep:mikrotik-graphviz"]
+
+# mikrotik-proto2
+proto2 = ["dep:mikrotik-proto2"]
+proto2-std = ["proto2", "mikrotik-proto2/std"]
+
+# mikrotik-qemu-runner
+qemu-runner = ["dep:mikrotik-qemu-runner"]
+
+# mikrotik-types
+types = ["dep:mikrotik-types"]
+
+[dependencies]
+mikrotik-client = { path = "../mikrotik-client", optional = true, default-features = false }
+mikrotik-common = { path = "../mikrotik-common", optional = true, default-features = false }
+mikrotik-crawler = { path = "../mikrotik-crawler", optional = true, default-features = false }
+mikrotik-graphviz = { path = "../mikrotik-graphviz", optional = true, default-features = false }
+mikrotik-proto2 = { path = "../mikrotik-proto2", optional = true, default-features = false }
+mikrotik-qemu-runner = { path = "../mikrotik-qemu-runner", optional = true, default-features = false }
+mikrotik-types = { path = "../mikrotik-types", optional = true, default-features = false }
+
+[lints]
+workspace = true
+
+[package.metadata.rbmt.lint]
+allowed_duplicates = [
+  "argh_shared",
+  "getrandom",
+  "syn",
+  "windows-sys",
+]

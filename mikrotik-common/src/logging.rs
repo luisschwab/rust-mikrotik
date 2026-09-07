@@ -1,8 +1,8 @@
 //! Tracing initialization helpers and logging macros.
 
-#[cfg(feature = "tracing-subscriber")]
+#[cfg(feature = "log")]
 use tracing::Level;
-#[cfg(feature = "tracing-subscriber")]
+#[cfg(feature = "log")]
 use tracing_subscriber::EnvFilter;
 
 /// Initialize a `tracing-subscriber` with an explicit filter.
@@ -10,7 +10,7 @@ use tracing_subscriber::EnvFilter;
 /// This is intended for examples and small CLIs that only need a stdout/stderr
 /// formatter. Larger binaries should keep using their own logging setup when
 /// they need file sinks, buffering, or additional layers.
-#[cfg(feature = "tracing-subscriber")]
+#[cfg(feature = "log")]
 pub fn init_tracing(filter: Level) {
     let filter = EnvFilter::default().add_directive(filter.into());
     tracing_subscriber::fmt().with_env_filter(filter).init();
@@ -68,7 +68,7 @@ macro_rules! error_with_label {
     }};
 }
 
-#[cfg(all(test, feature = "tracing-subscriber"))]
+#[cfg(all(test, feature = "log"))]
 mod tests {
     use tracing::Level;
 

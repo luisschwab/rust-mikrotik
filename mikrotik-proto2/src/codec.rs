@@ -300,6 +300,7 @@ pub fn encode_terminator(dst: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     extern crate alloc;
+    use alloc::format;
     use alloc::vec;
     use alloc::vec::Vec;
 
@@ -505,6 +506,16 @@ mod tests {
     fn test_decode_sentence_empty_input() {
         let result = decode_sentence(&[]).unwrap();
         assert!(result.is_incomplete());
+        assert!(!result.is_complete());
+
+        let complete = decode_sentence(&[0]).unwrap();
+        assert!(complete.is_complete());
+        assert!(!complete.is_incomplete());
+        let Decode::Complete { value, .. } = complete else {
+            unreachable!();
+        };
+        assert!(value.is_empty());
+        assert!(format!("{value:?}").contains("word_count: 0"));
     }
 
     use uuid::Uuid;

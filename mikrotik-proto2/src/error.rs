@@ -267,3 +267,124 @@ impl From<ConnectionError> for LoginError {
         Self::Connection(error)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+
+    use alloc::format;
+    use alloc::string::String;
+    use alloc::vec;
+
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::response::TrapCategory;
+    use crate::tag::Tag;
+    use crate::word::WordAttribute;
+    use crate::word::WordCategory;
+
+    const TEST_TAG: Tag = Tag::from_uuid(Uuid::from_bytes([
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
+    ]));
+
+    #[test]
+    fn leaf_errors_have_actionable_messages() {
+        assert_eq!(
+            format!("{}", DecodeError::InvalidLengthPrefix(0xff)),
+            "invalid length prefix byte: 0xff"
+        );
+        assert_eq!(format!("{}", SentenceError::PrefixLength), "Invalid prefix length");
+        assert_eq!(format!("{}", MissingWord::Tag), "missing tag");
+        assert_eq!(format!("{}", MissingWord::Category), "missing category");
+        assert_eq!(format!("{}", MissingWord::Message), "missing message");
+        assert_eq!(
+            format!("{}", TrapCategoryError::OutOfRange(8)),
+            "Trap category out of range: 8 (valid range: 0-7)"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                TrapCategoryError::InvalidAttribute {
+                    key: String::from("detail")
+                }
+            ),
+            "Invalid trap attribute: key=detail"
+        );
+        assert_eq!(
+            format!("{}", TrapCategoryError::MissingMessageAttribute),
+            "Missing message attribute in trap response"
+        );
+    }
+
+    #[test]
+    fn word_types_are_derived_and_formatted() {
+        let attribute = WordAttribute::try_from(b"=name=ether1".as_ref()).unwrap();
+        let words = [
+            (Word::Tag(TEST_TAG), WordType::Tag, "tag"),
+            (Word::Category(WordCategory::Done), WordType::Category, "category"),
+            (Word::Attribute(attribute), WordType::Attribute, "attribute"),
+            (Word::Message("fatal"), WordType::Message, "message"),
+        ];
+
+        for (word, expected, display) in words {
+            let word_type = WordType::from(word);
+            assert_eq!(word_type, expected);
+            assert_eq!(format!("{word_type}"), display);
+        }
+    }
+
+    #[test]
+    fn error_conversions_preserve_their_layer() {
+        let word_error = Word::try_from(b"\xff".as_ref()).unwrap_err();
+        let sentence = SentenceError::from(word_error);
+        assert!(format!("{sentence}").starts_with("Word error: UTF-8 decoding error:"));
+
+        let protocol = ProtocolError::from(sentence);
+        assert!(format!("{protocol}").starts_with("Sentence error: Word error:"));
+        assert!(matches!(ConnectionError::from(protocol), ConnectionError::Protocol(_)));
+        assert!(matches!(
+            ConnectionError::from(DecodeError::InvalidLengthPrefix(0xff)),
+            ConnectionError::Decode(_)
+        ));
+        assert_eq!(format!("{}", ConnectionError::Closed), "connection is closed");
+
+        let sequence = ProtocolError::WordSequence {
+            word: WordType::Message,
+            expected: vec![WordType::Tag, WordType::Attribute],
+        };
+        assert!(format!("{sequence}").contains("found Message, expected one of [Tag, Attribute]"));
+        assert!(matches!(
+            ProtocolError::from(MissingWord::Tag),
+            ProtocolError::Incomplete(MissingWord::Tag)
+        ));
+        assert!(matches!(
+            ProtocolError::from(TrapCategoryError::OutOfRange(9)),
+            ProtocolError::TrapCategory(TrapCategoryError::OutOfRange(9))
+        ));
+    }
+
+    #[test]
+    fn login_errors_identify_authentication_fatal_and_wrapped_failures() {
+        let trap = TrapResponse {
+            tag: TEST_TAG,
+            category: Some(TrapCategory::APIFailure),
+            message: String::from("denied"),
+        };
+        assert!(format!("{}", LoginError::Authentication(trap)).contains("authentication failed: TrapResponse"));
+        assert_eq!(
+            format!("{}", LoginError::Fatal(String::from("shutdown"))),
+            "fatal error during login: shutdown"
+        );
+
+        let protocol = ProtocolError::from(MissingWord::Category);
+        assert!(format!("{}", LoginError::from(protocol)).starts_with("protocol error during login:"));
+        assert!(format!("{}", LoginError::from(ConnectionError::Closed)).starts_with("connection error during login:"));
+    }
+
+    #[test]
+    fn invalid_numeric_trap_category_retains_parse_context() {
+        let parse_error = "invalid".parse::<u8>().unwrap_err();
+        assert!(format!("{}", TrapCategoryError::Invalid(parse_error)).starts_with("Invalid trap category value:"));
+    }
+}

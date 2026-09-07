@@ -100,3 +100,43 @@ impl FromStr for Tag {
         s.parse::<Uuid>().map(Self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+
+    use alloc::format;
+
+    use super::*;
+
+    const UUID_TEXT: &str = "a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8";
+    const UUID: Uuid = Uuid::from_bytes([
+        0xa1, 0xa2, 0xa3, 0xa4, 0xb1, 0xb2, 0xc1, 0xc2, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
+    ]);
+
+    #[test]
+    fn explicit_tag_round_trips_through_every_representation() {
+        let tag = Tag::from_uuid(UUID);
+        let mut buffer = [0; 36];
+
+        assert_eq!(tag.encode_lower(&mut buffer), UUID_TEXT);
+        assert_eq!(format!("{tag}"), UUID_TEXT);
+        assert_eq!(format!("{tag:?}"), format!("Tag({UUID_TEXT})"));
+        assert_eq!(Tag::try_from_ascii_bytes(UUID_TEXT.as_bytes()).unwrap(), tag);
+        assert_eq!(UUID_TEXT.parse::<Tag>().unwrap(), tag);
+        assert_eq!(Tag::from(UUID), tag);
+        assert_eq!(Uuid::from(tag), UUID);
+    }
+
+    #[test]
+    fn malformed_tags_are_rejected() {
+        assert!(Tag::try_from_ascii_bytes(b"not-a-uuid").is_err());
+        assert!("not-a-uuid".parse::<Tag>().is_err());
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn generated_and_default_tags_are_distinct() {
+        assert_ne!(Tag::new(), Tag::default());
+    }
+}

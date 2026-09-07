@@ -318,6 +318,7 @@ mod tests {
     extern crate alloc;
     use alloc::format;
     use alloc::string::String;
+    use alloc::string::ToString;
     use alloc::vec;
     use alloc::vec::Vec;
 
@@ -457,5 +458,153 @@ mod tests {
         let data = build_sentence(&[b"!re", b"=name=ether1"]);
         let result = parse_response(&data);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn response_tags_and_display_output_cover_every_variant() {
+        let done = DoneResponse { tag: TEST_TAG };
+        let empty = EmptyResponse { tag: TEST_TAG };
+        let reply = ReplyResponse {
+            tag: TEST_TAG,
+            attributes: HashMap::new(),
+            attributes_raw: HashMap::new(),
+        };
+        let trap = TrapResponse {
+            tag: TEST_TAG,
+            category: Some(TrapCategory::GeneralFailure),
+            message: String::from("failed"),
+        };
+
+        assert_eq!(format!("{done}"), format!("DoneResponse {{ tag: {TEST_TAG} }}"));
+        assert_eq!(format!("{empty}"), format!("EmptyResponse {{ tag: {TEST_TAG} }}"));
+        assert_eq!(
+            format!("{reply}"),
+            format!("ReplyResponse {{ tag: {TEST_TAG}, attribute_count: 0 }}")
+        );
+        assert!(format!("{trap}").contains("category: Some(GeneralFailure), message: \"failed\""));
+
+        for response in [
+            CommandResponse::Done(done),
+            CommandResponse::Empty(empty),
+            CommandResponse::Reply(reply),
+            CommandResponse::Trap(trap),
+        ] {
+            assert_eq!(response.tag(), Some(TEST_TAG));
+        }
+        assert_eq!(CommandResponse::Fatal(String::from("fatal")).tag(), None);
+    }
+
+    #[test]
+    fn every_trap_category_decodes_from_numbers_and_strings() {
+        let categories = [
+            TrapCategory::MissingItemOrCommand,
+            TrapCategory::ArgumentValueFailure,
+            TrapCategory::CommandExecutionInterrupted,
+            TrapCategory::ScriptingFailure,
+            TrapCategory::GeneralFailure,
+            TrapCategory::APIFailure,
+            TrapCategory::TTYFailure,
+            TrapCategory::ReturnValue,
+        ];
+
+        for (number, category) in (0_u8..=7).zip(categories) {
+            assert_eq!(TrapCategory::try_from(number).unwrap(), category);
+            assert_eq!(TrapCategory::try_from(number.to_string().as_str()).unwrap(), category);
+        }
+        assert!(matches!(
+            TrapCategory::try_from(8),
+            Err(TrapCategoryError::OutOfRange(8))
+        ));
+        assert!(matches!(
+            TrapCategory::try_from("8"),
+            Err(ProtocolError::TrapCategory(TrapCategoryError::OutOfRange(8)))
+        ));
+        assert!(matches!(
+            TrapCategory::try_from("invalid"),
+            Err(ProtocolError::TrapCategory(TrapCategoryError::Invalid(_)))
+        ));
+    }
+
+    #[test]
+    fn reply_preserves_non_utf8_attribute_values() {
+        let data = build_sentence(&[
+            b"!re",
+            b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8",
+            b"=blob=\xff\0",
+            b"=flag=",
+        ]);
+        let CommandResponse::Reply(reply) = parse_response(&data).unwrap() else {
+            panic!("expected reply");
+        };
+
+        assert_eq!(reply.attributes.get("blob"), Some(&None));
+        assert_eq!(reply.attributes_raw.get("blob"), Some(&Some(vec![0xff, 0])));
+        assert_eq!(reply.attributes.get("flag"), Some(&None));
+        assert_eq!(reply.attributes_raw.get("flag"), Some(&None));
+    }
+
+    #[test]
+    fn trap_without_category_is_valid_but_requires_message_and_known_attributes() {
+        let valid = build_sentence(&[
+            b"!trap",
+            b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8",
+            b"=category=",
+            b"=message=failed",
+        ]);
+        let CommandResponse::Trap(trap) = parse_response(&valid).unwrap() else {
+            panic!("expected trap");
+        };
+        assert_eq!(trap.category, None);
+
+        let missing_message = build_sentence(&[b"!trap", b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8", b"=category=1"]);
+        assert!(matches!(
+            parse_response(&missing_message),
+            Err(ProtocolError::TrapCategory(TrapCategoryError::MissingMessageAttribute))
+        ));
+
+        let invalid_attribute = build_sentence(&[
+            b"!trap",
+            b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8",
+            b"=detail=failed",
+        ]);
+        assert!(matches!(
+            parse_response(&invalid_attribute),
+            Err(ProtocolError::TrapCategory(TrapCategoryError::InvalidAttribute { .. }))
+        ));
+    }
+
+    #[test]
+    fn malformed_response_word_sequences_are_rejected_precisely() {
+        for words in [
+            &[b"=name=value".as_ref()][..],
+            &[b"!done".as_ref(), b"reason".as_ref()][..],
+            &[b"!empty".as_ref(), b"=name=value".as_ref()][..],
+            &[
+                b"!re".as_ref(),
+                b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8".as_ref(),
+                b"reason".as_ref(),
+            ][..],
+            &[
+                b"!trap".as_ref(),
+                b".tag=a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8".as_ref(),
+                b"reason".as_ref(),
+            ][..],
+            &[b"!fatal".as_ref(), b"!done".as_ref()][..],
+        ] {
+            let data = build_sentence(words);
+            assert!(matches!(parse_response(&data), Err(ProtocolError::WordSequence { .. })));
+        }
+
+        for words in [
+            &[b"!done".as_ref()][..],
+            &[b"!empty".as_ref()][..],
+            &[b"!fatal".as_ref()][..],
+        ] {
+            let data = build_sentence(words);
+            assert!(matches!(parse_response(&data), Err(ProtocolError::Incomplete(_))));
+        }
+
+        let invalid_word = build_sentence(&[b"\xff"]);
+        assert!(matches!(parse_response(&invalid_word), Err(ProtocolError::Sentence(_))));
     }
 }

@@ -101,6 +101,26 @@ pub struct BgpConnection {
     /// Whether this connection is disabled.
     #[serde(deserialize_with = "crate::optional_bool")]
     pub disabled: Option<bool>,
+    /// Local autonomous system number.
+    #[serde(rename = "as", deserialize_with = "crate::optional_from_str")]
+    pub autonomous_system: Option<u32>,
+    /// Whether this connection represents a connected session.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub connect: Option<bool>,
+    /// Whether this connection is inactive.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub inactive: Option<bool>,
+    /// BGP instance associated with the connection.
+    pub instance: Option<String>,
+    /// Default local source address.
+    #[serde(rename = "local.default-address", deserialize_with = "crate::optional_from_str")]
+    pub local_default_address: Option<IpAddr>,
+    /// Local BGP role.
+    #[serde(rename = "local.role")]
+    pub local_role: Option<String>,
+    /// Routing table used by the BGP connection.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub routing_table: Option<RoutingTableName>,
 }
 
 /// Response row from `RouterOS` v6 `/routing/bgp/peer/print`.
@@ -126,6 +146,39 @@ pub struct BgpPeer {
     /// Whether this peer session is established.
     #[serde(deserialize_with = "crate::optional_bool")]
     pub established: Option<bool>,
+    /// Address families exchanged with this peer.
+    #[serde(deserialize_with = "crate::comma_list")]
+    pub address_families: Vec<String>,
+    /// Whether the local AS replaces peer-path AS values.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub as_override: Option<bool>,
+    /// Default-route origination policy.
+    pub default_originate: Option<String>,
+    /// BGP hold timer.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub hold_time: Option<RouterOsDuration>,
+    /// Legacy BGP instance name.
+    pub instance: Option<String>,
+    /// Whether multihop BGP is enabled.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub multihop: Option<bool>,
+    /// Nexthop selection policy.
+    pub nexthop_choice: Option<String>,
+    /// Whether the peer waits passively for a connection.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub passive: Option<bool>,
+    /// Whether private AS numbers are removed from advertisements.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub remove_private_as: Option<bool>,
+    /// Whether the peer operates as a route reflector.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub route_reflect: Option<bool>,
+    /// IP hop limit for the BGP session.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub ttl: Option<u8>,
+    /// Whether Bidirectional Forwarding Detection is used.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub use_bfd: Option<bool>,
 }
 
 /// Response row from `/routing/bgp/session/print`.
@@ -245,6 +298,18 @@ pub struct RoutingNexthop {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether nexthop resolution failed.
     pub unresolved: Option<bool>,
+    /// Whether the immediate gateway discards traffic.
+    #[serde(rename = "immediate-gw.blackhole", deserialize_with = "crate::optional_bool")]
+    pub immediate_gw_blackhole: Option<bool>,
+    /// Immediate-gateway flap counter.
+    #[serde(rename = "immediate-gw.flap-count", deserialize_with = "crate::optional_from_str")]
+    pub immediate_gw_flap_count: Option<u64>,
+    /// Immediate-gateway MPLS label.
+    #[serde(rename = "immediate-gw.mpls-label")]
+    pub immediate_gw_mpls_label: Option<String>,
+    /// Immediate-gateway MPLS peer identifier.
+    #[serde(rename = "immediate-gw.mpls-peer-id")]
+    pub immediate_gw_mpls_peer_id: Option<String>,
 }
 
 /// Response row from `/routing/route/print`.
@@ -314,6 +379,14 @@ pub struct RoutingRoute {
     #[serde(rename = "static", deserialize_with = "crate::optional_bool")]
     /// Whether this is a static route.
     pub static_route: Option<bool>,
+    /// Route comment.
+    pub comment: Option<String>,
+    /// Internal forwarding-plane pointer exposed for diagnostics.
+    #[serde(rename = "debug.fwp-ptr")]
+    pub debug_fwp_ptr: Option<String>,
+    /// Whether the route destination is unreachable.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub unreachable: Option<bool>,
 }
 
 /// Response row from `/routing/igmp-proxy/print`.
@@ -393,6 +466,8 @@ pub struct RoutingStatsProcess {
     #[serde(deserialize_with = "crate::comma_list")]
     /// Tasks currently associated with the routing process.
     pub tasks: Vec<String>,
+    /// Pending outbound routing RPC work.
+    pub out_rpc_queue: Option<String>,
 }
 
 /// Response row from `/routing/settings/print`.

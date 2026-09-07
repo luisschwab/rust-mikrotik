@@ -1,11 +1,12 @@
 //! Connected client and raw command execution.
 
 use core::time::Duration;
+use std::collections::BTreeSet;
 use std::io::ErrorKind;
 use std::sync::Arc;
 
 use mikrotik_common::row::Row;
-use mikrotik_common::serde::deserialize;
+use mikrotik_common::serde::deserialize_with_ignored;
 use mikrotik_proto2::Command;
 use mikrotik_proto2::CommandBuilder;
 use mikrotik_proto2::Event;
@@ -43,6 +44,74 @@ pub struct Client {
     config: ClientBuilder,
     /// Shared serialized access to the underlying protocol session.
     session: Arc<Mutex<Session>>,
+}
+
+/// Field-level decoding evidence for one raw `RouterOS` reply row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowFieldAudit {
+    /// Zero-based row index within the command reply.
+    row_index: usize,
+    /// Every field present in the raw reply row.
+    observed_fields: BTreeSet<String>,
+    /// Fields not consumed by the selected response model.
+    ignored_fields: BTreeSet<String>,
+}
+
+impl RowFieldAudit {
+    /// Return the zero-based row index within the command reply.
+    #[must_use]
+    pub const fn row_index(&self) -> usize {
+        self.row_index
+    }
+
+    /// Return every field present in the raw reply row.
+    #[must_use]
+    pub const fn observed_fields(&self) -> &BTreeSet<String> {
+        &self.observed_fields
+    }
+
+    /// Return fields not consumed by the selected response model.
+    #[must_use]
+    pub const fn ignored_fields(&self) -> &BTreeSet<String> {
+        &self.ignored_fields
+    }
+}
+
+/// Typed print rows plus field-level schema evidence from their raw replies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditedRows<T> {
+    /// Fully qualified Rust response-model name.
+    model: &'static str,
+    /// Typed response rows.
+    rows: Vec<T>,
+    /// Field evidence corresponding to each typed row.
+    row_fields: Vec<RowFieldAudit>,
+}
+
+impl<T> AuditedRows<T> {
+    /// Return the fully qualified Rust response-model name.
+    #[must_use]
+    pub const fn model(&self) -> &'static str {
+        self.model
+    }
+
+    /// Return the typed response rows.
+    #[must_use]
+    pub fn rows(&self) -> &[T] {
+        &self.rows
+    }
+
+    /// Return field evidence corresponding to each typed row.
+    #[must_use]
+    pub fn row_fields(&self) -> &[RowFieldAudit] {
+        &self.row_fields
+    }
+
+    /// Consume the audit result and return the typed response rows.
+    #[must_use]
+    pub fn into_rows(self) -> Vec<T> {
+        self.rows
+    }
 }
 
 impl Client {
@@ -139,17 +208,65 @@ impl Client {
     where
         T: DeserializeOwned,
     {
-        let command = command.as_path();
-        let rows = self.call(command, &[]).await?;
-        let mut typed_rows = Vec::with_capacity(rows.len());
+        self.decode_print(command, true).await.map(AuditedRows::into_rows)
+    }
 
-        for (row_index, row) in rows.iter().enumerate() {
-            let typed_row = deserialize(row)
-                .map_err(|error| Error::Decode(DecodeError::new(command, row_index, error.to_string(), row)))?;
-            typed_rows.push(typed_row);
+    /// Execute a typed print command while retaining fields ignored by `T`.
+    ///
+    /// Unlike [`Self::print`], this method intentionally permits unmodelled
+    /// fields so schema-audit tooling can report every omission in one run.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot be sent, if `RouterOS` returns a
+    /// trap or fatal response, if the connection closes before completion, or
+    /// if a row otherwise cannot be decoded into `T`.
+    pub async fn print_audited<T>(&self, command: PrintCommand) -> Result<AuditedRows<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.decode_print(command, false).await
+    }
+
+    /// Decode a print response and optionally reject fields not consumed by `T`.
+    async fn decode_print<T>(&self, command: PrintCommand, reject_unknown: bool) -> Result<AuditedRows<T>>
+    where
+        T: DeserializeOwned,
+    {
+        let command = command.as_path();
+        let model = core::any::type_name::<T>();
+        let raw_rows = self.call(command, &[]).await?;
+        let mut rows = Vec::with_capacity(raw_rows.len());
+        let mut row_fields = Vec::with_capacity(raw_rows.len());
+
+        for (row_index, row) in raw_rows.iter().enumerate() {
+            let mut ignored_fields = BTreeSet::new();
+            let typed_row = deserialize_with_ignored(row, |path| {
+                ignored_fields.insert(path.to_owned());
+            })
+            .map_err(|error| Error::Decode(DecodeError::new(command, row_index, model, error.to_string(), row)))?;
+            if reject_unknown && !ignored_fields.is_empty() {
+                return Err(Error::Decode(DecodeError::unknown_fields(
+                    command,
+                    row_index,
+                    model,
+                    &ignored_fields,
+                    row,
+                )));
+            }
+            rows.push(typed_row);
+            row_fields.push(RowFieldAudit {
+                row_index,
+                observed_fields: row.keys().cloned().collect(),
+                ignored_fields,
+            });
         }
 
-        Ok(typed_rows)
+        Ok(AuditedRows {
+            model,
+            rows,
+            row_fields,
+        })
     }
 }
 
@@ -562,7 +679,62 @@ mod tests {
         };
         assert_eq!(error.command(), "/system/identity/print");
         assert_eq!(error.row_index(), 0);
+        assert_eq!(error.model(), core::any::type_name::<TestIdentity>());
         assert_eq!(error.row().get("unexpected").map(String::as_str), Some("value"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn typed_print_rejects_unknown_fields_with_command_and_model_context() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            send_reply_and_done(&mut server_stream, &[b"=name=router", b"=future-field=value"]).await;
+        });
+        let client = test_client(client_stream);
+
+        let error = client
+            .print::<TestIdentity>(PrintCommand::System(System::Identity))
+            .await
+            .unwrap_err();
+        let Error::Decode(error) = error else {
+            panic!("expected row decode error");
+        };
+        assert_eq!(error.command(), "/system/identity/print");
+        assert_eq!(error.model(), core::any::type_name::<TestIdentity>());
+        assert!(error.message().contains("`future-field`"));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn audited_print_retains_observed_and_ignored_fields() {
+        let (client_stream, mut server_stream) = tokio::io::duplex(4096);
+        let server = tokio::spawn(async move {
+            send_reply_and_done(&mut server_stream, &[b"=name=router", b"=future-field=value"]).await;
+        });
+        let client = test_client(client_stream);
+
+        let audited = client
+            .print_audited::<TestIdentity>(PrintCommand::System(System::Identity))
+            .await
+            .unwrap();
+
+        assert_eq!(audited.model(), core::any::type_name::<TestIdentity>());
+        assert_eq!(
+            audited.rows(),
+            &[TestIdentity {
+                name: "router".to_owned()
+            }]
+        );
+        assert_eq!(audited.row_fields().len(), 1);
+        assert_eq!(audited.row_fields()[0].row_index(), 0);
+        assert_eq!(
+            audited.row_fields()[0].observed_fields(),
+            &BTreeSet::from(["future-field".to_owned(), "name".to_owned()])
+        );
+        assert_eq!(
+            audited.row_fields()[0].ignored_fields(),
+            &BTreeSet::from(["future-field".to_owned()])
+        );
         server.await.unwrap();
     }
 

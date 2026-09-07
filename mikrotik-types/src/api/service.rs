@@ -150,6 +150,12 @@ pub struct CertificateSettings {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether certificate revocation lists are checked.
     pub crl_use: Option<bool>,
+    /// Built-in certificate trust anchors enabled by `RouterOS`.
+    pub builtin_trust_anchors: Option<String>,
+    /// Built-in certificate trust-store policy.
+    pub builtin_trust_store: Option<String>,
+    /// Current default certificate settings reported by `RouterOS`.
+    pub current_defaults: Option<String>,
 }
 
 /// Response row from `/console/settings/print`.
@@ -159,6 +165,12 @@ pub struct ConsoleSettings {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether console output sanitizes item names.
     pub sanitize_names: Option<bool>,
+    /// Whether script failures are written to the console log.
+    #[serde(deserialize_with = "crate::optional_bool")]
+    pub log_script_errors: Option<bool>,
+    /// Console tab width.
+    #[serde(deserialize_with = "crate::optional_from_str")]
+    pub tab_width: Option<u8>,
 }
 
 /// Response row from `/disk/settings/print`.
@@ -175,6 +187,8 @@ pub struct DiskSettings {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether automatic SMB sharing is enabled for disks.
     pub auto_smb_sharing: Option<bool>,
+    /// Template used to construct default disk mount points.
+    pub default_mount_point_template: Option<String>,
 }
 
 /// Response row from `/disk/print`.
@@ -306,21 +320,20 @@ pub struct PppProfile {
     #[serde(deserialize_with = "crate::optional_bool")]
     /// Whether this is the default row.
     pub default: Option<bool>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// Compression policy used by the PPP profile.
-    pub use_compression: Option<bool>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// Encryption policy used by the PPP profile.
-    pub use_encryption: Option<bool>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// IPv6 policy used by the PPP profile.
-    pub use_ipv6: Option<bool>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// MPLS policy used by the PPP profile.
-    pub use_mpls: Option<bool>,
-    #[serde(deserialize_with = "crate::optional_bool")]
-    /// Whether `UPnP` is enabled for the PPP profile.
-    pub use_upnp: Option<bool>,
+    /// Compression inheritance policy used by the PPP profile.
+    pub use_compression: Option<String>,
+    /// Encryption inheritance policy used by the PPP profile.
+    pub use_encryption: Option<String>,
+    /// IPv6 inheritance policy used by the PPP profile.
+    pub use_ipv6: Option<String>,
+    /// MPLS inheritance policy used by the PPP profile.
+    pub use_mpls: Option<String>,
+    /// `UPnP` inheritance policy used by the PPP profile.
+    pub use_upnp: Option<String>,
+    /// Local address or address-pool name assigned by the PPP profile.
+    pub local_address: Option<String>,
+    /// Remote address or address-pool name assigned by the PPP profile.
+    pub remote_address: Option<String>,
 }
 
 /// Response row from `/radius/incoming/print`.
@@ -391,5 +404,24 @@ mod tests {
             certificate.key_usage,
             vec!["key-cert-sign".to_string(), "crl-sign".to_string()]
         );
+    }
+
+    #[test]
+    fn ppp_profile_preserves_inherited_policy_values() {
+        let row = Row::from([
+            ("use-compression".to_string(), "default".to_string()),
+            ("use-encryption".to_string(), "default".to_string()),
+            ("use-ipv6".to_string(), "yes".to_string()),
+            ("use-mpls".to_string(), "default".to_string()),
+            ("use-upnp".to_string(), "default".to_string()),
+        ]);
+
+        let profile = crate::deserialize::<PppProfile>(&row).expect("PPP profile policies should deserialize");
+
+        assert_eq!(profile.use_compression.as_deref(), Some("default"));
+        assert_eq!(profile.use_encryption.as_deref(), Some("default"));
+        assert_eq!(profile.use_ipv6.as_deref(), Some("yes"));
+        assert_eq!(profile.use_mpls.as_deref(), Some("default"));
+        assert_eq!(profile.use_upnp.as_deref(), Some("default"));
     }
 }

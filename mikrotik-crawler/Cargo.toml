@@ -26,6 +26,7 @@ mikrotik-types = { path = "../mikrotik-types" }
 # External Dependencies
 argh = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 time = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { workspace = true }

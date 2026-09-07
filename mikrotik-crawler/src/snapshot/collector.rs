@@ -19,24 +19,43 @@ use tokio::time::timeout;
 
 use crate::error::Error;
 use crate::error::Result;
+use crate::schema_audit::SchemaAuditRecorder;
 
 /// Shared context and failure policy for endpoint print commands.
-pub(super) struct EndpointCollector<'a> {
+pub(crate) struct EndpointCollector<'a> {
     /// Address used to label collection diagnostics.
     target_address: &'a str,
     /// Connected binary API client.
     client: &'a Client,
     /// Maximum duration of one print command.
     command_timeout: Duration,
+    /// Optional raw-field recorder used only by explicit schema audits.
+    schema_audit: Option<&'a SchemaAuditRecorder>,
 }
 
 impl<'a> EndpointCollector<'a> {
     /// Create a collector for one connected target.
-    pub(super) const fn new(target_address: &'a str, client: &'a Client, command_timeout: Duration) -> Self {
+    pub(crate) const fn new(target_address: &'a str, client: &'a Client, command_timeout: Duration) -> Self {
         Self {
             target_address,
             client,
             command_timeout,
+            schema_audit: None,
+        }
+    }
+
+    /// Create a collector that permits and records unmodelled response fields.
+    pub(crate) const fn new_with_schema_audit(
+        target_address: &'a str,
+        client: &'a Client,
+        command_timeout: Duration,
+        schema_audit: &'a SchemaAuditRecorder,
+    ) -> Self {
+        Self {
+            target_address,
+            client,
+            command_timeout,
+            schema_audit: Some(schema_audit),
         }
     }
 
@@ -46,7 +65,7 @@ impl<'a> EndpointCollector<'a> {
         T: DeserializeOwned,
     {
         debug_with_label!(self.target_address, "running {command}");
-        let rows = match timeout(self.command_timeout, self.client.print(command)).await {
+        let rows = match timeout(self.command_timeout, self.print(command)).await {
             Err(_) => {
                 return Err(Error::CommandTimeout {
                     command: command.to_string(),
@@ -82,7 +101,7 @@ impl<'a> EndpointCollector<'a> {
     {
         debug_with_label!(self.target_address, "running {command}");
         let command_name = command.to_string();
-        match timeout(self.command_timeout, self.client.print(command)).await {
+        match timeout(self.command_timeout, self.print(command)).await {
             Ok(Ok(rows)) => EndpointSnapshot::success(rows),
             Err(_) => endpoint_failure(
                 command_name,
@@ -107,6 +126,24 @@ impl<'a> EndpointCollector<'a> {
         EndpointSnapshot {
             data: result.data.into_iter().next().unwrap_or_default(),
             error: result.error,
+        }
+    }
+
+    /// Run one strict production print or permissive audited print.
+    async fn print<T>(&self, command: PrintCommand) -> core::result::Result<Vec<T>, ClientError>
+    where
+        T: DeserializeOwned,
+    {
+        if let Some(schema_audit) = self.schema_audit {
+            let result = self.client.print_audited(command).await;
+            if let Err(ClientError::Decode(error)) = &result {
+                schema_audit.record_decode_failure(error);
+            }
+            let audited = result?;
+            schema_audit.record(command, &audited);
+            Ok(audited.into_rows())
+        } else {
+            self.client.print(command).await
         }
     }
 }

@@ -106,6 +106,16 @@ examples package:
 scenario test:
     cargo rbmt -p mikrotik-qemu-runner run -- test --test scenarios {{ test }} -- --ignored --exact --nocapture
 
+[doc("Audit supported CHR response fields against the checked-in baseline")]
+[group("Testing")]
+schema-audit:
+    cargo run -p mikrotik-crawler --example schema_audit
+
+[doc("Refresh the supported CHR response-field baseline after inspection")]
+[group("Testing")]
+schema-audit-update:
+    cargo run -p mikrotik-crawler --example schema_audit -- --update
+
 [doc("Run tests")]
 [env("RBMT_LOG_LEVEL", "verbose")]
 [group("Testing")]

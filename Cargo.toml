@@ -20,6 +20,7 @@ edition = "2024"
 [workspace.dependencies]
 argh = { version = "0.1.13" }
 serde = { version = "1.0.228", default-features = false, features = ["alloc", "derive"] }
+serde_ignored = { version = "0.1.14" }
 serde_json = { version = "1.0.140", default-features = false, features = ["alloc"] }
 time = { version = "0.3.41", default-features = false }
 tokio = { version = "1.52.3" }
